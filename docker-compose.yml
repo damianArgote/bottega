@@ -1,0 +1,27 @@
+# Local development database only.
+# The credentials below (bottega/bottega/bottega) are DEV-ONLY placeholders.
+# Never reuse them in any shared, staging, or production environment.
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: bottega-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bottega # dev-only
+      POSTGRES_PASSWORD: bottega # dev-only
+      POSTGRES_DB: bottega # dev-only
+    ports:
+      - '5432:5432'
+    volumes:
+      # postgres 18+ images keep PGDATA under /var/lib/postgresql/<major>/docker,
+      # so the volume is mounted at the parent directory.
+      - bottega-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bottega -d bottega']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  bottega-db-data:

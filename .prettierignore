@@ -1,0 +1,8 @@
+dist
+coverage
+node_modules
+src/generated
+prisma/migrations
+package-lock.json
+.atl
+odd
