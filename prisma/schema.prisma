@@ -242,6 +242,9 @@ model HandoffRequest {
 /// initial migration) guarantees at most one PROCESSING job per conversation.
 model ProcessingJob {
   id             String    @id @default(uuid()) @db.Uuid
+  /// Monotonic enqueue order. Used by the queue to process the jobs of one
+  /// conversation strictly in arrival order (created_at has ms resolution).
+  seq            BigInt    @unique @default(autoincrement())
   type           JobType
   conversationId String    @map("conversation_id") @db.Uuid
   messageId      String    @unique @map("message_id") @db.Uuid

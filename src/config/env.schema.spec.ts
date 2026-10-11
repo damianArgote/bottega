@@ -49,6 +49,10 @@ describe('parseEnv', () => {
       OPENAI_MAX_OUTPUT_TOKENS: 300,
       AI_HISTORY_LIMIT: 12,
       JOB_MAX_ATTEMPTS: 4,
+      WORKER_ENABLED: true,
+      QUEUE_POLL_INTERVAL_MS: 1_000,
+      QUEUE_CONCURRENCY: 2,
+      QUEUE_LEASE_MS: 120_000,
     });
     expect(env.OPENAI_API_KEY).toBeUndefined();
   });
@@ -123,6 +127,41 @@ describe('parseEnv', () => {
       expect(error.problems[0]).toMatch(
         /^AI_MAX_INTERACTIONS_PER_USER_PER_DAY: /,
       );
+    },
+  );
+
+  it('parses WORKER_ENABLED=false and queue tuning values', () => {
+    const env = parseEnv(
+      validEnv({
+        WORKER_ENABLED: 'false',
+        QUEUE_POLL_INTERVAL_MS: '250',
+        QUEUE_CONCURRENCY: '4',
+        QUEUE_LEASE_MS: '60000',
+      }),
+    );
+
+    expect(env).toMatchObject({
+      WORKER_ENABLED: false,
+      QUEUE_POLL_INTERVAL_MS: 250,
+      QUEUE_CONCURRENCY: 4,
+      QUEUE_LEASE_MS: 60_000,
+    });
+  });
+
+  it('rejects an invalid WORKER_ENABLED value', () => {
+    const error = captureError(validEnv({ WORKER_ENABLED: 'yes' }));
+
+    expect(error.problems).toEqual([
+      'WORKER_ENABLED: WORKER_ENABLED must be "true" or "false"',
+    ]);
+  });
+
+  it.each(['QUEUE_POLL_INTERVAL_MS', 'QUEUE_CONCURRENCY', 'QUEUE_LEASE_MS'])(
+    'rejects a non positive %s',
+    (key) => {
+      const error = captureError(validEnv({ [key]: '0' }));
+
+      expect(error.problems).toEqual([`${key}: ${key} must be greater than 0`]);
     },
   );
 

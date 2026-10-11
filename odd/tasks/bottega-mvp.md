@@ -28,12 +28,12 @@ Modules: whatsapp, ai, conversations, leads, demos, health (+ queue, bot worker,
 - Assumption (pending confirmation): while paused, all inbound messages (including commands) are stored without auto-reply; admin resumes.
 
 ## Delivery strategy
-ask-on-risk. Forecast > 400 authored lines overall; chain strategy to be asked before the first PR. Work-unit commits on branch `feat/bottega-mvp`.
+ask-on-risk. Forecast > 400 authored lines overall. Chain strategy chosen by user (2026-10-11): stacked-to-main — one PR per stage commit (T1, T2, T3, ...), each stacked on the previous, merged in order. PR creation/push remain user decisions. Work-unit commits on branch `feat/bottega-mvp`.
 
 ## Tasks
 - [x] T1 — Stage 1: project, database, and configuration (NestJS scaffold, strict TS, lint/test scripts, Docker Compose PG, Prisma 7 schema for all entities + initial migration, env validation at boot, .env.example, .gitignore, health module). Route: delegated (writer trigger: 2+ non-trivial files).
 - [x] T2 — Stage 2: webhook GET verify + POST signature validation + payload parsing + fixed echo reply (BOT_REPLY_MODE=echo).
-- [ ] T3 — Stage 3: persistence, PG job queue, deduplication, worker, uncertain-send handling.
+- [x] T3 — Stage 3: persistence, PG job queue, deduplication, worker, uncertain-send handling.
 - [ ] T4 — Stage 4: AI (Responses API, tool registry), modes, deterministic commands, contexts, lead capture, barbershop demo, daily cap.
 - [ ] T5 — Stage 5: human handoff, admin endpoints (API key), README for WSL, final build/lint/test.
 

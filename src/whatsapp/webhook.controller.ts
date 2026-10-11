@@ -12,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service.js';
-import { InboundDispatcher } from './inbound.dispatcher.js';
+import { ConversationsService } from '../conversations/conversations.service.js';
 import { parseWebhookPayload } from './payload.parser.js';
 import { WhatsAppSignatureGuard } from './signature.guard.js';
 
@@ -22,7 +22,7 @@ export class WhatsAppWebhookController {
 
   constructor(
     private readonly config: AppConfigService,
-    private readonly dispatcher: InboundDispatcher,
+    private readonly conversations: ConversationsService,
   ) {}
 
   /** Meta subscription handshake: echo `hub.challenge` when the token matches. */
@@ -48,18 +48,20 @@ export class WhatsAppWebhookController {
   }
 
   /**
-   * Event delivery. The signature guard runs first; processing is handed to
-   * the dispatcher without awaiting so Meta gets a fast 200.
+   * Event delivery. The signature guard runs first. Events are persisted
+   * (messages + their jobs) before answering 200; replies are sent later by
+   * the queue worker. A persistence failure surfaces as 5xx so Meta retries;
+   * retries are safe because inbound messages are deduplicated by wamid.
    */
   @Post()
   @HttpCode(200)
   @Header('Content-Type', 'text/plain')
   @UseGuards(WhatsAppSignatureGuard)
-  receive(@Body() payload: unknown): string {
+  async receive(@Body() payload: unknown): Promise<string> {
     const events = parseWebhookPayload(payload, {
       phoneNumberId: this.config.get('WHATSAPP_PHONE_NUMBER_ID'),
     });
-    this.dispatcher.accept(events);
+    await this.conversations.ingest(events);
     return 'EVENT_RECEIVED';
   }
 }

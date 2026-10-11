@@ -71,6 +71,25 @@ export const envSchema = z
     AI_HISTORY_LIMIT: positiveInt('AI_HISTORY_LIMIT', 12),
     JOB_MAX_ATTEMPTS: positiveInt('JOB_MAX_ATTEMPTS', 4),
 
+    // Background worker that drains the PostgreSQL job queue. Disabled in tests
+    // (which drive the worker by hand) or to run an API-only instance.
+    WORKER_ENABLED: z
+      .enum(['true', 'false'], {
+        error: 'WORKER_ENABLED must be "true" or "false"',
+      })
+      .default('true')
+      .transform((value) => value === 'true'),
+    // How often an idle worker polls for new jobs: the worst-case extra reply
+    // latency, traded against one cheap indexed query per interval.
+    QUEUE_POLL_INTERVAL_MS: positiveInt('QUEUE_POLL_INTERVAL_MS', 1_000),
+    // Jobs processed in parallel (each on a different conversation). Small by
+    // default to stay within the WhatsApp throughput and DB pool limits.
+    QUEUE_CONCURRENCY: positiveInt('QUEUE_CONCURRENCY', 2),
+    // A claimed job is reclaimable after this. Must exceed the worst-case job
+    // time (AI call + several sends with WHATSAPP_HTTP_TIMEOUT_MS each), or a
+    // slow job could be picked up twice.
+    QUEUE_LEASE_MS: positiveInt('QUEUE_LEASE_MS', 120_000),
+
     ADMIN_API_KEY: requiredString('ADMIN_API_KEY').min(
       ADMIN_API_KEY_MIN_LENGTH,
       `ADMIN_API_KEY must be at least ${ADMIN_API_KEY_MIN_LENGTH} characters`,

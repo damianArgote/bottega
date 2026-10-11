@@ -1,6 +1,6 @@
 /**
  * Normalized events extracted from a WhatsApp Cloud API webhook payload.
- * Produced by `parseWebhookPayload`; consumed by the inbound dispatcher.
+ * Produced by `parseWebhookPayload`; consumed by `ConversationsService.ingest`.
  */
 export interface InboundText {
   kind: 'text';
