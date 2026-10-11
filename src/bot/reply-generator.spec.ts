@@ -8,6 +8,7 @@ import {
 
 const input = (type: ReplyInput['message']['type'], content: string) => ({
   conversationId: 'c1',
+  mode: 'COMMERCIAL' as const,
   contextId: 'ctx1',
   message: { id: 'm1', type, content },
 });

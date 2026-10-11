@@ -1,4 +1,3 @@
-import { BotService } from '../../src/bot/bot.service.js';
 import { UNSUPPORTED_REPLY } from '../../src/bot/echo-replies.js';
 import {
   EchoReplyGenerator,
@@ -10,7 +9,13 @@ import { ConversationsService } from '../../src/conversations/conversations.serv
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import { QueueService } from '../../src/queue/queue.service.js';
 import type { SendOutcome } from '../../src/whatsapp/whatsapp.client.js';
-import { connectPrisma, resetDb, testConfig, textEvent } from './helpers.js';
+import {
+  buildBotService,
+  connectPrisma,
+  resetDb,
+  testConfig,
+  textEvent,
+} from './helpers.js';
 
 const USER = '5491100001234';
 
@@ -34,7 +39,7 @@ describe('BotService two-phase processing (integration)', () => {
 
   const buildWorker = (generator: ReplyGenerator) => {
     const queue = new QueueService(prisma, config);
-    const bot = new BotService(prisma, { sendText }, generator);
+    const bot = buildBotService(prisma, { sendText }, generator);
     return new BotWorker(config, queue, bot);
   };
 

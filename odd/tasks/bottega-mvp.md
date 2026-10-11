@@ -34,8 +34,10 @@ ask-on-risk. Forecast > 400 authored lines overall. Chain strategy chosen by use
 - [x] T1 — Stage 1: project, database, and configuration (NestJS scaffold, strict TS, lint/test scripts, Docker Compose PG, Prisma 7 schema for all entities + initial migration, env validation at boot, .env.example, .gitignore, health module). Route: delegated (writer trigger: 2+ non-trivial files).
 - [x] T2 — Stage 2: webhook GET verify + POST signature validation + payload parsing + fixed echo reply (BOT_REPLY_MODE=echo).
 - [x] T3 — Stage 3: persistence, PG job queue, deduplication, worker, uncertain-send handling.
-- [ ] T4 — Stage 4: AI (Responses API, tool registry), modes, deterministic commands, contexts, lead capture, barbershop demo, daily cap.
-- [ ] T5 — Stage 5: human handoff, admin endpoints (API key), README for WSL, final build/lint/test.
+- [x] T4a — Stage 4a: deterministic commands (demo/salir/reiniciar/humano), planTransition, contexts per mode, pause + HandoffRequest on "humano", ModeProfiles, editable content files (commercial-info.md, barbershop demo data). Route: delegated (writer trigger).
+- [ ] T4b — Stage 4b: OpenAI Responses API adapter, tool registry (save_lead, register_demo_request, request_handoff) with zod validation + allowedModes, prompts per mode, history from active context, lead injection (commercial only), daily cap + AiUsage, controlled failures. Route: delegated (writer trigger).
+  (T4 split in two for reviewable stacked PRs; "humano" handoff core moved into T4a since it is a deterministic command.)
+- [ ] T5 — Stage 5: admin endpoints for handoff/leads/pause/resume/human reply (API key), README for WSL, final build/lint/test.
 
 ## Acceptance criteria
 See original requirements; each stage verified with build, lint, and tests; WhatsApp end-to-end only claimed after real manual test by the user.

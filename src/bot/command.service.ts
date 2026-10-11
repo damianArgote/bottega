@@ -1,0 +1,67 @@
+import { Injectable } from '@nestjs/common';
+import { ContentService } from '../content/content.service.js';
+import { ContextService, type Tx } from '../conversations/context.service.js';
+import type { CommandId } from './commands.js';
+import { renderReply } from './replies.js';
+import { planTransition } from './transitions.js';
+
+export const HANDOFF_REASON_USER_COMMAND = 'user_command';
+
+export interface CommandOutcome {
+  /** Context the replies belong to (the new one after a context change). */
+  contextId: string;
+  replies: string[];
+}
+
+/** Applies a deterministic command planned by {@link planTransition}. */
+@Injectable()
+export class CommandService {
+  constructor(
+    private readonly contexts: ContextService,
+    private readonly content: ContentService,
+  ) {}
+
+  /**
+   * Runs inside the caller's transaction, so the change commits atomically
+   * with the inbound phase marker and the persisted replies.
+   */
+  async apply(
+    tx: Tx,
+    conversationId: string,
+    command: CommandId,
+  ): Promise<CommandOutcome> {
+    const conversation = await this.contexts.lock(tx, conversationId);
+    const plan = planTransition({ mode: conversation.mode }, command);
+
+    let contextId = conversation.activeContextId;
+    switch (plan.effect.kind) {
+      case 'switch_mode':
+        contextId = await this.contexts.switchMode(
+          conversationId,
+          plan.effect.to,
+          tx,
+        );
+        break;
+      case 'reset_context':
+        contextId = await this.contexts.resetContext(conversationId, tx);
+        break;
+      case 'request_human':
+        await this.contexts.requestHuman(
+          conversationId,
+          HANDOFF_REASON_USER_COMMAND,
+          tx,
+        );
+        break;
+      case 'none':
+        break;
+    }
+    if (!contextId) {
+      throw new Error(`conversation ${conversationId} has no active context`);
+    }
+
+    const reply = renderReply(plan.reply, {
+      demoBusinessName: this.content.getBarbershop().name,
+    });
+    return { contextId, replies: [reply] };
+  }
+}

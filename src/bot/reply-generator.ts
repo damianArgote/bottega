@@ -1,11 +1,17 @@
 import { Logger } from '@nestjs/common';
+import type { ConversationMode } from '../generated/prisma/client.js';
 import { echoReply, UNSUPPORTED_REPLY } from './echo-replies.js';
 
 /** What a generator gets to produce the replies for one inbound message. */
 export interface ReplyInput {
   conversationId: string;
-  /** Active conversation context the inbound message belongs to. */
-  contextId: string | null;
+  /** Mode of the conversation (selects the ModeProfile). */
+  mode: ConversationMode;
+  /**
+   * Active context. The inbound message belongs to it and the replies are
+   * stored in it; history must be read from this context only.
+   */
+  contextId: string;
   message: {
     id: string;
     type: 'TEXT' | 'UNSUPPORTED' | 'SYSTEM';
@@ -14,10 +20,11 @@ export interface ReplyInput {
 }
 
 /**
- * Produces the reply texts for one inbound message, in send order.
+ * Produces the reply texts for one non-command inbound message, in send
+ * order (commands are handled deterministically by CommandService).
  * Called at most once per job once its result is persisted (two-phase job):
  * the worker stores the replies before sending any of them.
- * Stage 4 replaces the implementation with the AI pipeline.
+ * Stage 4b replaces the ai implementation with the AI pipeline.
  */
 export interface ReplyGenerator {
   generate(input: ReplyInput): Promise<string[]>;
@@ -35,7 +42,7 @@ export class EchoReplyGenerator implements ReplyGenerator {
 }
 
 /**
- * BOT_REPLY_MODE=ai placeholder until Stage 4: answers nothing (no fake
+ * BOT_REPLY_MODE=ai placeholder until Stage 4b: answers nothing (no fake
  * reply) and warns, so the job completes without outbound messages.
  */
 export class UnimplementedAiReplyGenerator implements ReplyGenerator {

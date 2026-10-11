@@ -1,5 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { MessageStatus, type Message } from '../generated/prisma/client.js';
+import { ContextService } from '../conversations/context.service.js';
+import {
+  type Conversation,
+  type Message,
+  MessageAuthor,
+  MessageDirection,
+  MessageStatus,
+  MessageType,
+} from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { ClaimedJob } from '../queue/queue.service.js';
 import {
@@ -8,6 +16,8 @@ import {
   type SendOutcome,
   type WhatsAppClient,
 } from '../whatsapp/whatsapp.client.js';
+import { CommandService } from './command.service.js';
+import { matchCommand } from './commands.js';
 import { REPLY_GENERATOR, type ReplyGenerator } from './reply-generator.js';
 
 /**
@@ -44,10 +54,11 @@ const SETTLED: ReadonlySet<MessageStatus> = new Set([
 /**
  * Processes one inbound-message job in two phases:
  *
- * 1. Generate: build the replies and persist them as QUEUED outbound
- *    messages (idempotency key `${jobId}:${index}`) in the same transaction
- *    that marks the inbound message PROCESSED. That status is the phase
- *    marker: a retried job never calls the generator again.
+ * 1. Generate: apply a deterministic command or call the reply generator,
+ *    and persist the replies as QUEUED outbound messages (idempotency key
+ *    `${jobId}:${index}`) in the same transaction that marks the inbound
+ *    message PROCESSED (and applies the command's transition). That status
+ *    is the phase marker: a retried job never generates or transitions again.
  * 2. Send: deliver the QUEUED rows in order. Sending is at-most-once: a row
  *    goes QUEUED → SENDING before the API call, and a row still SENDING at
  *    the start of a run (crash mid-send) or with an uncertain outcome is
@@ -61,6 +72,8 @@ export class BotService {
     private readonly prisma: PrismaService,
     @Inject(WHATSAPP_CLIENT) private readonly client: WhatsAppClient,
     @Inject(REPLY_GENERATOR) private readonly generator: ReplyGenerator,
+    private readonly contexts: ContextService,
+    private readonly commands: CommandService,
   ) {}
 
   async process(job: ClaimedJob): Promise<ProcessResult> {
@@ -74,17 +87,16 @@ export class BotService {
     const { conversation } = inbound;
     const to = maskPhone(conversation.waId);
 
-    if (conversation.paused) {
-      await this.prisma.message.updateMany({
-        where: { id: inbound.id, status: MessageStatus.RECEIVED },
-        data: { status: MessageStatus.PROCESSED },
-      });
-      this.logger.log(`Job ${job.id}: conversation paused, no reply to ${to}`);
-      return { outcome: 'paused', sent: 0, uncertain: 0, failed: 0 };
-    }
-
+    // The PROCESSED status is the phase marker: once set, a retried job only
+    // sends what was persisted, never re-generating or re-applying a command.
     if (inbound.status === MessageStatus.RECEIVED) {
-      await this.generateReplies(job, inbound, conversation.activeContextId);
+      const phase = await this.generateReplies(job, inbound, conversation);
+      if (phase === 'paused') {
+        this.logger.log(
+          `Job ${job.id}: conversation paused, no reply to ${to}`,
+        );
+        return { outcome: 'paused', sent: 0, uncertain: 0, failed: 0 };
+      }
     }
 
     const outbound = await this.loadOutbound(job.id);
@@ -103,41 +115,81 @@ export class BotService {
     return result;
   }
 
+  /**
+   * Phase 1. A text that is exactly a command applies its transition
+   * (CommandService) and stores its fixed reply; anything else goes to the
+   * reply generator. Either way the replies, the transition and the inbound
+   * PROCESSED marker commit in one transaction. A paused conversation (also
+   * re-checked under the row lock) stores the message with no reply and
+   * runs no command.
+   */
   private async generateReplies(
     job: ClaimedJob,
     inbound: Message,
-    activeContextId: string | null,
-  ): Promise<void> {
-    const replies = await this.generator.generate({
-      conversationId: inbound.conversationId,
-      contextId: activeContextId,
-      message: { id: inbound.id, type: inbound.type, content: inbound.content },
-    });
-    const contextId = activeContextId ?? inbound.contextId;
+    conversation: Conversation,
+  ): Promise<'paused' | 'done'> {
+    const command =
+      inbound.type === MessageType.TEXT ? matchCommand(inbound.content) : null;
 
-    await this.prisma.$transaction(async (tx) => {
+    let generated: { contextId: string; replies: string[] } | null = null;
+    if (!conversation.paused && !command) {
+      const contextId = conversation.activeContextId ?? inbound.contextId;
+      if (!contextId) {
+        throw new JobError('active_context_missing', false);
+      }
+      generated = {
+        contextId,
+        replies: await this.generator.generate({
+          conversationId: conversation.id,
+          mode: conversation.mode,
+          contextId,
+          message: {
+            id: inbound.id,
+            type: inbound.type,
+            content: inbound.content,
+          },
+        }),
+      };
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await this.contexts.lock(tx, conversation.id);
+      const paused = conversation.paused || locked.paused;
       const { count } = await tx.message.updateMany({
         where: { id: inbound.id, status: MessageStatus.RECEIVED },
-        data: { status: MessageStatus.PROCESSED },
+        // A message processed after a context change belongs to the context
+        // it was answered in, so per-context history stays coherent.
+        data: {
+          status: MessageStatus.PROCESSED,
+          ...(generated && !paused ? { contextId: generated.contextId } : {}),
+        },
       });
       if (count !== 1) {
-        // Another run persisted this job's replies first: roll back ours.
+        // Another run persisted this job's phase 1 first: roll back ours.
         throw new JobError('generate_conflict', true);
       }
+      if (paused) {
+        return 'paused';
+      }
+
+      const { contextId, replies } = command
+        ? await this.commands.apply(tx, conversation.id, command)
+        : generated!;
       if (replies.length > 0) {
         await tx.message.createMany({
           data: replies.map((content, index) => ({
-            conversationId: inbound.conversationId,
+            conversationId: conversation.id,
             contextId,
-            direction: 'OUTBOUND' as const,
-            type: 'TEXT' as const,
+            direction: MessageDirection.OUTBOUND,
+            type: MessageType.TEXT,
             content,
             status: MessageStatus.QUEUED,
-            author: 'BOT' as const,
+            author: MessageAuthor.BOT,
             idempotencyKey: `${job.id}:${index}`,
           })),
         });
       }
+      return 'done';
     });
   }
 
