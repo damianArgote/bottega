@@ -37,7 +37,7 @@ ask-on-risk. Forecast > 400 authored lines overall. Chain strategy chosen by use
 - [x] T4a — Stage 4a: deterministic commands (demo/salir/reiniciar/humano), planTransition, contexts per mode, pause + HandoffRequest on "humano", ModeProfiles, editable content files (commercial-info.md, barbershop demo data). Route: delegated (writer trigger).
 - [x] T4b — Stage 4b: OpenAI Responses API adapter, tool registry (save_lead, register_demo_request, request_handoff) with zod validation + allowedModes, prompts per mode, history from active context, lead injection (commercial only), daily cap + AiUsage, controlled failures. Route: delegated (writer trigger).
   (T4 split in two for reviewable stacked PRs; "humano" handoff core moved into T4a since it is a deterministic command.)
-- [ ] T5 — Stage 5: admin endpoints for handoff/leads/pause/resume/human reply (API key), README for WSL, final build/lint/test.
+- [x] T5 — Stage 5: admin endpoints for handoff/leads/pause/resume/human reply (API key), README for WSL, final build/lint/test.
 
 ## Acceptance criteria
 See original requirements; each stage verified with build, lint, and tests; WhatsApp end-to-end only claimed after real manual test by the user.

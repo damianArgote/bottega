@@ -16,6 +16,20 @@ export interface LockedConversation {
   activeContextId: string | null;
 }
 
+export interface PauseResult {
+  /** The conversation was already paused before this call. */
+  wasPaused: boolean;
+  /** The open handoff request (the existing one, or the one created). */
+  handoffId: string;
+  handoffCreated: boolean;
+}
+
+export interface ResumeResult {
+  /** The conversation was paused before this call. */
+  wasPaused: boolean;
+  resolvedHandoffs: number;
+}
+
 /**
  * Context and pause changes of a conversation. Each operation runs in the
  * caller's transaction when `tx` is given (so it commits together with the
@@ -86,6 +100,62 @@ export class ContextService {
         data: { conversationId, reason, status: HandoffStatus.OPEN },
       });
       return handoff.id;
+    });
+  }
+
+  /**
+   * Pauses the bot (idempotent) and opens a handoff request only when the
+   * conversation has none open. `pausedAt` keeps the original pause time.
+   */
+  pause(conversationId: string, reason: string, tx?: Tx): Promise<PauseResult> {
+    return this.inTx(tx, async (t) => {
+      const { paused } = await this.lock(t, conversationId);
+      if (!paused) {
+        await t.conversation.update({
+          where: { id: conversationId },
+          data: { paused: true, pausedAt: new Date() },
+        });
+      }
+      const open = await t.handoffRequest.findFirst({
+        where: { conversationId, status: HandoffStatus.OPEN },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (open) {
+        return { wasPaused: paused, handoffId: open.id, handoffCreated: false };
+      }
+      const handoff = await t.handoffRequest.create({
+        data: { conversationId, reason, status: HandoffStatus.OPEN },
+      });
+      return { wasPaused: paused, handoffId: handoff.id, handoffCreated: true };
+    });
+  }
+
+  /**
+   * Resumes the bot (idempotent), optionally resolving every open handoff.
+   * Messages received while paused are not answered retroactively.
+   */
+  resume(
+    conversationId: string,
+    resolveHandoffs: boolean,
+    tx?: Tx,
+  ): Promise<ResumeResult> {
+    return this.inTx(tx, async (t) => {
+      const { paused } = await this.lock(t, conversationId);
+      if (paused) {
+        await t.conversation.update({
+          where: { id: conversationId },
+          data: { paused: false, pausedAt: null },
+        });
+      }
+      let resolvedHandoffs = 0;
+      if (resolveHandoffs) {
+        const { count } = await t.handoffRequest.updateMany({
+          where: { conversationId, status: HandoffStatus.OPEN },
+          data: { status: HandoffStatus.RESOLVED, resolvedAt: new Date() },
+        });
+        resolvedHandoffs = count;
+      }
+      return { wasPaused: paused, resolvedHandoffs };
     });
   }
 
