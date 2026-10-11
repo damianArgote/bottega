@@ -1,0 +1,85 @@
+import { z } from 'zod';
+import type { BarbershopDemo } from '../../content/content.schema.js';
+import type { DemoRequestInput } from '../../demos/demos.service.js';
+import type { ConversationMode } from '../../generated/prisma/client.js';
+import type { LeadFields } from '../../leads/leads.service.js';
+import type { ToolName } from '../mode-profiles.js';
+
+/**
+ * A validated tool call turned into a change to apply later, inside the
+ * job's phase-1 transaction (never during the model loop).
+ */
+export type PlannedEffect =
+  | { kind: 'save_lead'; fields: LeadFields }
+  | { kind: 'register_demo_request'; request: DemoRequestInput }
+  | { kind: 'request_handoff'; reason: string | null };
+
+/** What a tool may read while planning. */
+export interface ToolContext {
+  mode: ConversationMode;
+  barbershop: BarbershopDemo;
+  /** Effects already planned for this message (to reject duplicates). */
+  planned: readonly PlannedEffect[];
+}
+
+/**
+ * Result of planning: `output` is what the model reads back as the tool
+ * result, so it must say clearly whether the action will happen.
+ */
+export type ToolPlan =
+  | { ok: true; effect: PlannedEffect; output: Record<string, unknown> }
+  | { ok: false; error: string };
+
+export interface ToolHandler<Args = unknown> {
+  name: ToolName;
+  description: string;
+  allowedModes: readonly ConversationMode[];
+  /** Strict JSON Schema sent to the model (mirrors `schema`). */
+  jsonSchema: Record<string, unknown>;
+  /** Validates the model's arguments; `.strict()` rejects unknown keys. */
+  schema: z.ZodType<Args>;
+  plan(args: Args, ctx: ToolContext): ToolPlan;
+}
+
+// Control characters (C0, DEL, C1; newlines and tabs too: one-line values).
+const CONTROL_CHARS = /\p{Cc}/gu;
+const URL_PATTERN = /(https?:\/\/|www\.)/i;
+
+/** Single-line plain text: control characters become spaces, then trimmed. */
+export function cleanText(value: string): string {
+  return value.replace(CONTROL_CHARS, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Nullable plain-text argument: cleaned, at most `max` characters, links
+ * rejected. Blank values become null.
+ */
+export function textArg(max: number) {
+  return z
+    .string()
+    .nullable()
+    .transform((value) => (value === null ? null : cleanText(value) || null))
+    .refine((value) => value === null || value.length <= max, {
+      message: `must be at most ${max} characters`,
+    })
+    .refine((value) => value === null || !URL_PATTERN.test(value), {
+      message: 'links are not accepted',
+    });
+}
+
+/** JSON Schema for a nullable string argument (strict mode friendly). */
+export function nullableString(description: string): Record<string, unknown> {
+  return { type: ['string', 'null'], description };
+}
+
+/** Strict-mode object schema: every property required, no extra keys. */
+export function strictObject(
+  properties: Record<string, Record<string, unknown>>,
+): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
+  };
+}

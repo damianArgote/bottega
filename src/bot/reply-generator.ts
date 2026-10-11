@@ -1,6 +1,6 @@
-import { Logger } from '@nestjs/common';
 import type { ConversationMode } from '../generated/prisma/client.js';
 import { echoReply, UNSUPPORTED_REPLY } from './echo-replies.js';
+import type { PlannedEffect } from './tools/tool.js';
 
 /** What a generator gets to produce the replies for one inbound message. */
 export interface ReplyInput {
@@ -17,41 +17,45 @@ export interface ReplyInput {
     type: 'TEXT' | 'UNSUPPORTED' | 'SYSTEM';
     content: string;
   };
+  /**
+   * True on the job's last attempt: a generator must then answer with a
+   * controlled fallback instead of failing with a retryable error.
+   */
+  isLastAttempt: boolean;
+}
+
+export interface GeneratedReply {
+  /** Reply texts in send order. */
+  replies: string[];
+  /**
+   * Validated tool effects, applied by the worker in the same transaction
+   * that persists the replies (never by the generator itself).
+   */
+  effects: PlannedEffect[];
 }
 
 /**
- * Produces the reply texts for one non-command inbound message, in send
- * order (commands are handled deterministically by CommandService).
- * Called at most once per job once its result is persisted (two-phase job):
- * the worker stores the replies before sending any of them.
- * Stage 4b replaces the ai implementation with the AI pipeline.
+ * Produces the replies (and planned effects) for one non-command inbound
+ * message (commands are handled deterministically by CommandService).
+ * Called again on a retry until its result is persisted (two-phase job), so
+ * it must not write business data itself.
  */
 export interface ReplyGenerator {
-  generate(input: ReplyInput): Promise<string[]>;
+  generate(input: ReplyInput): Promise<GeneratedReply>;
 }
 
 export const REPLY_GENERATOR = Symbol('REPLY_GENERATOR');
 
 /** BOT_REPLY_MODE=echo: quote the text back, or hint that only text works. */
 export class EchoReplyGenerator implements ReplyGenerator {
-  generate({ message }: ReplyInput): Promise<string[]> {
-    return Promise.resolve([
-      message.type === 'TEXT' ? echoReply(message.content) : UNSUPPORTED_REPLY,
-    ]);
-  }
-}
-
-/**
- * BOT_REPLY_MODE=ai placeholder until Stage 4b: answers nothing (no fake
- * reply) and warns, so the job completes without outbound messages.
- */
-export class UnimplementedAiReplyGenerator implements ReplyGenerator {
-  private readonly logger = new Logger(UnimplementedAiReplyGenerator.name);
-
-  generate({ message }: ReplyInput): Promise<string[]> {
-    this.logger.warn(
-      `BOT_REPLY_MODE=ai is not implemented yet; message ${message.id} left unanswered`,
-    );
-    return Promise.resolve([]);
+  generate({ message }: ReplyInput): Promise<GeneratedReply> {
+    return Promise.resolve({
+      replies: [
+        message.type === 'TEXT'
+          ? echoReply(message.content)
+          : UNSUPPORTED_REPLY,
+      ],
+      effects: [],
+    });
   }
 }

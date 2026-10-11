@@ -4,6 +4,9 @@ import type { ReplyGenerator } from '../../src/bot/reply-generator.js';
 import { AppConfigService } from '../../src/config/app-config.service.js';
 import { ContentService } from '../../src/content/content.service.js';
 import { ContextService } from '../../src/conversations/context.service.js';
+import { DemosService } from '../../src/demos/demos.service.js';
+import { LeadsService } from '../../src/leads/leads.service.js';
+import { ToolEffectsService } from '../../src/bot/tools/tool-effects.service.js';
 import { type Env, parseEnv } from '../../src/config/env.schema.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import type { InboundText } from '../../src/whatsapp/inbound-event.js';
@@ -43,13 +46,19 @@ export function textEvent(
   };
 }
 
-/** BotService wired with the real context/command services. */
+/** BotService wired with the real context/command/effect services. */
 export function buildBotService(
   prisma: PrismaService,
   client: WhatsAppClient,
   generator: ReplyGenerator,
 ): BotService {
+  const content = new ContentService();
   const contexts = new ContextService(prisma);
-  const commands = new CommandService(contexts, new ContentService());
-  return new BotService(prisma, client, generator, contexts, commands);
+  const commands = new CommandService(contexts, content);
+  const effects = new ToolEffectsService(
+    new LeadsService(prisma),
+    new DemosService(prisma, content),
+    commands,
+  );
+  return new BotService(prisma, client, generator, contexts, commands, effects);
 }

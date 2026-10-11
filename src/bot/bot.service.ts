@@ -18,22 +18,14 @@ import {
 } from '../whatsapp/whatsapp.client.js';
 import { CommandService } from './command.service.js';
 import { matchCommand } from './commands.js';
+import { JobError } from './job-error.js';
 import { REPLY_GENERATOR, type ReplyGenerator } from './reply-generator.js';
+import {
+  ToolEffectsService,
+  type GeneratedOutcome,
+} from './tools/tool-effects.service.js';
 
-/**
- * Failure raised while processing a job. `code` is a short static label
- * (stored as the job's `last_error`); `retryable` decides whether the queue
- * schedules another attempt. Errors of any other type count as retryable.
- */
-export class JobError extends Error {
-  constructor(
-    readonly code: string,
-    readonly retryable: boolean,
-  ) {
-    super(code);
-    this.name = 'JobError';
-  }
-}
+export { JobError };
 
 export interface ProcessResult {
   outcome: 'paused' | 'done';
@@ -57,8 +49,9 @@ const SETTLED: ReadonlySet<MessageStatus> = new Set([
  * 1. Generate: apply a deterministic command or call the reply generator,
  *    and persist the replies as QUEUED outbound messages (idempotency key
  *    `${jobId}:${index}`) in the same transaction that marks the inbound
- *    message PROCESSED (and applies the command's transition). That status
- *    is the phase marker: a retried job never generates or transitions again.
+ *    message PROCESSED (and applies the command's transition or the tool
+ *    effects). That status is the phase marker: a retried job never
+ *    generates, transitions or applies effects again.
  * 2. Send: deliver the QUEUED rows in order. Sending is at-most-once: a row
  *    goes QUEUED → SENDING before the API call, and a row still SENDING at
  *    the start of a run (crash mid-send) or with an uncertain outcome is
@@ -74,6 +67,7 @@ export class BotService {
     @Inject(REPLY_GENERATOR) private readonly generator: ReplyGenerator,
     private readonly contexts: ContextService,
     private readonly commands: CommandService,
+    private readonly effects: ToolEffectsService,
   ) {}
 
   async process(job: ClaimedJob): Promise<ProcessResult> {
@@ -118,8 +112,10 @@ export class BotService {
   /**
    * Phase 1. A text that is exactly a command applies its transition
    * (CommandService) and stores its fixed reply; anything else goes to the
-   * reply generator. Either way the replies, the transition and the inbound
-   * PROCESSED marker commit in one transaction. A paused conversation (also
+   * reply generator, whose planned tool effects (lead, demo request,
+   * handoff) are applied here (ToolEffectsService). Either way the replies,
+   * the transition or effects and the inbound PROCESSED marker commit in one
+   * transaction. A paused conversation (also
    * re-checked under the row lock) stores the message with no reply and
    * runs no command.
    */
@@ -131,25 +127,24 @@ export class BotService {
     const command =
       inbound.type === MessageType.TEXT ? matchCommand(inbound.content) : null;
 
-    let generated: { contextId: string; replies: string[] } | null = null;
+    let generated: GeneratedOutcome | null = null;
     if (!conversation.paused && !command) {
       const contextId = conversation.activeContextId ?? inbound.contextId;
       if (!contextId) {
         throw new JobError('active_context_missing', false);
       }
-      generated = {
+      const { replies, effects } = await this.generator.generate({
+        conversationId: conversation.id,
+        mode: conversation.mode,
         contextId,
-        replies: await this.generator.generate({
-          conversationId: conversation.id,
-          mode: conversation.mode,
-          contextId,
-          message: {
-            id: inbound.id,
-            type: inbound.type,
-            content: inbound.content,
-          },
-        }),
-      };
+        message: {
+          id: inbound.id,
+          type: inbound.type,
+          content: inbound.content,
+        },
+        isLastAttempt: job.attempts >= job.maxAttempts,
+      });
+      generated = { contextId, replies, effects };
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -174,7 +169,7 @@ export class BotService {
 
       const { contextId, replies } = command
         ? await this.commands.apply(tx, conversation.id, command)
-        : generated!;
+        : await this.effects.apply(tx, conversation.id, generated!);
       if (replies.length > 0) {
         await tx.message.createMany({
           data: replies.map((content, index) => ({

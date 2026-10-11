@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { worstCaseAiJobMs } from '../ai/ai-limits.js';
 
 const GRAPH_API_VERSION_PATTERN = /^v\d+\.\d+$/;
 const ADMIN_API_KEY_MIN_LENGTH = 32;
@@ -109,9 +110,27 @@ export const envSchema = z
           });
         }
       }
+      // A job holds its lease for the whole AI turn plus the sends; if the
+      // lease could expire first, another worker might claim the job twice.
+      // Checked here (fail fast at boot) instead of extending the lease
+      // between model rounds.
+      if (
+        typeof env.QUEUE_LEASE_MS === 'number' &&
+        typeof env.OPENAI_TIMEOUT_MS === 'number' &&
+        typeof env.WHATSAPP_HTTP_TIMEOUT_MS === 'number'
+      ) {
+        const needed = worstCaseAiJobMs(env);
+        if (env.QUEUE_LEASE_MS <= needed) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['QUEUE_LEASE_MS'],
+            message: `QUEUE_LEASE_MS must be greater than ${needed} (model rounds x OPENAI_TIMEOUT_MS + sends x WHATSAPP_HTTP_TIMEOUT_MS + overhead) when BOT_REPLY_MODE=ai`,
+          });
+        }
+      }
     },
     // Run even when other fields failed, so every problem is reported at once.
-    // `env` may then be partially invalid; the check above only reads strings.
+    // `env` may then be partially invalid: the checks above guard their types.
     { when: () => true },
   );
 

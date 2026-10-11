@@ -195,6 +195,25 @@ describe('parseEnv', () => {
       expect(env.BOT_REPLY_MODE).toBe('ai');
       expect(env.OPENAI_MODEL).toBe('some-model-id');
     });
+
+    it('rejects a queue lease shorter than the worst-case AI job', () => {
+      const ai = {
+        BOT_REPLY_MODE: 'ai',
+        OPENAI_API_KEY: SECRETS.OPENAI_API_KEY,
+        OPENAI_MODEL: 'some-model-id',
+      };
+      const error = captureError(validEnv({ ...ai, QUEUE_LEASE_MS: '60000' }));
+
+      expect(error.problems).toEqual([
+        expect.stringMatching(
+          /^QUEUE_LEASE_MS: QUEUE_LEASE_MS must be greater than 80000/,
+        ),
+      ]);
+      // The same lease is fine in echo mode (no model calls).
+      expect(
+        parseEnv(validEnv({ QUEUE_LEASE_MS: '60000' })).QUEUE_LEASE_MS,
+      ).toBe(60_000);
+    });
   });
 
   it('reports every problem without including any provided value', () => {

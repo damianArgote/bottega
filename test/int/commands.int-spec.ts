@@ -286,7 +286,7 @@ describe('Deterministic commands and contexts (integration)', () => {
   it('commands work with the ai generator too (no generator call)', async () => {
     const aiGenerate = vi
       .fn<ReplyGenerator['generate']>()
-      .mockResolvedValue([]);
+      .mockResolvedValue({ replies: [], effects: [] });
     const bot = buildBotService(prisma, { sendText }, { generate: aiGenerate });
     worker = new BotWorker(config, new QueueService(prisma, config), bot);
 

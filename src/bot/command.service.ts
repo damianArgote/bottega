@@ -7,6 +7,11 @@ import { planTransition } from './transitions.js';
 
 export const HANDOFF_REASON_USER_COMMAND = 'user_command';
 
+export interface CommandOptions {
+  /** HandoffRequest reason for REQUEST_HUMAN (defaults to the user command). */
+  handoffReason?: string;
+}
+
 export interface CommandOutcome {
   /** Context the replies belong to (the new one after a context change). */
   contextId: string;
@@ -29,6 +34,7 @@ export class CommandService {
     tx: Tx,
     conversationId: string,
     command: CommandId,
+    options: CommandOptions = {},
   ): Promise<CommandOutcome> {
     const conversation = await this.contexts.lock(tx, conversationId);
     const plan = planTransition({ mode: conversation.mode }, command);
@@ -48,7 +54,7 @@ export class CommandService {
       case 'request_human':
         await this.contexts.requestHuman(
           conversationId,
-          HANDOFF_REASON_USER_COMMAND,
+          options.handoffReason ?? HANDOFF_REASON_USER_COMMAND,
           tx,
         );
         break;

@@ -1,7 +1,7 @@
 import { ConversationMode } from '../generated/prisma/client.js';
 import type { ReplyKey } from './replies.js';
 
-/** Tools the model may call (registry implemented in Stage 4b). */
+/** Tools the model may call (see tools/registry.ts). */
 export type ToolName =
   'save_lead' | 'register_demo_request' | 'request_handoff';
 
@@ -9,7 +9,7 @@ export type ToolName =
 export type KnowledgeRef =
   { kind: 'commercial-info' } | { kind: 'demo'; scenario: 'barbershop' };
 
-/** Per-mode behavior, as data. Stage 4b adds the system prompt builders. */
+/** Per-mode behavior, as data. Prompts are built in prompts.ts. */
 export interface ModeProfile {
   mode: ConversationMode;
   /** Fixed reply sent when the conversation switches into this mode. */

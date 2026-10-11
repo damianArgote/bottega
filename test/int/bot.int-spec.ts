@@ -2,7 +2,6 @@ import { UNSUPPORTED_REPLY } from '../../src/bot/echo-replies.js';
 import {
   EchoReplyGenerator,
   type ReplyGenerator,
-  UnimplementedAiReplyGenerator,
 } from '../../src/bot/reply-generator.js';
 import { BotWorker } from '../../src/bot/worker.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
@@ -173,7 +172,10 @@ describe('BotService two-phase processing (integration)', () => {
   });
 
   it('never resends an UNCERTAIN reply when the job is retried', async () => {
-    generate.mockResolvedValue(['primera', 'segunda']);
+    generate.mockResolvedValue({
+      replies: ['primera', 'segunda'],
+      effects: [],
+    });
     sendText
       .mockResolvedValueOnce(uncertain)
       .mockResolvedValueOnce(rejected(131056, true))
@@ -287,8 +289,8 @@ describe('BotService two-phase processing (integration)', () => {
     expect((await outbound())[0]?.status).toBe('DELIVERED');
   });
 
-  it('sends nothing in ai mode until Stage 4 and completes the job', async () => {
-    worker = buildWorker(new UnimplementedAiReplyGenerator());
+  it('completes the job without sending when the generator returns no replies', async () => {
+    generate.mockResolvedValue({ replies: [], effects: [] });
     await conversations.recordInbound(textEvent('wamid.in'));
 
     await worker.drain();
