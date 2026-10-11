@@ -32,7 +32,7 @@ ask-on-risk. Forecast > 400 authored lines overall; chain strategy to be asked b
 
 ## Tasks
 - [x] T1 — Stage 1: project, database, and configuration (NestJS scaffold, strict TS, lint/test scripts, Docker Compose PG, Prisma 7 schema for all entities + initial migration, env validation at boot, .env.example, .gitignore, health module). Route: delegated (writer trigger: 2+ non-trivial files).
-- [ ] T2 — Stage 2: webhook GET verify + POST signature validation + payload parsing + fixed echo reply (BOT_REPLY_MODE=echo).
+- [x] T2 — Stage 2: webhook GET verify + POST signature validation + payload parsing + fixed echo reply (BOT_REPLY_MODE=echo).
 - [ ] T3 — Stage 3: persistence, PG job queue, deduplication, worker, uncertain-send handling.
 - [ ] T4 — Stage 4: AI (Responses API, tool registry), modes, deterministic commands, contexts, lead capture, barbershop demo, daily cap.
 - [ ] T5 — Stage 5: human handoff, admin endpoints (API key), README for WSL, final build/lint/test.

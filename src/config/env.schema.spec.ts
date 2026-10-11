@@ -43,6 +43,7 @@ describe('parseEnv', () => {
       PORT: 3000,
       NODE_ENV: 'development',
       BOT_REPLY_MODE: 'echo',
+      WHATSAPP_HTTP_TIMEOUT_MS: 10_000,
       AI_MAX_INTERACTIONS_PER_USER_PER_DAY: 30,
       OPENAI_TIMEOUT_MS: 20_000,
       OPENAI_MAX_OUTPUT_TOKENS: 300,

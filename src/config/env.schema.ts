@@ -52,6 +52,10 @@ export const envSchema = z
       GRAPH_API_VERSION_PATTERN,
       'WHATSAPP_GRAPH_API_VERSION must look like v26.0',
     ),
+    // Upper bound for one Graph API send. A send that times out is treated as
+    // "uncertain" (Meta may have accepted it) and never auto-resent, so keep it
+    // generous enough for slow responses but short enough not to stall workers.
+    WHATSAPP_HTTP_TIMEOUT_MS: positiveInt('WHATSAPP_HTTP_TIMEOUT_MS', 10_000),
 
     BOT_REPLY_MODE: z
       .enum(['echo', 'ai'], { error: 'BOT_REPLY_MODE must be "echo" or "ai"' })
