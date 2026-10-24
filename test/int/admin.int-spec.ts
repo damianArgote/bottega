@@ -1,3 +1,4 @@
+import { QueueSignal } from '../../src/queue/queue-signal.js';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { AdminService } from '../../src/admin/admin.service.js';
 import { EchoReplyGenerator } from '../../src/bot/reply-generator.js';
@@ -29,7 +30,7 @@ describe('Admin operations (integration)', () => {
 
   beforeAll(async () => {
     prisma = await connectPrisma(config);
-    conversations = new ConversationsService(prisma, config);
+    conversations = new ConversationsService(prisma, config, new QueueSignal());
   });
 
   afterAll(async () => {
@@ -43,7 +44,12 @@ describe('Admin operations (integration)', () => {
       Promise.resolve({ kind: 'sent', waMessageId: `wamid.out.${(seq += 1)}` }),
     );
     const bot = buildBotService(prisma, { sendText }, new EchoReplyGenerator());
-    worker = new BotWorker(config, new QueueService(prisma, config), bot);
+    worker = new BotWorker(
+      config,
+      new QueueService(prisma, config),
+      bot,
+      new QueueSignal(),
+    );
     admin = new AdminService(prisma, new ContextService(prisma), { sendText });
   });
 

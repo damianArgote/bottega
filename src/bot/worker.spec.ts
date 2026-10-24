@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { AppConfigService } from '../config/app-config.service.js';
 import type { Env } from '../config/env.schema.js';
+import { QueueSignal } from '../queue/queue-signal.js';
 import type { ClaimedJob, QueueService } from '../queue/queue.service.js';
 import { type BotService, JobError } from './bot.service.js';
 import { BotWorker } from './worker.js';
@@ -19,6 +20,7 @@ function setup(overrides: Partial<Env> = {}) {
   const env: Partial<Env> = {
     WORKER_ENABLED: true,
     QUEUE_POLL_INTERVAL_MS: 10_000,
+    QUEUE_IDLE_POLL_INTERVAL_MS: 600_000,
     QUEUE_CONCURRENCY: 2,
     ...overrides,
   };
@@ -29,14 +31,19 @@ function setup(overrides: Partial<Env> = {}) {
     claimNext: vi.fn<QueueService['claimNext']>().mockResolvedValue(null),
     complete: vi.fn<QueueService['complete']>().mockResolvedValue(true),
     fail: vi.fn<QueueService['fail']>().mockResolvedValue('retry_scheduled'),
+    nextRunnableAt: vi
+      .fn<QueueService['nextRunnableAt']>()
+      .mockResolvedValue(null),
   };
+  const signal = new QueueSignal();
   const bot = { process: vi.fn<BotService['process']>() };
   const worker = new BotWorker(
     config,
     queue as unknown as QueueService,
     bot as unknown as BotService,
+    signal,
   );
-  return { worker, queue, bot };
+  return { worker, queue, bot, signal };
 }
 
 describe('BotWorker', () => {
@@ -118,5 +125,115 @@ describe('BotWorker', () => {
     // In-flight jobs finished; no new job was claimed after shutdown began.
     expect(finished).toBe(2);
     expect(queue.complete).toHaveBeenCalledTimes(2);
+  });
+
+  describe('idle polling', () => {
+    const done = { outcome: 'done', sent: 0, uncertain: 0, failed: 0 } as const;
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      vi.setSystemTime(new Date('2026-10-24T12:00:00Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('sleeps the idle interval after a round that found no work', async () => {
+      const { worker, queue } = setup({ QUEUE_POLL_INTERVAL_MS: 1_000 });
+
+      worker.onApplicationBootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      const afterFirstRound = queue.claimNext.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(599_000);
+      expect(queue.claimNext.mock.calls.length).toBe(afterFirstRound);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(queue.claimNext.mock.calls.length).toBeGreaterThan(
+        afterFirstRound,
+      );
+      await worker.onModuleDestroy();
+    });
+
+    it('claims a job as soon as one is enqueued, without waiting the idle interval', async () => {
+      const { worker, queue, bot, signal } = setup();
+      bot.process.mockResolvedValue(done);
+
+      worker.onApplicationBootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      queue.claimNext.mockResolvedValueOnce(job('j1'));
+      signal.notifyEnqueued();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(bot.process).toHaveBeenCalledWith(job('j1'));
+      expect(queue.complete).toHaveBeenCalledWith(job('j1'));
+      await worker.onModuleDestroy();
+    });
+
+    it('wakes up when a pending retry becomes due', async () => {
+      const { worker, queue } = setup({ QUEUE_POLL_INTERVAL_MS: 1_000 });
+      queue.nextRunnableAt.mockResolvedValue(new Date('2026-10-24T12:00:30Z'));
+
+      worker.onApplicationBootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      const afterFirstRound = queue.claimNext.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(queue.claimNext.mock.calls.length).toBe(afterFirstRound);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(queue.claimNext.mock.calls.length).toBeGreaterThan(
+        afterFirstRound,
+      );
+      await worker.onModuleDestroy();
+    });
+
+    it('keeps the regular pace after a round that processed work', async () => {
+      const { worker, queue, bot } = setup({ QUEUE_POLL_INTERVAL_MS: 1_000 });
+      bot.process.mockResolvedValue(done);
+      queue.claimNext.mockResolvedValueOnce(job('j1'));
+
+      worker.onApplicationBootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      const afterFirstRound = queue.claimNext.mock.calls.length;
+      // A round that processed work does not look for the next due job.
+      expect(queue.nextRunnableAt).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(queue.claimNext.mock.calls.length).toBeGreaterThan(
+        afterFirstRound,
+      );
+      await worker.onModuleDestroy();
+    });
+
+    it('ignores enqueue signals after shutdown', async () => {
+      const { worker, queue, signal } = setup();
+
+      worker.onApplicationBootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      await worker.onModuleDestroy();
+      const calls = queue.claimNext.mock.calls.length;
+      signal.notifyEnqueued();
+      await vi.advanceTimersByTimeAsync(600_000);
+
+      expect(queue.claimNext.mock.calls.length).toBe(calls);
+    });
+
+    it('does not query the queue again when shutdown starts mid-round', async () => {
+      const { worker, queue } = setup({ QUEUE_CONCURRENCY: 1 });
+      let releaseClaim!: (value: null) => void;
+      queue.claimNext.mockReturnValueOnce(
+        new Promise((resolve) => (releaseClaim = resolve)),
+      );
+
+      worker.onApplicationBootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      const shutdown = worker.onModuleDestroy();
+      releaseClaim(null);
+      await shutdown;
+      await vi.advanceTimersByTimeAsync(600_000);
+
+      expect(queue.nextRunnableAt).not.toHaveBeenCalled();
+      expect(queue.claimNext).toHaveBeenCalledTimes(1);
+    });
   });
 });

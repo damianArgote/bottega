@@ -1,3 +1,4 @@
+import { QueueSignal } from '../../src/queue/queue-signal.js';
 import { UNSUPPORTED_REPLY } from '../../src/bot/echo-replies.js';
 import {
   EchoReplyGenerator,
@@ -39,12 +40,12 @@ describe('BotService two-phase processing (integration)', () => {
   const buildWorker = (generator: ReplyGenerator) => {
     const queue = new QueueService(prisma, config);
     const bot = buildBotService(prisma, { sendText }, generator);
-    return new BotWorker(config, queue, bot);
+    return new BotWorker(config, queue, bot, new QueueSignal());
   };
 
   beforeAll(async () => {
     prisma = await connectPrisma(config);
-    conversations = new ConversationsService(prisma, config);
+    conversations = new ConversationsService(prisma, config, new QueueSignal());
   });
 
   afterAll(async () => {

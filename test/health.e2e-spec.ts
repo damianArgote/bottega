@@ -45,4 +45,13 @@ describe('GET /health (e2e)', () => {
       .expect(503)
       .expect({ status: 'error', db: 'down' });
   });
+
+  it('answers GET /health/live without touching the database', async () => {
+    await request(app.getHttpServer())
+      .get('/health/live')
+      .expect(200)
+      .expect({ status: 'ok' });
+
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
 });

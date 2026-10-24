@@ -1,3 +1,4 @@
+import { QueueSignal } from '../../src/queue/queue-signal.js';
 import { renderReply } from '../../src/bot/replies.js';
 import {
   EchoReplyGenerator,
@@ -35,7 +36,7 @@ describe('Deterministic commands and contexts (integration)', () => {
 
   beforeAll(async () => {
     prisma = await connectPrisma(config);
-    conversations = new ConversationsService(prisma, config);
+    conversations = new ConversationsService(prisma, config, new QueueSignal());
   });
 
   afterAll(async () => {
@@ -53,7 +54,12 @@ describe('Deterministic commands and contexts (integration)', () => {
       echo.generate(input),
     );
     const bot = buildBotService(prisma, { sendText }, { generate });
-    worker = new BotWorker(config, new QueueService(prisma, config), bot);
+    worker = new BotWorker(
+      config,
+      new QueueService(prisma, config),
+      bot,
+      new QueueSignal(),
+    );
   });
 
   /** Records one user text and processes it. */
@@ -288,7 +294,12 @@ describe('Deterministic commands and contexts (integration)', () => {
       .fn<ReplyGenerator['generate']>()
       .mockResolvedValue({ replies: [], effects: [] });
     const bot = buildBotService(prisma, { sendText }, { generate: aiGenerate });
-    worker = new BotWorker(config, new QueueService(prisma, config), bot);
+    worker = new BotWorker(
+      config,
+      new QueueService(prisma, config),
+      bot,
+      new QueueSignal(),
+    );
 
     await say('demo');
 

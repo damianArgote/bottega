@@ -10,6 +10,17 @@ export interface HealthResponse {
 export class HealthController {
   constructor(private readonly health: HealthService) {}
 
+  /**
+   * Liveness for the platform health check (Render): never touches the
+   * database, so it answers fast while Neon is suspended and does not keep
+   * waking it up.
+   */
+  @Get('live')
+  live(): { status: 'ok' } {
+    return { status: 'ok' };
+  }
+
+  /** Readiness for monitoring: also checks the database (bounded wait). */
   @Get()
   async check(): Promise<HealthResponse> {
     const db = await this.health.checkDatabase();

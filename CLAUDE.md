@@ -36,5 +36,3 @@ Lo que el código actual contradice o complica del plan, y qué prompt lo resuel
 5. **Agente fijo en código y archivos** → 02b. `MODE_PROFILES` (`src/bot/mode-profiles.ts`) está hardcodeado con `COMMERCIAL`/`DEMO` y la barbería; `ContentService` lee `content/*.md` una vez al arrancar. Pasa a `AgentProfile` en la base.
 6. **Admin sin usuarios** → 03 (usuarios, login, `BusinessAccessGuard`) y 04 (tomar y devolver, integrando la pausa actual). Hoy hay una sola `ADMIN_API_KEY`.
 7. **Sin cursor seguro para el polling** → 04. `Message` solo se ordena por `createdAt` (resolución de ms). El cursor va sobre `Conversation`, con `pg_current_xact_id()` por trigger y `pg_snapshot_xmin` como cursor; los mensajes se paginan por `id`.
-8. **Neon** → 01. `prisma.config.ts` solo lee `DATABASE_URL` y `prisma migrate` necesita la URL directa (sin pooler). El worker consulta cada `QUEUE_POLL_INTERVAL_MS` (1 s) y no deja suspender a Neon.
-9. **Alcance del README** → 01. Dice "no hay frontend, editor de flujos, multi-cliente ni facturación", lo contrario del objetivo.

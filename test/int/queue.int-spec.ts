@@ -1,3 +1,4 @@
+import { QueueSignal } from '../../src/queue/queue-signal.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import { QueueService } from '../../src/queue/queue.service.js';
@@ -14,7 +15,7 @@ describe('QueueService (integration)', () => {
   beforeAll(async () => {
     prisma = await connectPrisma();
     const config = testConfig();
-    conversations = new ConversationsService(prisma, config);
+    conversations = new ConversationsService(prisma, config, new QueueSignal());
     queue = new QueueService(prisma, config);
   });
 

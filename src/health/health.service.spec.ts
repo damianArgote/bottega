@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { HealthService } from './health.service.js';
+import { HEALTH_DB_TIMEOUT_MS, HealthService } from './health.service.js';
 
 describe('HealthService', () => {
   const queryRaw = vi.fn();
@@ -28,5 +28,19 @@ describe('HealthService', () => {
     queryRaw.mockRejectedValue(new Error('connect ECONNREFUSED'));
 
     await expect(service.checkDatabase()).resolves.toBe('down');
+  });
+
+  it('reports the database as down when the query does not answer in time', async () => {
+    vi.useFakeTimers();
+    try {
+      queryRaw.mockReturnValue(new Promise(() => undefined));
+
+      const result = service.checkDatabase();
+      await vi.advanceTimersByTimeAsync(HEALTH_DB_TIMEOUT_MS);
+
+      await expect(result).resolves.toBe('down');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
