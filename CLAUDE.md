@@ -24,7 +24,7 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 - Cada regla nueva lleva su test (unitario si es pura, e2e si es HTTP, int si depende de Postgres).
 - Comentarios y logs en inglés; textos al usuario final en español rioplatense.
 - Nunca loguear tokens, el body completo de webhooks con datos personales, ni el contenido de mensajes en nivel `info`.
-- El número y la WABA de producción que usa BotPenguin **no se tocan**. Para desarrollo se usa el número de prueba de una app de Meta aparte.
+- Desarrollo usa el número de BotSuite46 (+54 9 11 2580-8678, portfolio BotSuite46) con la app de Meta "Bottega". BotPenguin comparte ese número y también está en pruebas: pausalo antes de probar, porque las dos apps reciben los mismos entrantes. No se registran, verifican ni dan de baja números sin pedirlo. Los números de prueba de Meta quedaron baneados (11/10 y 24/10/2026): no crees apps ni portfolios nuevos para esquivarlo.
 
 ## Deuda conocida
 Lo que el código actual contradice o complica del plan, y qué prompt lo resuelve. Al cerrar un punto, sacalo de esta lista en el mismo PR.
@@ -38,4 +38,3 @@ Lo que el código actual contradice o complica del plan, y qué prompt lo resuel
 7. **Sin cursor seguro para el polling** → 04. `Message` solo se ordena por `createdAt` (resolución de ms). El cursor va sobre `Conversation`, con `pg_current_xact_id()` por trigger y `pg_snapshot_xmin` como cursor; los mensajes se paginan por `id`.
 8. **Neon** → 01. `prisma.config.ts` solo lee `DATABASE_URL` y `prisma migrate` necesita la URL directa (sin pooler). El worker consulta cada `QUEUE_POLL_INTERVAL_MS` (1 s) y no deja suspender a Neon.
 9. **Alcance del README** → 01. Dice "no hay frontend, editor de flujos, multi-cliente ni facturación", lo contrario del objetivo.
-10. **Número de prueba baneado** → tarea manual antes del 01. La WABA de prueba quedó BANNED (11/10/2026). Confirmar un número de prueba sano en una app de Meta aparte antes de probar el deploy.
