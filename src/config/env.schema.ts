@@ -42,6 +42,16 @@ export const envSchema = z
       (value) => /^postgres(ql)?:\/\//.test(value),
       'DATABASE_URL must be a postgresql:// connection string',
     ),
+    // Direct (non-pooled) connection, used only by the Prisma CLI for
+    // migrations (see prisma.config.ts). The app itself uses DATABASE_URL.
+    DATABASE_URL_UNPOOLED: z
+      .string()
+      .trim()
+      .optional()
+      .refine(
+        (value) => !value || /^postgres(ql)?:\/\//.test(value),
+        'DATABASE_URL_UNPOOLED must be a postgresql:// connection string',
+      ),
 
     META_APP_SECRET: requiredString('META_APP_SECRET'),
     WHATSAPP_VERIFY_TOKEN: requiredString('WHATSAPP_VERIFY_TOKEN'),
@@ -83,6 +93,13 @@ export const envSchema = z
     // How often an idle worker polls for new jobs: the worst-case extra reply
     // latency, traded against one cheap indexed query per interval.
     QUEUE_POLL_INTERVAL_MS: positiveInt('QUEUE_POLL_INTERVAL_MS', 1_000),
+    // Poll interval once a round found no work. Long on purpose so a
+    // serverless database (Neon) can suspend; new jobs wake the worker
+    // in-process and due retries are polled at their run_after.
+    QUEUE_IDLE_POLL_INTERVAL_MS: positiveInt(
+      'QUEUE_IDLE_POLL_INTERVAL_MS',
+      600_000,
+    ),
     // Jobs processed in parallel (each on a different conversation). Small by
     // default to stay within the WhatsApp throughput and DB pool limits.
     QUEUE_CONCURRENCY: positiveInt('QUEUE_CONCURRENCY', 2),

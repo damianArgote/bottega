@@ -132,6 +132,20 @@ export class QueueService {
     return status === 'PENDING' ? 'retry_scheduled' : 'failed';
   }
 
+  /**
+   * Earliest moment an unfinished job becomes claimable: the `run_after` of
+   * a pending job or the lease expiry of a running one. Null when no job is
+   * pending or running. Used by an idle worker to decide when to poll.
+   */
+  async nextRunnableAt(): Promise<Date | null> {
+    const rows = await this.prisma.$queryRaw<Array<{ at: Date | null }>>`
+      SELECT min(CASE WHEN status = 'PENDING' THEN run_after
+                      ELSE lease_expires_at END) AS at
+      FROM processing_job
+      WHERE status IN ('PENDING', 'PROCESSING')`;
+    return rows[0]?.at ?? null;
+  }
+
   /** Pushes the lease forward for long jobs. Returns false if ownership was lost. */
   async extendLease(
     job: Pick<ClaimedJob, 'id' | 'lockedBy'>,

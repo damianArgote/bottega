@@ -1,3 +1,4 @@
+import { QueueSignal } from '../../src/queue/queue-signal.js';
 import {
   AiProviderError,
   type AiInputItem,
@@ -99,12 +100,17 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       config: aiConfig,
     });
     const bot = buildBotService(prisma, { sendText }, generator);
-    return new BotWorker(config, new QueueService(prisma, config), bot);
+    return new BotWorker(
+      config,
+      new QueueService(prisma, config),
+      bot,
+      new QueueSignal(),
+    );
   };
 
   beforeAll(async () => {
     prisma = await connectPrisma(config);
-    conversations = new ConversationsService(prisma, config);
+    conversations = new ConversationsService(prisma, config, new QueueSignal());
   });
 
   afterAll(async () => {

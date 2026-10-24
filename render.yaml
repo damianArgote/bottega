@@ -1,0 +1,50 @@
+# Render Blueprint: one Web Service that serves the API and runs the queue
+# worker. PostgreSQL lives in Neon (not on Render). See README "Deploy en
+# Render + Neon".
+services:
+  - type: web
+    name: bottega-api
+    runtime: node
+    region: virginia
+    plan: starter
+    # --include=dev: the Nest CLI and the Prisma CLI (build, generate and the
+    # pre-deploy migration) are devDependencies, and npm skips them when
+    # NODE_ENV=production.
+    buildCommand: npm ci --include=dev && npm run build
+    # Uses DATABASE_URL_UNPOOLED (direct connection), see prisma.config.ts.
+    preDeployCommand: npm run prisma:deploy
+    startCommand: npm run start:prod
+    # Liveness only: answers without touching the database, so Neon can
+    # suspend. /health (with the database) stays for monitoring.
+    healthCheckPath: /health/live
+    # A deploy sends SIGTERM; the worker finishes its in-flight jobs before
+    # exiting. Matches the default QUEUE_LEASE_MS (120 s).
+    maxShutdownDelaySeconds: 120
+    # Node version comes from .nvmrc.
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WHATSAPP_GRAPH_API_VERSION
+        value: v26.0
+      - key: BOT_REPLY_MODE
+        value: echo
+      # Secrets and per-environment values: asked once when the Blueprint is
+      # created, never stored in this file.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false

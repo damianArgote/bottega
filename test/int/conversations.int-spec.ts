@@ -1,3 +1,4 @@
+import { QueueSignal } from '../../src/queue/queue-signal.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import type { StatusUpdate } from '../../src/whatsapp/inbound-event.js';
@@ -9,7 +10,7 @@ describe('ConversationsService (integration)', () => {
 
   beforeAll(async () => {
     prisma = await connectPrisma();
-    service = new ConversationsService(prisma, testConfig());
+    service = new ConversationsService(prisma, testConfig(), new QueueSignal());
   });
 
   afterAll(async () => {

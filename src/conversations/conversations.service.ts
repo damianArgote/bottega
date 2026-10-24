@@ -3,6 +3,7 @@ import { AppConfigService } from '../config/app-config.service.js';
 import { MessageStatus } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { UTC_NOW } from '../prisma/sql.js';
+import { QueueSignal } from '../queue/queue-signal.js';
 import type {
   InboundEvent,
   InboundText,
@@ -57,6 +58,7 @@ export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: AppConfigService,
+    private readonly queueSignal: QueueSignal,
   ) {}
 
   /**
@@ -156,6 +158,10 @@ export class ConversationsService {
       } as const;
     });
 
+    if (result.outcome === 'created') {
+      // After commit, so the woken worker can already see the job.
+      this.queueSignal.notifyEnqueued();
+    }
     this.logger.log(
       result.outcome === 'created'
         ? `Inbound ${type} message ${result.messageId} from ${maskPhone(event.from)} queued`

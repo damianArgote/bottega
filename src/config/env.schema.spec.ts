@@ -51,10 +51,12 @@ describe('parseEnv', () => {
       JOB_MAX_ATTEMPTS: 4,
       WORKER_ENABLED: true,
       QUEUE_POLL_INTERVAL_MS: 1_000,
+      QUEUE_IDLE_POLL_INTERVAL_MS: 600_000,
       QUEUE_CONCURRENCY: 2,
       QUEUE_LEASE_MS: 120_000,
     });
     expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.DATABASE_URL_UNPOOLED).toBeUndefined();
   });
 
   it('coerces numeric variables from strings', () => {
@@ -135,6 +137,7 @@ describe('parseEnv', () => {
       validEnv({
         WORKER_ENABLED: 'false',
         QUEUE_POLL_INTERVAL_MS: '250',
+        QUEUE_IDLE_POLL_INTERVAL_MS: '30000',
         QUEUE_CONCURRENCY: '4',
         QUEUE_LEASE_MS: '60000',
       }),
@@ -143,6 +146,7 @@ describe('parseEnv', () => {
     expect(env).toMatchObject({
       WORKER_ENABLED: false,
       QUEUE_POLL_INTERVAL_MS: 250,
+      QUEUE_IDLE_POLL_INTERVAL_MS: 30_000,
       QUEUE_CONCURRENCY: 4,
       QUEUE_LEASE_MS: 60_000,
     });
@@ -156,20 +160,40 @@ describe('parseEnv', () => {
     ]);
   });
 
-  it.each(['QUEUE_POLL_INTERVAL_MS', 'QUEUE_CONCURRENCY', 'QUEUE_LEASE_MS'])(
-    'rejects a non positive %s',
-    (key) => {
-      const error = captureError(validEnv({ [key]: '0' }));
+  it.each([
+    'QUEUE_POLL_INTERVAL_MS',
+    'QUEUE_IDLE_POLL_INTERVAL_MS',
+    'QUEUE_CONCURRENCY',
+    'QUEUE_LEASE_MS',
+  ])('rejects a non positive %s', (key) => {
+    const error = captureError(validEnv({ [key]: '0' }));
 
-      expect(error.problems).toEqual([`${key}: ${key} must be greater than 0`]);
-    },
-  );
+    expect(error.problems).toEqual([`${key}: ${key} must be greater than 0`]);
+  });
 
   it('rejects a non-postgres database url', () => {
     const error = captureError(validEnv({ DATABASE_URL: 'mysql://x@y/z' }));
 
     expect(error.problems).toEqual([
       'DATABASE_URL: DATABASE_URL must be a postgresql:// connection string',
+    ]);
+  });
+
+  it('accepts a direct database url for migrations', () => {
+    const env = parseEnv(
+      validEnv({ DATABASE_URL_UNPOOLED: 'postgresql://u:p@direct.host/db' }),
+    );
+
+    expect(env.DATABASE_URL_UNPOOLED).toBe('postgresql://u:p@direct.host/db');
+  });
+
+  it('rejects a non-postgres direct database url', () => {
+    const error = captureError(
+      validEnv({ DATABASE_URL_UNPOOLED: 'mysql://x@y/z' }),
+    );
+
+    expect(error.problems).toEqual([
+      'DATABASE_URL_UNPOOLED: DATABASE_URL_UNPOOLED must be a postgresql:// connection string',
     ]);
   });
 

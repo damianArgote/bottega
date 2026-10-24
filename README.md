@@ -5,14 +5,19 @@ Atiende prospectos, toma sus datos, muestra una demo (una barbería ficticia) y
 deriva a una persona del equipo cuando hace falta. Usa la **API oficial de
 WhatsApp Cloud** (sin BuilderBot ni librerías por QR), OpenAI y PostgreSQL.
 
-> **Alcance:** es un bot propio + una demo. No es una plataforma: no hay
-> frontend, editor de flujos, multi-cliente ni facturación.
+> **Alcance:** hoy es el bot comercial propio de BotSuite46 (un solo número)
+> más una demo. Hacia dónde va: varios negocios y números, cada uno con su
+> propia app de Meta; el agente de cada negocio configurado desde la base; una
+> bandeja web para que una persona responda y tome o devuelva el control al
+> bot; y un backoffice chico para el agente y los leads. Ver `CLAUDE.md` y
+> `docs/prompts/`.
 
 ## Índice
 
 | Paso | Sección |
 | ---- | ------- |
 | 1–7 | [Puesta en marcha local](#puesta-en-marcha-local) |
+| — | [Deploy en Render + Neon](#deploy-en-render--neon) |
 | 8–12 | [Conectar con WhatsApp (Meta)](#conectar-con-whatsapp-meta) |
 | — | [Cómo se comporta el bot](#cómo-se-comporta-el-bot) |
 | — | [API de administración](#api-de-administración) |
@@ -46,7 +51,8 @@ Si es la primera vez, seguí los pasos de abajo.
 | Node.js | 24 LTS recomendado (funciona desde 22.22.3). Con nvm: `nvm use` lee `.nvmrc`. |
 | npm | El que viene con Node. |
 | Docker Desktop | Con **WSL integration** activada para tu distro (Settings → Resources → WSL integration). [Guía](https://docs.docker.com/desktop/features/wsl/). |
-| ngrok | Cuenta gratuita y el CLI instalado en WSL. [Guía](https://ngrok.com/docs/getting-started/). |
+| ngrok | Opcional, solo para probar local contra Meta. Cuenta gratuita y el CLI instalado en WSL. [Guía](https://ngrok.com/docs/getting-started/). |
+| Render y Neon | Para el deploy: una cuenta en [Render](https://render.com) y otra en [Neon](https://neon.tech). Ver [Deploy en Render + Neon](#deploy-en-render--neon). |
 | Meta | Una app de Meta con el producto WhatsApp (en nuestro caso, la app **BotSuite**). |
 | OpenAI | Solo para el modo IA. Ver [nota sobre ChatGPT Plus](#4-configurar-el-env). |
 
@@ -91,7 +97,8 @@ mal formato, no inicia y te dice **qué variable** falla (nunca muestra su valor
 
 | Variable | Obligatoria | Default | Qué es |
 | -------- | ----------- | ------- | ------ |
-| `DATABASE_URL` | Sí | — | Conexión a Postgres. Con Docker local: `postgresql://bottega:bottega@localhost:5432/bottega` |
+| `DATABASE_URL` | Sí | — | Conexión a Postgres. Con Docker local: `postgresql://bottega:bottega@localhost:5432/bottega`. En Neon, la URL **con pooler** (host con `-pooler`). |
+| `DATABASE_URL_UNPOOLED` | No | — | Conexión **directa** (sin pooler), solo para las migraciones (`prisma migrate`). Si no está, se usa `DATABASE_URL`. En Docker local no hace falta. |
 | `PORT` | No | `3000` | Puerto HTTP. |
 | `NODE_ENV` | No | `development` | `development`, `test` o `production`. |
 
@@ -127,7 +134,8 @@ mal formato, no inicia y te dice **qué variable** falla (nunca muestra su valor
 | -------- | ----------- | ------- | ------ |
 | `JOB_MAX_ATTEMPTS` | No | `4` | Intentos por mensaje entrante antes de darlo por fallido. |
 | `WORKER_ENABLED` | No | `true` | `false` para levantar solo la API, sin procesar mensajes. |
-| `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos nuevos. |
+| `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos mientras hay trabajo. |
+| `QUEUE_IDLE_POLL_INTERVAL_MS` | No | `600000` | Cuánto espera cuando la última vuelta no encontró trabajo (10 min), para que Neon pueda apagarse. Un mensaje nuevo despierta al worker enseguida, y un reintento pendiente lo despierta a su hora. |
 | `QUEUE_CONCURRENCY` | No | `2` | Trabajos en paralelo (de conversaciones distintas). |
 | `QUEUE_LEASE_MS` | No | `120000` | Tiempo que un trabajo queda reservado. Con `ai` debe superar el peor caso (la app lo valida al arrancar). |
 
@@ -149,14 +157,18 @@ npx prisma migrate status     # estado (lee DATABASE_URL del .env)
 
 ```bash
 npm run start:dev
-curl localhost:3000/health    # {"status":"ok","db":"up"}
+curl localhost:3000/health        # {"status":"ok","db":"up"}
+curl localhost:3000/health/live   # {"status":"ok"} (no consulta la base)
 ```
 
-Si la base no responde, `/health` devuelve `503`.
+Si la base no responde (o tarda más de 3 s), `/health` devuelve `503`.
+`/health/live` solo dice que el proceso está vivo: es el que usa Render.
 
-### 7. Exponer con ngrok
+### 7. Exponer con ngrok (alternativa para desarrollo local)
 
-Meta necesita una URL **HTTPS pública**. En otra terminal de WSL:
+El camino principal es el [deploy en Render](#deploy-en-render--neon). Para
+probar cambios locales contra Meta, ngrok da una URL **HTTPS pública**. En otra
+terminal de WSL:
 
 ```bash
 ngrok http 3000
@@ -167,6 +179,69 @@ Copiá la URL `https://….ngrok-free.app` (o similar) que muestra ngrok.
 > En el plan gratuito **la URL cambia cada vez que reiniciás ngrok**. Cuando
 > cambie, actualizala en Meta (paso 8).
 > Alternativa: [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
+
+---
+
+## Deploy en Render + Neon
+
+Un solo **Web Service** de Render corre la API y el worker de la cola. La base
+es PostgreSQL en **Neon**. La configuración está en `render.yaml` (Blueprint).
+
+### 1. Crear la base en Neon
+
+1. En [console.neon.tech](https://console.neon.tech) creá un proyecto en la
+   región **AWS US East 1 (N. Virginia)** (`aws-us-east-1`), la misma que el
+   servicio de Render.
+2. En **Connect**, copiá las dos URLs de la rama principal:
+   - **Con pooler** (el host tiene `-pooler`) → `DATABASE_URL`. La usa la app.
+   - **Directa** (sin `-pooler`) → `DATABASE_URL_UNPOOLED`. La usan las
+     migraciones.
+3. A las dos agregales `sslmode=require&connect_timeout=15`, por ejemplo
+   `postgresql://usuario:clave@ep-xxx-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&connect_timeout=15`.
+   La compute de Neon se apaga sola cuando no hay tráfico y tarda unos segundos
+   en despertar; sin `connect_timeout`, Prisma corta antes y da `P1001`.
+
+> La app funciona detrás del pooler (PgBouncer en modo transacción): no usa
+> `LISTEN/NOTIFY`, `SET` de sesión ni advisory locks, y la cola toma trabajos
+> con una sola sentencia (`FOR UPDATE SKIP LOCKED`).
+
+### 2. Crear el servicio en Render
+
+1. En [dashboard.render.com](https://dashboard.render.com) → **New → Blueprint**,
+   elegí este repositorio. Render lee `render.yaml`.
+2. Completá las variables que pide (son las de `sync: false`): `DATABASE_URL`,
+   `DATABASE_URL_UNPOOLED`, `META_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`,
+   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `ADMIN_API_KEY` y, solo
+   para el modo IA, `OPENAI_API_KEY` y `OPENAI_MODEL`. Ver [tabla de
+   variables](#4-configurar-el-env).
+   - Usá un token de **System User** para `WHATSAPP_ACCESS_TOKEN`: el temporal
+     de API Setup vence en horas.
+   - El Blueprint arranca con `BOT_REPLY_MODE=echo`. Cambialo a `ai` desde
+     **Environment** cuando el echo funcione.
+3. **Primer deploy:** Render instala y compila (`npm ci --include=dev && npm
+   run build`), aplica las migraciones (`npm run prisma:deploy`, con la URL
+   directa) y arranca (`npm run start:prod`). El health check es
+   `/health/live`.
+4. Probá: `curl https://<servicio>.onrender.com/health` →
+   `{"status":"ok","db":"up"}`.
+
+### 3. Apuntar el webhook de Meta a Render
+
+En la app de Meta → **WhatsApp → Configuración**, poné como URL
+`https://<servicio>.onrender.com/webhooks/whatsapp` y el mismo
+`WHATSAPP_VERIFY_TOKEN` (ver [paso 8](#8-configurar-el-webhook)).
+
+### Cómo se comporta en Render
+
+- **Neon se apaga cuando no hay tráfico.** El worker no consulta la cola cada
+  segundo: cuando no hay trabajo espera `QUEUE_IDLE_POLL_INTERVAL_MS`; un
+  mensaje que entra lo despierta enseguida y un reintento lo despierta a su
+  hora. El health check de Render (`/health/live`) no toca la base.
+- **Deploys sin cortar respuestas.** En cada deploy Render manda `SIGTERM`: el
+  worker deja de tomar trabajos y termina los que tiene en curso (hasta 120 s,
+  `maxShutdownDelaySeconds`).
+- **Las migraciones corren antes de arrancar.** Si fallan, el deploy se corta
+  y queda andando la versión anterior.
 
 ---
 
@@ -181,10 +256,11 @@ En Meta for Developers → app **BotSuite** → **WhatsApp → Configuration**:
 
 | Campo | Valor |
 | ----- | ----- |
-| Callback URL | `https://<tu-url-de-ngrok>/webhooks/whatsapp` |
+| Callback URL | `https://<servicio>.onrender.com/webhooks/whatsapp` (o `https://<tu-url-de-ngrok>/webhooks/whatsapp` en local) |
 | Verify token | El mismo valor de `WHATSAPP_VERIFY_TOKEN` |
 
-Tocá **Verify and save**. La app tiene que estar corriendo y ngrok activo.
+Tocá **Verify and save**. La app tiene que estar corriendo (en Render, o local
+con ngrok activo).
 En los logs vas a ver `Webhook verification accepted`.
 
 ### 9. Suscribir el campo `messages`
@@ -380,6 +456,8 @@ mensajes reales ni consumen créditos.
 | El bot responde "Tuve un problema para responderte" | Error de OpenAI: sin crédito/cuota (`429`), modelo inválido, timeout. | Revisá Billing en platform.openai.com, `OPENAI_MODEL` y los logs. |
 | El bot responde "llegamos al límite" | Se alcanzó `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`. | Esperá al día siguiente o subí el tope. |
 | `prisma migrate status` falla | Falta `DATABASE_URL`. | Corré desde la raíz del proyecto, con el `.env` completo. |
+| Prisma da `P1001` con Neon | La compute estaba apagada y tardó en despertar. | Agregá `connect_timeout=15` (y `sslmode=require`) a las dos URLs. |
+| El deploy en Render falla al migrar | Falta `DATABASE_URL_UNPOOLED` o apunta al pooler. | Usá la URL **directa** de Neon (sin `-pooler`). |
 | `docker` no existe en WSL | Falta la integración con WSL. | Docker Desktop → Settings → Resources → WSL integration → activá tu distro. |
 | La app no arranca | Variable faltante o inválida, o contenido inválido. | El error dice qué variable o archivo falla. |
 
@@ -428,8 +506,10 @@ atender clientes reales falta:
 
 **Infraestructura**
 
-- [ ] Dominio HTTPS estable y hosting (en lugar de ngrok).
-- [ ] Postgres administrado con backups.
+- [x] Hosting con HTTPS estable (Render) y Postgres administrado (Neon), ver
+      [Deploy en Render + Neon](#deploy-en-render--neon).
+- [ ] Dominio propio.
+- [ ] Revisar la retención de backups de Neon para el plan elegido.
 - [ ] Monitoreo y alertas (handoffs abiertos, envíos `UNCERTAIN`/`FAILED`, errores de IA).
 - [ ] Límites de tasa en la API pública y en la de administración.
 
