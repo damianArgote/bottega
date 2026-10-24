@@ -235,5 +235,34 @@ describe('BotWorker', () => {
       expect(queue.nextRunnableAt).not.toHaveBeenCalled();
       expect(queue.claimNext).toHaveBeenCalledTimes(1);
     });
+
+    it('does not sleep the idle interval when a woken job fails while the round checks for due jobs', async () => {
+      const { worker, queue, bot, signal } = setup({
+        QUEUE_POLL_INTERVAL_MS: 1_000,
+      });
+      let releaseQuery!: (value: Date | null) => void;
+      queue.nextRunnableAt.mockReturnValueOnce(
+        new Promise((resolve) => (releaseQuery = resolve)),
+      );
+      bot.process.mockRejectedValue(new Error('openai down'));
+
+      worker.onApplicationBootstrap();
+      await vi.advanceTimersByTimeAsync(0);
+      // The round found no work and is waiting for nextRunnableAt.
+      queue.claimNext.mockResolvedValueOnce(job('j1'));
+      signal.notifyEnqueued();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(queue.fail).toHaveBeenCalledTimes(1);
+      // The query ran before the job was committed: it saw an empty queue.
+      releaseQuery(null);
+      await vi.advanceTimersByTimeAsync(0);
+      const claims = queue.claimNext.mock.calls.length;
+
+      // The retry is scheduled in seconds; the worker must look again soon.
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(queue.claimNext.mock.calls.length).toBeGreaterThan(claims);
+      await worker.onModuleDestroy();
+    });
   });
 });

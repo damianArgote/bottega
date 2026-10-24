@@ -35,6 +35,8 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private subscription: Subscription | undefined;
   private running = false;
   private roundInProgress = false;
+  /** A job was enqueued while the current round was running. */
+  private wokeDuringRound = false;
   private round: Promise<void> | undefined;
 
   constructor(
@@ -108,6 +110,7 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
       return;
     }
     if (this.roundInProgress) {
+      this.wokeDuringRound = true;
       // The running round reschedules after its own slots; these new
       // slots are tracked in `slots` and awaited on shutdown.
       void this.fillSlots();
@@ -128,6 +131,7 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
   /** One round: drain with idle slots, then schedule the next round. */
   private async runRound(): Promise<void> {
     this.roundInProgress = true;
+    this.wokeDuringRound = false;
     let delay: number;
     try {
       const processed = await Promise.all(this.fillSlots());
@@ -135,6 +139,12 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
         return;
       }
       delay = await this.nextDelay(processed.some((count) => count > 0));
+      if (this.wokeDuringRound) {
+        // Work arrived after this round measured the queue (it may have run
+        // and failed already, leaving a retry this round never saw): keep
+        // the regular pace so the next round measures again.
+        delay = Math.min(delay, this.config.get('QUEUE_POLL_INTERVAL_MS'));
+      }
     } finally {
       this.roundInProgress = false;
     }
