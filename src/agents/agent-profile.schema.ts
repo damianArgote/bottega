@@ -66,3 +66,14 @@ export const agentProfileSchema = z
   .strict();
 
 export type AgentProfileInput = z.infer<typeof agentProfileSchema>;
+
+/**
+ * The agent as the business owner edits it (backoffice): everything but
+ * `model` and `demoEnabled`, which stay with the admin API.
+ */
+export const agentSettingsSchema = agentProfileSchema.omit({
+  model: true,
+  demoEnabled: true,
+});
+
+export type AgentSettingsInput = z.infer<typeof agentSettingsSchema>;

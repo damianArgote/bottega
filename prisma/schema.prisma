@@ -128,11 +128,12 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  lines        Line[]
-  contacts     Contact[]
-  agentProfile AgentProfile?
-  leads        Lead[]
-  memberships  Membership[]
+  lines                Line[]
+  contacts             Contact[]
+  agentProfile         AgentProfile?
+  agentProfileVersions AgentProfileVersion[]
+  leads                Lead[]
+  memberships          Membership[]
 
   @@map("business")
 }
@@ -161,12 +162,34 @@ model AgentProfile {
   demoEnabled       Boolean  @default(false) @map("demo_enabled")
   /// Goes up on every change; recorded on AiUsage.
   version           Int      @default(1)
+  /// Who made the last change; null: the admin API, the seed or unknown.
+  updatedById       String?  @map("updated_by_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  updatedBy User?    @relation("AgentProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@map("agent_profile")
+}
+
+/// The agent profile as it was saved at each version, to compare and restore.
+model AgentProfileVersion {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  /// AgentProfile.version this snapshot was saved as.
+  version     Int
+  /// The profile's fields (agentProfileSchema), as saved.
+  snapshot    Json
+  /// null: the admin API, the seed or unknown.
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  createdBy User?    @relation("AgentProfileVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, version])
+  @@map("agent_profile_version")
 }
 
 /// A WhatsApp phone number of a business, with its own Meta credentials.
@@ -476,7 +499,9 @@ model User {
 
   memberships           Membership[]
   refreshTokens         RefreshToken[]
-  assignedConversations Conversation[] @relation("ConversationAssignee")
+  assignedConversations Conversation[]        @relation("ConversationAssignee")
+  agentProfileUpdates   AgentProfile[]        @relation("AgentProfileUpdatedBy")
+  agentProfileVersions  AgentProfileVersion[] @relation("AgentProfileVersionAuthor")
 
   @@map("app_user")
 }
@@ -487,6 +512,8 @@ model Membership {
   userId     String         @map("user_id") @db.Uuid
   businessId String         @map("business_id") @db.Uuid
   role       MembershipRole
+  /// false: deactivated in this business (403 there); other businesses unaffected.
+  active     Boolean        @default(true)
   createdAt  DateTime       @default(now()) @map("created_at")
   updatedAt  DateTime       @updatedAt @map("updated_at")
 

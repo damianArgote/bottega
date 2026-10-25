@@ -115,6 +115,15 @@ export function toAgentProfile(stored: StoredAgentProfile): AgentProfile {
 }
 
 /** A validated profile as Prisma write data (a null jsonb is DbNull). */
-export function toProfileData(input: AgentProfileInput) {
+export function toProfileData<
+  T extends Pick<AgentProfileInput, 'openingHours'>,
+>(input: T) {
   return { ...input, openingHours: input.openingHours ?? Prisma.DbNull };
+}
+
+/** What a version stores: the profile's fields, without its version. */
+export function toSnapshot(stored: StoredAgentProfile): Prisma.InputJsonObject {
+  const profile: Partial<AgentProfile> = { ...toAgentProfile(stored) };
+  delete profile.version;
+  return profile;
 }

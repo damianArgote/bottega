@@ -4,7 +4,7 @@ import {
   type AgentProfileInput,
   agentProfileSchema,
 } from './agent-profile.schema.js';
-import { toProfileData } from './agent-profile.js';
+import { toProfileData, toSnapshot } from './agent-profile.js';
 import type { OpeningHours } from './opening-hours.js';
 
 export const DEFAULT_PERSONA =
@@ -94,10 +94,21 @@ export async function seedDefaultAgentProfile(
   const profile = defaultAgentProfile(business.botName, commercialInfo);
 
   // Upsert so a concurrent first run cannot fail on the unique business id.
-  const { id } = await prisma.agentProfile.upsert({
+  const stored = await prisma.agentProfile.upsert({
     where: { businessId: business.id },
     create: { businessId: business.id, ...toProfileData(profile) },
     update: {},
   });
-  return { outcome: 'seeded', profileId: id };
+  // Its first version; skipped when a concurrent first run stored it.
+  await prisma.agentProfileVersion.createMany({
+    data: [
+      {
+        businessId: business.id,
+        version: stored.version,
+        snapshot: toSnapshot(stored),
+      },
+    ],
+    skipDuplicates: true,
+  });
+  return { outcome: 'seeded', profileId: stored.id };
 }
