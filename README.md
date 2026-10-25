@@ -537,14 +537,27 @@ bot está pausado, el bot no responde (el job termina `SKIPPED`). Cuando el bot
 pasa la conversación a una persona ("humano" o la herramienta de derivación),
 queda `PENDING` y sin asignar.
 
+### Configuración del negocio (backoffice)
+
+Rutas bajo `/inbox/businesses/<businessId>/settings/`, solo para los `OWNER`
+del negocio: un `AGENT` recibe `403`.
+
+| Ruta | Qué hace |
+| ---- | -------- |
+| `GET agent` | El perfil del agente, con su `version` y quién hizo el último cambio (`updatedBy`, `null` si vino de la API de admin o del seed). |
+| `PUT agent` | Reemplaza el perfil con los mismos campos y límites que `PUT /admin/businesses/<id>/agent`, **sin** `model` ni `demoEnabled` (mandarlos da `400`): esos dos siguen siendo solo de la API de admin y conservan su valor. Sube `version`. |
+| `GET agent/versions` | Las últimas 20 versiones, de la más nueva a la más vieja: `{ version, createdAt, author, changes }`, donde `changes` lista cada campo que cambió contra la versión anterior con su texto antes y después (las listas, como JSON). |
+| `POST agent/versions/<version>/restore` | Guarda esa versión como una nueva (conserva `model` y `demoEnabled`). `404` si no existe, `409` `VERSION_INVALID` si ya no pasa la validación. |
+| `POST agent/preview` | El mismo preview que la API de admin (no manda nada ni guarda nada). Hasta 20 por hora por negocio; después, `429`. El límite vive en memoria: se reinicia con cada deploy. |
+
+Cada cambio del perfil (backoffice, API de admin, restaurar o el seed) guarda
+una copia en `agent_profile_version`.
+
 ### Pendiente
 
 - Recuperar la contraseña por email (cambiarla con sesión ya se puede).
 - Segundo factor (2FA).
 - Entrar con una cuenta de otro servicio (SSO).
-
-Hasta entonces, una contraseña nueva se carga a mano y no hay forma de
-cambiarla por la API.
 
 ## API de administración
 
@@ -570,8 +583,8 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/conversations/<id>/resume` | Reanuda el bot. Por defecto resuelve los handoffs abiertos. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/messages` | Envía una respuesta escrita por una persona. |
 | `POST /admin/businesses/<id>/users` | Body `{ "email", "name", "password", "role" }` (`role`: `OWNER` o `AGENT`; contraseña de 10 caracteres o más). Da de alta a una persona del negocio: si el email es nuevo crea el usuario (email en minúsculas, contraseña con argon2id); si ya existe, solo le suma el negocio y no cambia su contraseña ni su nombre. `409` si ya pertenece al negocio. No hay registro público. |
-| `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
-| `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version`. Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
+| `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version` y `updatedBy`. `404` si el negocio no existe o no tiene perfil. |
+| `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version` y guarda una copia (ver [Configuración del negocio](#configuración-del-negocio-backoffice)). Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
 
 `limit` va de 1 a 200 (default 50). Errores: `400` parámetros inválidos,
