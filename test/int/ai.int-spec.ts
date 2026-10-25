@@ -10,6 +10,7 @@ import { AiUsageService, usageDay } from '../../src/ai/ai-usage.service.js';
 import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from '../../src/bot/ai-replies.js';
 import { AiReplyGenerator } from '../../src/bot/ai-reply-generator.js';
 import { renderReply } from '../../src/bot/replies.js';
+import { Prisma } from '../../src/generated/prisma/client.js';
 import { BotWorker } from '../../src/bot/worker.js';
 import { ContentService } from '../../src/content/content.service.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
@@ -89,6 +90,11 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   let worker: BotWorker;
   let seq = 0;
 
+  // Monday 12:00 in Buenos Aires: within BotSuite46's seeded opening hours,
+  // so no out-of-hours notice unless a test moves the clock.
+  const WITHIN_HOURS = new Date('2026-10-26T15:00:00Z');
+  let now = WITHIN_HOURS;
+
   const buildWorker = (cap = 50) => {
     const aiConfig = testConfig({
       BOT_REPLY_MODE: 'ai',
@@ -102,6 +108,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       prisma,
       content,
       config: aiConfig,
+      clock: () => now,
     });
     const bot = buildBotService(prisma, { sendText }, generator);
     return new BotWorker(
@@ -128,6 +135,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     sendText.mockImplementation(() =>
       Promise.resolve({ kind: 'sent', waMessageId: `wamid.out.${(seq += 1)}` }),
     );
+    now = WITHIN_HOURS;
     worker = buildWorker();
   });
 
@@ -508,5 +516,97 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       ['assistant', renderReply('RESET_COMMERCIAL', vars)],
       ['user', 'de nuevo'],
     ]);
+  });
+
+  describe('out-of-hours notice', () => {
+    const NOTICE = 'El equipo atiende de lunes a viernes de 9 a 18.';
+    // Monday 22:00 and Tuesday 20:00 in Buenos Aires (UTC-3).
+    const MONDAY_NIGHT = new Date('2026-10-27T01:00:00Z');
+    const TUESDAY_NIGHT = new Date('2026-10-27T23:00:00Z');
+    const setHours = (outOfHoursMessage: string | null = NOTICE) =>
+      prisma.agentProfile.updateMany({
+        data: {
+          outOfHoursMessage,
+          openingHours: { mon: ['09:00-18:00'], tue: ['09:00-18:00'] },
+        },
+      });
+    const noticeDay = async () =>
+      (await conversation()).outOfHoursNoticeOn?.toISOString().slice(0, 10);
+
+    it('answers out of hours and adds the notice once per day and conversation', async () => {
+      await setHours();
+      now = MONDAY_NIGHT;
+      respond
+        .mockResolvedValueOnce(text('¡Hola!'))
+        .mockResolvedValueOnce(text('Dale.'))
+        .mockResolvedValueOnce(text('Buenas.'));
+
+      await say('hola');
+      expect(lastSent()).toBe(`¡Hola!\n\n${NOTICE}`);
+      expect(await noticeDay()).toBe('2026-10-26');
+
+      await say('otra cosa');
+      expect(lastSent()).toBe('Dale.');
+
+      now = TUESDAY_NIGHT;
+      await say('volví');
+      expect(lastSent()).toBe(`Buenas.\n\n${NOTICE}`);
+      expect(await noticeDay()).toBe('2026-10-27');
+    });
+
+    it('adds nothing within hours, without a message or without hours', async () => {
+      respond.mockResolvedValue(text('¡Hola!'));
+
+      await setHours();
+      await say('hola');
+      expect(lastSent()).toBe('¡Hola!');
+
+      now = MONDAY_NIGHT;
+      await setHours(null);
+      await say('hola');
+      expect(lastSent()).toBe('¡Hola!');
+
+      await prisma.agentProfile.updateMany({
+        data: { outOfHoursMessage: NOTICE, openingHours: Prisma.DbNull },
+      });
+      await say('hola');
+      expect(lastSent()).toBe('¡Hola!');
+      expect(await noticeDay()).toBeUndefined();
+    });
+
+    it("uses the business's timezone", async () => {
+      await setHours();
+      await prisma.business.updateMany({ data: { timezone: 'UTC' } });
+      // 17:30 in Buenos Aires (open) but 20:30 in UTC (closed).
+      now = new Date('2026-10-26T20:30:00Z');
+      respond.mockResolvedValueOnce(text('¡Hola!'));
+
+      await say('hola');
+
+      expect(lastSent()).toBe(`¡Hola!\n\n${NOTICE}`);
+    });
+
+    it('does not add the notice inside the demo', async () => {
+      await setHours();
+      now = MONDAY_NIGHT;
+      await say('demo');
+      respond.mockResolvedValueOnce(text('¡Hola! Bienvenido.'));
+
+      await say('hola');
+
+      expect(lastSent()).toBe('¡Hola! Bienvenido.');
+      expect(await noticeDay()).toBeUndefined();
+    });
+
+    it('does not add the notice to the handoff reply', async () => {
+      await setHours();
+      now = MONDAY_NIGHT;
+      respond.mockResolvedValueOnce(tool('request_handoff', { reason: null }));
+
+      await say('quiero hablar con alguien');
+
+      expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
+      expect(await noticeDay()).toBeUndefined();
+    });
   });
 });

@@ -150,6 +150,8 @@ model AgentProfile {
   leadFields        Json     @default("[]") @map("lead_fields")
   handoffRules      String   @default("") @map("handoff_rules")
   outOfHoursMessage String?  @map("out_of_hours_message")
+  /// { mon: ["09:00-18:00"], ... } in Business.timezone; null: no notice.
+  openingHours      Json?    @map("opening_hours")
   /// OpenAI model id; null uses OPENAI_MODEL.
   model             String?
   demoEnabled       Boolean  @default(false) @map("demo_enabled")
@@ -216,17 +218,19 @@ model Contact {
 
 /// One thread per (line, contact): it is reopened, never split.
 model Conversation {
-  id              String           @id @default(uuid()) @db.Uuid
-  lineId          String           @map("line_id") @db.Uuid
-  contactId       String           @map("contact_id") @db.Uuid
-  mode            ConversationMode @default(COMMERCIAL)
-  paused          Boolean          @default(false)
-  pausedAt        DateTime?        @map("paused_at")
-  activeContextId String?          @unique @map("active_context_id") @db.Uuid
+  id                 String           @id @default(uuid()) @db.Uuid
+  lineId             String           @map("line_id") @db.Uuid
+  contactId          String           @map("contact_id") @db.Uuid
+  mode               ConversationMode @default(COMMERCIAL)
+  paused             Boolean          @default(false)
+  pausedAt           DateTime?        @map("paused_at")
+  /// Day (Business.timezone) the out-of-hours notice was last added.
+  outOfHoursNoticeOn DateTime?        @map("out_of_hours_notice_on") @db.Date
+  activeContextId    String?          @unique @map("active_context_id") @db.Uuid
   /// Last inbound message time, used to enforce the 24h customer service window.
-  lastInboundAt   DateTime?        @map("last_inbound_at")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  lastInboundAt      DateTime?        @map("last_inbound_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
 
   line            Line                  @relation(fields: [lineId], references: [id], onDelete: Restrict)
   contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Restrict)

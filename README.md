@@ -425,7 +425,10 @@ ni signos alrededor).
   `save_lead`, que se arma con los datos a pedir del perfil: solo acepta esas
   claves y valida teléfono y email. Los datos quedan en `Lead.data` por clave. Si el
   perfil está apagado (`enabled = false`) o el negocio todavía no tiene uno, la
-  IA no contesta; los comandos siguen funcionando.
+  IA no contesta; los comandos siguen funcionando. Fuera del horario del
+  perfil (`openingHours`, en `Business.timezone`) el bot responde igual y, si
+  hay `outOfHoursMessage`, lo agrega a su respuesta una vez por día y por
+  conversación. BotSuite46 arranca con lunes a viernes de 9 a 18.
 - **Demo:** atiende como la barbería ficticia. Lo que se registra ahí es
   ficticio y nunca se mezcla con el lead.
 - Cada modo tiene su propio historial: lo dicho en la demo no aparece en el
@@ -466,7 +469,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/conversations/<id>/resume` | Reanuda el bot. Por defecto resuelve los handoffs abiertos. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/messages` | Envía una respuesta escrita por una persona. |
 | `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
-| `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `model`, `demoEnabled`). Lo crea si no existe; cada `PUT` sube `version`. Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
+| `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version`. Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
 
 `limit` va de 1 a 200 (default 50). Errores: `400` parámetros inválidos,

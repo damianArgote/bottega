@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AgentProfile as StoredAgentProfile } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AgentProfileInput } from './agent-profile.schema.js';
-import { toAgentProfile } from './agent-profile.js';
+import { toAgentProfile, toProfileData } from './agent-profile.js';
 
 /** What the admin API returns for a business's agent. */
 export type AgentProfileView = AgentProfileInput & {
@@ -56,8 +56,8 @@ export class AgentsService {
     }
     const stored = await this.prisma.agentProfile.upsert({
       where: { businessId },
-      create: { businessId, ...input },
-      update: { ...input, version: { increment: 1 } },
+      create: { businessId, ...toProfileData(input) },
+      update: { ...toProfileData(input), version: { increment: 1 } },
     });
     return view(stored);
   }

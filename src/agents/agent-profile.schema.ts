@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { openingHoursSchema } from './opening-hours.js';
 
 export const MAX_PERSONA_LENGTH = 1_000;
 export const MAX_BUSINESS_INFO_LENGTH = 8_000;
@@ -55,6 +56,8 @@ export const agentProfileSchema = z
     /** When to hand the conversation to a person. */
     handoffRules: z.string().trim().max(2_000),
     outOfHoursMessage: text(500).nullable(),
+    /** When the business attends; null: no out-of-hours notice. */
+    openingHours: openingHoursSchema.nullable().default(null),
     /** OpenAI model id; null uses OPENAI_MODEL. */
     model: text(100).nullable(),
     /** Offers the fictitious barbershop demo ("demo" command). */

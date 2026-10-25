@@ -107,4 +107,33 @@ describe('agentProfileSchema', () => {
       [],
     );
   });
+
+  describe('openingHours', () => {
+    it('is optional and defaults to null', () => {
+      expect(agentProfileSchema.parse(valid).openingHours).toBeNull();
+    });
+
+    it('accepts ranges by weekday', () => {
+      expect(
+        issues({
+          ...valid,
+          openingHours: {
+            mon: ['09:00-13:00', '15:00-19:00'],
+            sat: ['10:00-14:00'],
+          },
+        }),
+      ).toEqual([]);
+    });
+
+    it.each([
+      ['a bad format', { mon: ['9-18'] }],
+      ['an end before the start', { mon: ['18:00-09:00'] }],
+      ['an hour over 23', { mon: ['09:00-24:30'] }],
+      ['an unknown day', { lunes: ['09:00-18:00'] }],
+      ['more than 4 ranges', { mon: Array(5).fill('09:00-10:00') }],
+      ['an empty day', { mon: [] }],
+    ])('rejects %s', (_label, openingHours) => {
+      expect(issues({ ...valid, openingHours })).not.toEqual([]);
+    });
+  });
 });
