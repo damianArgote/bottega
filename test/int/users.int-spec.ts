@@ -45,6 +45,7 @@ describe('Users and memberships (integration)', () => {
         email: 'ana@example.com',
         name: 'Ana',
         active: true,
+        mustChangePassword: false,
       },
       membership: { businessId: a, role: 'OWNER' },
       createdUser: true,

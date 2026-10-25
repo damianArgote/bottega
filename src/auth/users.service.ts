@@ -21,6 +21,7 @@ export const userView = {
   email: true,
   name: true,
   active: true,
+  mustChangePassword: true,
 } as const;
 
 /** Emails are stored and compared trimmed and in lowercase. */

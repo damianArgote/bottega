@@ -462,15 +462,17 @@ enum MembershipRole {
 /// A person who works a business's inbox. No public sign-up: created by
 /// POST /admin/businesses/:id/users. "user" is reserved in Postgres.
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
+  id                 String   @id @default(uuid()) @db.Uuid
   /// Stored trimmed and in lowercase (normalizeEmail).
-  email        String   @unique
+  email              String   @unique
   /// argon2id; never returned by the API.
-  passwordHash String   @map("password_hash")
-  name         String
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  passwordHash       String   @map("password_hash")
+  name               String
+  active             Boolean  @default(true)
+  /// Set for a temporary password: the web asks for a new one first.
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   memberships           Membership[]
   refreshTokens         RefreshToken[]
