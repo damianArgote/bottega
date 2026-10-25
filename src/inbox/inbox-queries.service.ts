@@ -72,10 +72,15 @@ function decodeCursor<T>(cursor: string, schema: z.ZodType<T>): T {
 }
 
 const listCursorSchema = z.object({ at: z.iso.datetime(), id: z.uuid() });
+const txid = z.string().regex(/^\d{1,19}$/);
 const changesCursorSchema = z.object({
-  t: z.string().regex(/^\d{1,19}$/),
+  t: txid,
   i: z.uuid().optional(),
+  /** Lowest xmin seen while paging (see changes()). */
+  f: txid.optional(),
 });
+
+const minTxid = (a: string, b: string) => (BigInt(a) < BigInt(b) ? a : b);
 const seqSchema = z.string().regex(/^\d{1,19}$/, 'must be a message seq');
 
 /** Reads of the inbox, always scoped to the route's business. */
@@ -157,7 +162,8 @@ export class InboxQueriesService {
    * so a transaction that started earlier and commits later is read next
    * time instead of being skipped. Rows may repeat: the web keeps the
    * highest version per id. When the page is cut, the cursor is the last
-   * row returned, so the next call continues right after it. One statement,
+   * row returned, so the next call continues right after it, and it also
+   * carries the lowest xmin seen so the chain's end restarts from there. One statement,
    * no session state: safe behind Neon's pooler in transaction mode.
    */
   async changes(access: BusinessAccess, cursor: string | undefined) {
@@ -186,6 +192,11 @@ export class InboxQueriesService {
       FROM snap LEFT JOIN changed ON true
       ORDER BY changed.change_txid, changed.id`;
     const xmin = rows[0]!.xmin;
+    // While a cut page chain continues after its last row, older
+    // transactions still running may commit below it: the chain carries the
+    // lowest xmin it saw and, once it ends, resumes from there (rows may
+    // repeat, never be lost).
+    const floor = from.f ? minTxid(from.f, xmin) : xmin;
     const changed = rows.filter(
       (r): r is { xmin: string; id: string; txid: string } => r.id !== null,
     );
@@ -204,7 +215,7 @@ export class InboxQueriesService {
         return row ? [toItem(row)] : [];
       }),
       cursor: encodeCursor(
-        hasMore && last ? { t: last.txid, i: last.id } : { t: xmin },
+        hasMore && last ? { t: last.txid, i: last.id, f: floor } : { t: floor },
       ),
       hasMore,
     };

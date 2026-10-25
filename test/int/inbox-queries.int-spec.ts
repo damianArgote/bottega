@@ -324,6 +324,46 @@ describe('Inbox reads (integration)', () => {
       expect(after.conversations.map((c) => c.id)).toContain(early);
     });
 
+    it('a page cut while an older transaction is still open does not lose it', async () => {
+      await inbound('5491100000001');
+      const early = await idOf('5491100000001');
+      await bulk(205);
+      const { cursor: start } = await queries.changes(access, undefined);
+
+      let releaseEarly!: () => void;
+      const hold = new Promise<void>((resolve) => (releaseEarly = resolve));
+      let earlyStarted!: () => void;
+      const started = new Promise<void>((resolve) => (earlyStarted = resolve));
+      const earlyTx = prisma.$transaction(
+        async (tx) => {
+          await tx.conversation.update({
+            where: { id: early },
+            data: { paused: true },
+          });
+          earlyStarted();
+          await hold;
+        },
+        { timeout: 10_000 },
+      );
+      await started;
+      // A burst after the early write: one transaction, more than a page.
+      await prisma.$executeRaw`UPDATE conversation SET unread_count = 7 WHERE id <> ${early}::uuid`;
+
+      const seen = new Set<string>();
+      let page = await queries.changes(access, start);
+      expect(page.hasMore).toBe(true);
+      page.conversations.forEach((c) => seen.add(c.id));
+      releaseEarly();
+      await earlyTx;
+      for (let i = 0; i < 5; i += 1) {
+        page = await queries.changes(access, page.cursor);
+        page.conversations.forEach((c) => seen.add(c.id));
+      }
+
+      expect(seen.has(early)).toBe(true);
+      expect(seen.size).toBe(206);
+    });
+
     it('only returns conversations of the business', async () => {
       const other = await createLine(prisma, {
         slug: 'lola',

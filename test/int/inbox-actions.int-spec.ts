@@ -225,6 +225,25 @@ describe('Inbox conversation actions (integration)', () => {
     ]);
   });
 
+  it('hand back and resolve close the open handoff requests', async () => {
+    await say('humano');
+    const { id } = await conversation();
+    await actions.take(anaAccess, ana, id, { force: false });
+
+    await actions.handBack(anaAccess, ana, id);
+
+    expect(
+      await prisma.handoffRequest.findMany({ select: { status: true } }),
+    ).toEqual([{ status: 'RESOLVED' }]);
+    expect((await conversation()).pausedAt).toBeNull();
+
+    await say('humano');
+    await actions.resolve(anaAccess, ana, id);
+    expect(
+      await prisma.handoffRequest.count({ where: { status: 'OPEN' } }),
+    ).toBe(0);
+  });
+
   it('a bot handoff leaves it pending, unassigned and quiet, with a system message', async () => {
     await say('humano');
 
