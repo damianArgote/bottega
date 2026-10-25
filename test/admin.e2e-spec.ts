@@ -5,7 +5,8 @@ import { type App } from 'supertest/types.js';
 import { AdminService } from '../src/admin/admin.service.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { WHATSAPP_CLIENT } from '../src/whatsapp/whatsapp.client.js';
+import { WHATSAPP_CLIENT_FACTORY } from '../src/whatsapp/whatsapp.client.js';
+import { fixedClientFactory } from './fixtures/client-factory.js';
 
 // HTTP contract of the admin API (guard and validation). Behavior against a
 // real database is covered in test/int/admin.int-spec.ts.
@@ -30,8 +31,8 @@ describe('Admin API (e2e)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useValue({})
-      .overrideProvider(WHATSAPP_CLIENT)
-      .useValue({ sendText: vi.fn() })
+      .overrideProvider(WHATSAPP_CLIENT_FACTORY)
+      .useValue(fixedClientFactory({ sendText: vi.fn() }))
       .overrideProvider(AdminService)
       .useValue(admin)
       .compile();

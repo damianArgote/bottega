@@ -95,7 +95,7 @@ export class ConversationsService {
         continue;
       }
       if (event.kind === 'status') {
-        await this.applyStatus(event);
+        await this.applyStatus(event, line);
       } else {
         await this.recordInbound(event, line);
       }
@@ -251,11 +251,14 @@ export class ConversationsService {
   }
 
   /**
-   * Applies a delivery status to the outbound message with that WhatsApp id.
-   * Unknown ids, unknown statuses and backward moves are ignored. Never
-   * creates jobs.
+   * Applies a delivery status to the outbound message with that WhatsApp id
+   * (on `line` only, when given). Unknown ids, unknown statuses, backward
+   * moves and messages of other lines are ignored. Never creates jobs.
    */
-  async applyStatus(update: StatusUpdate): Promise<ApplyStatusResult> {
+  async applyStatus(
+    update: StatusUpdate,
+    line?: LineRef,
+  ): Promise<ApplyStatusResult> {
     const target = STATUS_MAP[update.status];
     if (!target) {
       this.logger.debug(`Ignored unknown status value for an outbound message`);
@@ -271,6 +274,9 @@ export class ConversationsService {
         waMessageId: update.waMessageId,
         direction: 'OUTBOUND',
         status: { in: ALLOWED_PREVIOUS[target] ?? [] },
+        // A line may only update its own messages, even with a wamid of
+        // another line's message.
+        ...(line ? { conversation: { lineId: line.lineId } } : {}),
       },
       data: { status: target, ...(errorCode ? { errorCode } : {}) },
     });

@@ -3,12 +3,15 @@ import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { type App } from 'supertest/types.js';
+import { fixedClientFactory } from './fixtures/client-factory.js';
 import { AppModule } from '../src/app.module.js';
+import { AppConfigService } from '../src/config/app-config.service.js';
+import { parseEnv } from '../src/config/env.schema.js';
 import { LineCredentialsService } from '../src/lines/line-credentials.service.js';
 import { LinesService, type WebhookLine } from '../src/lines/lines.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { WebhookEventsService } from '../src/whatsapp/webhook-events.service.js';
-import { WHATSAPP_CLIENT } from '../src/whatsapp/whatsapp.client.js';
+import { WHATSAPP_CLIENT_FACTORY } from '../src/whatsapp/whatsapp.client.js';
 
 // HTTP-level contract only (verification, signatures, status codes, what is
 // handed to storage). Parsing, routing, persistence, dedupe, reprocessing and
@@ -79,8 +82,8 @@ describe('WhatsApp webhook (e2e)', () => {
       .useValue({ receive })
       .overrideProvider(LinesService)
       .useValue({ findByWebhookKey })
-      .overrideProvider(WHATSAPP_CLIENT)
-      .useValue({ sendText })
+      .overrideProvider(WHATSAPP_CLIENT_FACTORY)
+      .useValue(fixedClientFactory({ sendText }))
       .compile();
 
     app = moduleRef.createNestApplication({ rawBody: true, logger: false });
@@ -294,6 +297,61 @@ describe('WhatsApp webhook (e2e)', () => {
       await verifyLine('unknown-key-000000000000', LINE_VERIFY_TOKEN).expect(
         404,
       );
+    });
+  });
+
+  describe('keyless route without the default line variables', () => {
+    let bare: INestApplication<App>;
+
+    beforeEach(async () => {
+      const env = parseEnv(process.env);
+      const withoutMeta: Record<string, unknown> = {
+        ...env,
+        META_APP_SECRET: undefined,
+        WHATSAPP_VERIFY_TOKEN: undefined,
+        WHATSAPP_ACCESS_TOKEN: undefined,
+        WHATSAPP_PHONE_NUMBER_ID: undefined,
+      };
+      const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+        .overrideProvider(AppConfigService)
+        .useValue({ get: (key: string) => withoutMeta[key] })
+        .overrideProvider(PrismaService)
+        .useValue({})
+        .overrideProvider(WebhookEventsService)
+        .useValue({ receive })
+        .overrideProvider(LinesService)
+        .useValue({ findByWebhookKey })
+        .compile();
+      bare = moduleRef.createNestApplication({ rawBody: true, logger: false });
+      await bare.init();
+    });
+
+    afterEach(async () => {
+      await bare.close();
+    });
+
+    it('answers 404 to the handshake', async () => {
+      await request(bare.getHttpServer())
+        .get(PATH)
+        .query({
+          'hub.mode': 'subscribe',
+          'hub.verify_token': VERIFY_TOKEN,
+          'hub.challenge': '1',
+        })
+        .expect(404);
+    });
+
+    it('answers 404 to deliveries and stores nothing', async () => {
+      const raw = textMessage('wamid.none', 'hola');
+
+      await request(bare.getHttpServer())
+        .post(PATH)
+        .set('Content-Type', 'application/json')
+        .set('X-Hub-Signature-256', sign(raw))
+        .send(raw)
+        .expect(404);
+
+      expect(receive).not.toHaveBeenCalled();
     });
   });
 });

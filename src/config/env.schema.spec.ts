@@ -71,12 +71,35 @@ describe('parseEnv', () => {
     expect(env.AI_MAX_INTERACTIONS_PER_USER_PER_DAY).toBe(5);
   });
 
+  it('starts without the default line Meta variables', () => {
+    const env = parseEnv(
+      validEnv({
+        META_APP_SECRET: undefined,
+        WHATSAPP_VERIFY_TOKEN: undefined,
+        WHATSAPP_ACCESS_TOKEN: undefined,
+        WHATSAPP_PHONE_NUMBER_ID: undefined,
+      }),
+    );
+
+    expect(env.META_APP_SECRET).toBeUndefined();
+    expect(env.WHATSAPP_VERIFY_TOKEN).toBeUndefined();
+    expect(env.WHATSAPP_ACCESS_TOKEN).toBeUndefined();
+    expect(env.WHATSAPP_PHONE_NUMBER_ID).toBeUndefined();
+  });
+
   it.each([
-    'DATABASE_URL',
     'META_APP_SECRET',
     'WHATSAPP_VERIFY_TOKEN',
     'WHATSAPP_ACCESS_TOKEN',
     'WHATSAPP_PHONE_NUMBER_ID',
+  ])('treats a blank %s as not set', (key) => {
+    const env = parseEnv(validEnv({ [key]: '   ' }));
+
+    expect(env[key as keyof typeof env]).toBeUndefined();
+  });
+
+  it.each([
+    'DATABASE_URL',
     'WHATSAPP_GRAPH_API_VERSION',
     'ADMIN_API_KEY',
     'TOKEN_ENCRYPTION_KEY',
@@ -87,11 +110,11 @@ describe('parseEnv', () => {
   });
 
   it('rejects an empty required value', () => {
-    const error = captureError(validEnv({ META_APP_SECRET: '   ' }));
+    const error = captureError(validEnv({ ADMIN_API_KEY: '   ' }));
 
-    expect(error.problems).toEqual([
-      'META_APP_SECRET: META_APP_SECRET is required',
-    ]);
+    expect(error.problems).toContain(
+      'ADMIN_API_KEY: ADMIN_API_KEY is required',
+    );
   });
 
   it.each(['26.0', 'v26', 'v26.0.1', 'latest'])(

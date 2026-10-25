@@ -3,12 +3,13 @@ import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { type App } from 'supertest/types.js';
+import { fixedClientFactory } from '../fixtures/client-factory.js';
 import { AppModule } from '../../src/app.module.js';
 import { AppConfigService } from '../../src/config/app-config.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import {
   type SendOutcome,
-  WHATSAPP_CLIENT,
+  WHATSAPP_CLIENT_FACTORY,
 } from '../../src/whatsapp/whatsapp.client.js';
 import { resetDb, testConfig } from './helpers.js';
 
@@ -70,8 +71,8 @@ describe('Idle worker wake-up (integration)', () => {
           QUEUE_IDLE_POLL_INTERVAL_MS: 600_000,
         }),
       )
-      .overrideProvider(WHATSAPP_CLIENT)
-      .useValue({ sendText })
+      .overrideProvider(WHATSAPP_CLIENT_FACTORY)
+      .useValue(fixedClientFactory({ sendText }))
       .compile();
     prisma = moduleRef.get(PrismaService);
     await resetDb(prisma);

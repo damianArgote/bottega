@@ -102,14 +102,20 @@ mal formato, no inicia y te dice **qué variable** falla (nunca muestra su valor
 | `PORT` | No | `3000` | Puerto HTTP. |
 | `NODE_ENV` | No | `development` | `development`, `test` o `production`. |
 
-**WhatsApp / Meta**
+**WhatsApp / Meta (línea por defecto)**
+
+\* Estas cuatro describen la **línea por defecto** (BotSuite46): la ruta sin
+clave `/webhooks/whatsapp` y el negocio que crea `npm run seed:default-line`.
+Si faltan, la app arranca igual y esa ruta responde `404`. Cada línea guarda
+sus propias credenciales (cifradas) en la base: la app manda los mensajes con
+el token de la línea de cada conversación, no con el del entorno.
 
 | Variable | Obligatoria | Default | Qué es y dónde se consigue |
 | -------- | ----------- | ------- | -------------------------- |
-| `META_APP_SECRET` | Sí | — | Secreto de la app. Meta for Developers → tu app → **App settings → Basic → App secret**. Se usa para validar la firma de cada webhook. |
-| `WHATSAPP_VERIFY_TOKEN` | Sí | — | Un texto **que inventás vos** (por ejemplo `openssl rand -hex 16`). Lo vas a pegar también en Meta al configurar el webhook. **No es el access token.** |
-| `WHATSAPP_ACCESS_TOKEN` | Sí | — | Token para enviar mensajes. WhatsApp → **API Setup** → token temporal. **Vence en unas horas** y hay que regenerarlo. Para algo durable: token de un **System User** (Business Settings), con la expiración que elijas. |
-| `WHATSAPP_PHONE_NUMBER_ID` | Sí | — | El **ID** del número (WhatsApp → API Setup). **No es el número de teléfono.** |
+| `META_APP_SECRET` | No* | — | Secreto de la app. Meta for Developers → tu app → **App settings → Basic → App secret**. Se usa para validar la firma de cada webhook. |
+| `WHATSAPP_VERIFY_TOKEN` | No* | — | Un texto **que inventás vos** (por ejemplo `openssl rand -hex 16`). Lo vas a pegar también en Meta al configurar el webhook. **No es el access token.** |
+| `WHATSAPP_ACCESS_TOKEN` | No* | — | Token para enviar mensajes. WhatsApp → **API Setup** → token temporal. **Vence en unas horas** y hay que regenerarlo. Para algo durable: token de un **System User** (Business Settings), con la expiración que elijas. |
+| `WHATSAPP_PHONE_NUMBER_ID` | No* | — | El **ID** del número (WhatsApp → API Setup). **No es el número de teléfono.** |
 | `WHATSAPP_GRAPH_API_VERSION` | Sí | — | Versión de la Graph API, con formato `v26.0`. Revisá la vigente en el [changelog](https://developers.facebook.com/docs/graph-api/changelog). |
 | `WHATSAPP_HTTP_TIMEOUT_MS` | No | `10000` | Tiempo máximo de cada envío a Meta. Si se agota, el envío queda "incierto" y **no se reenvía**. |
 
@@ -293,7 +299,8 @@ número que llega por la ruta de una línea se descarta con un aviso en los logs
 tal cual llegó (`webhook_event`) antes de responder `200`, y se procesa en el
 momento. Si el procesamiento falla (por ejemplo, la base no responde a mitad
 de camino), el evento queda pendiente y se reintenta solo cada 30 s, hasta 10
-intentos. Solo si no se puede guardar el evento se responde `5xx` y Meta lo
+intentos. Los reintentos corren en la instancia que tiene el worker
+(`WORKER_ENABLED=true`). Solo si no se puede guardar el evento se responde `5xx` y Meta lo
 reenvía.
 
 ### 9. Suscribir el campo `messages`
