@@ -1,3 +1,9 @@
+import { AdminService } from '../../src/admin/admin.service.js';
+import { EchoReplyGenerator } from '../../src/bot/reply-generator.js';
+import { BotWorker } from '../../src/bot/worker.js';
+import { ContextService } from '../../src/conversations/context.service.js';
+import { QueueService } from '../../src/queue/queue.service.js';
+import { fixedClientFactory } from '../fixtures/client-factory.js';
 import { randomBytes } from 'node:crypto';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import { CredentialsCipher } from '../../src/lines/credentials-cipher.js';
@@ -9,6 +15,7 @@ import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import { QueueSignal } from '../../src/queue/queue-signal.js';
 import {
   DEFAULT_PHONE_NUMBER_ID,
+  buildBotService,
   connectPrisma,
   createLine,
   testConfig,
@@ -174,7 +181,7 @@ describe('Businesses, lines and contacts (integration)', () => {
       expect(await prisma.message.count()).toBe(2);
     });
 
-    it('stores the wa_id on the contact only, not on the conversation', async () => {
+    it('stores the wa_id on the contact', async () => {
       const a = await createLine(prisma, { slug: 'a', phoneNumberId: '111' });
 
       await conversations.recordInbound(textEvent('wamid.1', USER), a);
@@ -182,8 +189,55 @@ describe('Businesses, lines and contacts (integration)', () => {
       const thread = await prisma.conversation.findFirstOrThrow({
         include: { contact: true },
       });
-      expect(thread.waId).toBeNull();
       expect(thread.contact.waId).toBe(USER);
+    });
+
+    it('keeps working once conversation.wa_id is dropped (next migration)', async () => {
+      const a = await createLine(prisma, { slug: 'a', phoneNumberId: '111' });
+      const sent: Array<{ to: string }> = [];
+      const worker = new BotWorker(
+        testConfig(),
+        new QueueService(prisma, testConfig()),
+        buildBotService(
+          prisma,
+          {
+            sendText: (to) => {
+              sent.push({ to });
+              return Promise.resolve({
+                kind: 'sent',
+                waMessageId: 'wamid.out',
+              });
+            },
+          },
+          new EchoReplyGenerator(),
+        ),
+        new QueueSignal(),
+      );
+      await prisma.$executeRaw`ALTER TABLE conversation DROP COLUMN wa_id`;
+      try {
+        const result = await conversations.recordInbound(
+          { ...textEvent('wamid.1', USER), timestamp: new Date() },
+          a,
+        );
+        await worker.drain();
+        const admin = new AdminService(
+          prisma,
+          new ContextService(prisma),
+          fixedClientFactory({
+            sendText: () =>
+              Promise.resolve({ kind: 'sent', waMessageId: 'wamid.h' }),
+          }),
+        );
+        const view = await admin.getConversation(
+          result.outcome === 'created' ? result.conversationId : '',
+          10,
+        );
+
+        expect(sent).toEqual([{ to: USER }]);
+        expect(view.conversation.waId).toBe(USER);
+      } finally {
+        await prisma.$executeRaw`ALTER TABLE conversation ADD COLUMN wa_id text`;
+      }
     });
 
     it('stores the profile name Meta sends on the contact', async () => {

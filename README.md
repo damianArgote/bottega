@@ -281,6 +281,12 @@ schema se hace en dos deploys:
    nuevos). La versión anterior sigue funcionando.
 2. **Contraer:** en un deploy posterior, la migración borra lo viejo.
 
+Para **borrar una columna** hacen falta dos deploys más: primero se saca el
+campo del `schema.prisma` (sin migración: la columna queda en la base, sin
+uso) y recién en el siguiente se borra. Prisma pide cada columna de su modelo
+por nombre en cada `SELECT`, así que la versión anterior falla si la columna
+desaparece mientras todavía la tiene en su schema, aunque no la use.
+
 Antes de mergear a `main`:
 
 - Cargá en Render las variables obligatorias nuevas: si falta una, la
@@ -294,7 +300,8 @@ Así se hizo el paso a negocios y líneas (prompt 02):
 | ------ | --------- | -------- |
 | 1 | `20261025010000_business_lines_contacts`, `20261025020000_webhook_events` | Tablas nuevas, `conversation.line_id`/`contact_id` nullable; el seed crea la línea por defecto y asigna las conversaciones existentes. |
 | 2 | `20261025030000_conversation_line_required` | `line_id`/`contact_id` obligatorios (falla con un mensaje claro si queda alguna sin asignar); `wa_id` deja de usarse y pasa a nullable. |
-| 3 | (siguiente) | Borra `conversation.wa_id`. |
+| 3 | (ninguna) | Saca `waId` del modelo `Conversation`: la columna queda en la base, sin uso. |
+| 4 | (siguiente) | Borra la columna `conversation.wa_id`. |
 
 **Si el deploy 2 frena por conversaciones sin asignar:** el seed de esta
 versión ya no las asigna. Corré el de la versión anterior (desde `main` antes
