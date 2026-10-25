@@ -1,3 +1,4 @@
+import { botMayReply } from '../inbox/conversation-state.js';
 import {
   recordOutboundActivity,
   touchConversations,
@@ -33,7 +34,8 @@ import {
 export { JobError };
 
 export interface ProcessResult {
-  outcome: 'paused' | 'done';
+  /** skipped: no reply, a person attends it or the bot is paused. */
+  outcome: 'skipped' | 'done';
   sent: number;
   uncertain: number;
   failed: number;
@@ -99,11 +101,11 @@ export class BotService {
     // sends what was persisted, never re-generating or re-applying a command.
     if (inbound.status === MessageStatus.RECEIVED) {
       const phase = await this.generateReplies(job, inbound, conversation);
-      if (phase === 'paused') {
+      if (phase === 'skipped') {
         this.logger.log(
-          `Job ${job.id}: conversation paused, no reply to ${to}`,
+          `Job ${job.id}: a person attends the conversation (or the bot is paused), no reply to ${to}`,
         );
-        return { outcome: 'paused', sent: 0, uncertain: 0, failed: 0 };
+        return { outcome: 'skipped', sent: 0, uncertain: 0, failed: 0 };
       }
     }
 
@@ -134,20 +136,20 @@ export class BotService {
    * reply generator, whose planned tool effects (lead, demo request,
    * handoff) are applied here (ToolEffectsService). Either way the replies,
    * the transition or effects and the inbound PROCESSED marker commit in one
-   * transaction. A paused conversation (also
-   * re-checked under the row lock) stores the message with no reply and
-   * runs no command.
+   * transaction. A conversation a person attends (assigned) or with the bot
+   * paused (also re-checked under the row lock) stores the message with no
+   * reply and runs no command.
    */
   private async generateReplies(
     job: ClaimedJob,
     inbound: Message,
     conversation: Conversation,
-  ): Promise<'paused' | 'done'> {
+  ): Promise<'skipped' | 'done'> {
     const command =
       inbound.type === MessageType.TEXT ? matchCommand(inbound.content) : null;
 
     let generated: GeneratedOutcome | null = null;
-    if (!conversation.paused && !command) {
+    if (botMayReply(conversation) && !command) {
       const contextId = conversation.activeContextId ?? inbound.contextId;
       if (!contextId) {
         throw new JobError('active_context_missing', false);
@@ -168,7 +170,8 @@ export class BotService {
 
     return this.prisma.$transaction(async (tx) => {
       const locked = await this.contexts.lock(tx, conversation.id);
-      const paused = conversation.paused || locked.paused;
+      // Re-checked under the row lock: someone may have taken it meanwhile.
+      const paused = !botMayReply(conversation) || !botMayReply(locked);
       const { count } = await tx.message.updateMany({
         where: { id: inbound.id, status: MessageStatus.RECEIVED },
         // A message processed after a context change belongs to the context
@@ -183,7 +186,7 @@ export class BotService {
         throw new JobError('generate_conflict', true);
       }
       if (paused) {
-        return 'paused';
+        return 'skipped';
       }
 
       const { contextId, replies } = command

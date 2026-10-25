@@ -2,6 +2,7 @@ import type { AiInputItem } from '../ai/ai.provider.js';
 import {
   MessageDirection,
   MessageStatus,
+  MessageType,
   type Message,
   type Prisma,
 } from '../generated/prisma/client.js';
@@ -19,6 +20,8 @@ export function historyWhere(
   return {
     contextId,
     id: { not: currentMessageId },
+    // Inbox notes such as "Damián tomó la conversación" are not chat.
+    type: { not: MessageType.SYSTEM },
     OR: [
       { direction: MessageDirection.INBOUND, status: MessageStatus.PROCESSED },
       {

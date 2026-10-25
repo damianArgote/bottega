@@ -1,9 +1,15 @@
 import {
+  botMayReply,
   type ConversationState,
+  handBack,
+  onHandoff,
   onInbound,
   onOutbound,
   PREVIEW_MAX_LENGTH,
   previewOf,
+  release,
+  resolve,
+  take,
 } from './conversation-state.js';
 
 const NOW = new Date('2026-10-25T12:00:00Z');
@@ -86,6 +92,36 @@ describe('onOutbound', () => {
     expect(onOutbound({ text: '¡Hola!\nTe ayudo', now: NOW })).toEqual({
       lastMessageAt: NOW,
       lastMessagePreview: '¡Hola! Te ayudo',
+    });
+  });
+});
+
+describe('who attends', () => {
+  it('the bot replies only when nobody is assigned and it is not paused', () => {
+    expect(botMayReply({ assignedToId: null, paused: false })).toBe(true);
+    expect(botMayReply({ assignedToId: 'u1', paused: false })).toBe(false);
+    expect(botMayReply({ assignedToId: null, paused: true })).toBe(false);
+  });
+
+  it('a bot handoff leaves the conversation pending and unassigned', () => {
+    expect(onHandoff()).toEqual({ status: 'PENDING', assignedToId: null });
+  });
+
+  it('take assigns and opens; release unassigns and keeps the bot quiet', () => {
+    expect(take('u1')).toEqual({ assignedToId: 'u1', status: 'OPEN' });
+    expect(release()).toEqual({ assignedToId: null, paused: true });
+  });
+
+  it('hand back returns it to the bot; resolve closes it', () => {
+    expect(handBack()).toEqual({
+      assignedToId: null,
+      paused: false,
+      status: 'OPEN',
+    });
+    expect(resolve()).toEqual({
+      status: 'RESOLVED',
+      assignedToId: null,
+      paused: false,
     });
   });
 });

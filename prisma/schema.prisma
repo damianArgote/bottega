@@ -96,6 +96,9 @@ enum JobStatus {
   PROCESSING
   COMPLETED
   FAILED
+  /// Done without a reply: a person attends the conversation (assigned) or
+  /// the bot is paused.
+  SKIPPED
 
   @@map("job_status")
 }

@@ -501,8 +501,17 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | Método y ruta | Qué hace |
 | ------------- | -------- |
 | `GET /inbox/businesses/<businessId>` | El negocio (`id`, `name`, `slug`) y el rol del usuario en él. |
+| `POST .../conversations/<id>/take` | Body `{ "force"?: true }`. La toma quien la pide (pasa a `OPEN`). `409` con `code: "ALREADY_TAKEN"` si la tiene otra persona, salvo `force`, que solo puede usar un `OWNER` (si no, `403`). |
+| `POST .../conversations/<id>/release` | La suelta: queda sin asignar y el bot sigue callado. Solo quien la tiene o un `OWNER` (si no, `409`). |
+| `POST .../conversations/<id>/handback` | "Devolver al bot": sin asignar, el bot vuelve a responder y pasa a `OPEN`. |
+| `POST .../conversations/<id>/resolve` | La resuelve (`RESOLVED`): sin asignar y con el bot activo; un mensaje nuevo del usuario la vuelve a abrir. |
 
-Las conversaciones y los mensajes llegan con el prompt 04.
+Cada acción devuelve `{ id, status, assignedTo, paused, version }` y deja un
+mensaje de sistema en el hilo ("Ana tomó la conversación"), que nunca se manda
+por WhatsApp ni le llega al modelo. Mientras alguien la tiene asignada, o el
+bot está pausado, el bot no responde (el job termina `SKIPPED`). Cuando el bot
+pasa la conversación a una persona ("humano" o la herramienta de derivación),
+queda `PENDING` y sin asignar.
 
 ### Pendiente
 
