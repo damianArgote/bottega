@@ -8,6 +8,7 @@ const SECRETS = {
   ADMIN_API_KEY: 'admin-key-value-should-never-leak-0123456789',
   // 32 random bytes, base64.
   TOKEN_ENCRYPTION_KEY: 'Q2xhdmVEZVBydWViYU5vVXNhckVuUHJvZHVjY2lvbiE=',
+  JWT_SECRET: 'jwt-secret-value-should-never-leak-0123456789',
 };
 
 function validEnv(
@@ -22,6 +23,8 @@ function validEnv(
     WHATSAPP_GRAPH_API_VERSION: 'v26.0',
     ADMIN_API_KEY: SECRETS.ADMIN_API_KEY,
     TOKEN_ENCRYPTION_KEY: SECRETS.TOKEN_ENCRYPTION_KEY,
+    JWT_SECRET: SECRETS.JWT_SECRET,
+    INBOX_ORIGIN: 'https://inbox.example.com',
     ...overrides,
   };
 }
@@ -103,6 +106,8 @@ describe('parseEnv', () => {
     'WHATSAPP_GRAPH_API_VERSION',
     'ADMIN_API_KEY',
     'TOKEN_ENCRYPTION_KEY',
+    'JWT_SECRET',
+    'INBOX_ORIGIN',
   ])('rejects a missing %s', (key) => {
     const error = captureError(validEnv({ [key]: undefined }));
 
@@ -154,6 +159,34 @@ describe('parseEnv', () => {
     expect(error.problems).toEqual([
       'ADMIN_API_KEY: ADMIN_API_KEY must be at least 32 characters',
     ]);
+  });
+
+  it('rejects a JWT secret shorter than 32 characters', () => {
+    const error = captureError(validEnv({ JWT_SECRET: 'short-secret' }));
+
+    expect(error.problems).toEqual([
+      'JWT_SECRET: JWT_SECRET must be at least 32 characters',
+    ]);
+  });
+
+  it.each([
+    'inbox.example.com',
+    'https://inbox.example.com/',
+    'https://inbox.example.com/app',
+    'ftp://inbox.example.com',
+  ])('rejects an INBOX_ORIGIN that is not an origin (%s)', (value) => {
+    const error = captureError(validEnv({ INBOX_ORIGIN: value }));
+
+    expect(error.problems).toEqual([
+      'INBOX_ORIGIN: INBOX_ORIGIN must be an origin like https://inbox.example.com (scheme, host and optional port, no path)',
+    ]);
+  });
+
+  it('accepts a local INBOX_ORIGIN with a port', () => {
+    expect(
+      parseEnv(validEnv({ INBOX_ORIGIN: 'http://localhost:4200' }))
+        .INBOX_ORIGIN,
+    ).toBe('http://localhost:4200');
   });
 
   it('rejects an unknown bot reply mode', () => {

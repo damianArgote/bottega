@@ -27,8 +27,8 @@ Quoted verbatim from the prompt (Spanish). Assumptions are marked.
 ## Tasks
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
-| T1 | S1, S2, S8, A1 | inline | done (RED→GREEN password-hasher spec, users int spec, admin e2e) | |
-| T2 | S3, S4, S5, S6, S7 (SessionGuard, @CurrentUser), A4-A7 | inline | pending | |
+| T1 | S1, S2, S8, A1 | inline | done (RED→GREEN password-hasher spec, users int spec, admin e2e) | PR #36 |
+| T2 | S3, S4, S5, S6, S7 (SessionGuard, @CurrentUser), A4-A7 | inline | done (RED→GREEN env, rate limiter, tokens specs + auth HTTP int spec) | |
 | T3 | S7 (BusinessAccessGuard, inbox route), S9, S10, A2, A3 | inline | pending | |
 
 Route evidence: each task builds on the previous one (users → sessions → business access), so there is no parallel writer reason. High-risk items: T1 new tables (1) and dependency (5); T2 credentials and session (2), new required env var (5: the app does not start without it); T3 access guard (2).
@@ -37,4 +37,6 @@ Route evidence: each task builds on the previous one (users → sessions → bus
 - L1 (2026-10-25, user): "pr 35 aprobado, arrancá el 03". The authoritative request text is `docs/prompts/03-operadores-login.md`.
 - L2 (2026-10-25): existing code has no auth library; the admin API uses one `ADMIN_API_KEY` guard; HTTP tests against Postgres already exist in the int suite (`test/int/admin-businesses.int-spec.ts`). CLAUDE.md "Deuda conocida" item 1 ("Admin sin usuarios → 03 y 04") is closed partly by this prompt (users, login, BusinessAccessGuard) and partly by 04 (take and return).
 - L3 (2026-10-25): T1. Migration 20261025100000_users_memberships (new tables `app_user`, `membership`, enum `membership_role`; "user" is reserved in Postgres). PasswordHasher (argon2id, verify never throws). UsersService.addToBusiness and `POST /admin/businesses/:id/users` per A1 (email trimmed and lowercased, password ≥ 10 characters, never returned; 404 unknown business, 409 existing membership). Dependency added: argon2 0.45. Verification plan: one independent verifier at the end of the feature, over T1-T3, before the release (items 2 and 5).
-- Next: T2.
+- L4 (2026-10-25, user): asked which values to use for JWT_SECRET and INBOX_ORIGIN; answered: `openssl rand -base64 48` per environment (never pasted in chat), and the inbox origin (`http://localhost:4200` locally; the published inbox URL in Render).
+- L5 (2026-10-25): T2. Env: JWT_SECRET (required, ≥ 32) and INBOX_ORIGIN (required, an origin without path); also in render.yaml (sync: false), .env.example, README and the test configs. Migration 20261025110000_refresh_tokens (`refresh_token`: sha256 hash unique, expires_at, revoked_at). `configureHttp` (main.ts and HTTP tests): cookie-parser, CORS with exact INBOX_ORIGIN match and credentials (other origins get no CORS headers), trust proxy 1 so `req.ip` is the client behind Render. AuthService: login (limiter first, same 401 message for unknown email, wrong password and inactive user, a dummy argon2 verify for unknown emails), refresh (single-use rotation via conditional update), logout, me. SessionGuard + @CurrentUser. Dependencies added: jose 6, cookie-parser 1.4 (+ @types).
+- Next: T3.
