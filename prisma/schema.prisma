@@ -512,6 +512,8 @@ model Membership {
   userId     String         @map("user_id") @db.Uuid
   businessId String         @map("business_id") @db.Uuid
   role       MembershipRole
+  /// false: deactivated in this business (403 there); other businesses unaffected.
+  active     Boolean        @default(true)
   createdAt  DateTime       @default(now()) @map("created_at")
   updatedAt  DateTime       @updatedAt @map("updated_at")
 

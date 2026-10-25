@@ -27,10 +27,11 @@ type AccessRequest = Request & {
 const businessIdSchema = z.uuid();
 
 /**
- * Requires a membership of the session's user in the `:businessId` of the
- * route. Use after SessionGuard: `@UseGuards(SessionGuard, BusinessAccessGuard)`.
+ * Requires an active membership of the session's user in the `:businessId`
+ * of the route. Use after SessionGuard: `@UseGuards(SessionGuard, BusinessAccessGuard)`.
  * An unknown business answers 403 too, so ids cannot be probed. The
- * membership is read on every request: removing it takes effect at once.
+ * membership is read on every request: removing or deactivating it takes
+ * effect at once.
  */
 @Injectable()
 export class BusinessAccessGuard implements CanActivate {
@@ -49,12 +50,15 @@ export class BusinessAccessGuard implements CanActivate {
       where: {
         userId_businessId: { userId: request.user.id, businessId: parsed.data },
       },
-      select: { businessId: true, role: true },
+      select: { businessId: true, role: true, active: true },
     });
-    if (!membership) {
+    if (!membership?.active) {
       throw new ForbiddenException('No access to this business');
     }
-    request.businessAccess = membership;
+    request.businessAccess = {
+      businessId: membership.businessId,
+      role: membership.role,
+    };
     return true;
   }
 }

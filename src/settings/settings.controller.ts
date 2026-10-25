@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Inject,
   Param,
+  Patch,
   Post,
   Put,
   UseGuards,
@@ -27,15 +28,30 @@ import {
 import type { LoginRateLimiter } from '../auth/login-rate-limiter.js';
 import { RoleGuard } from '../auth/role.guard.js';
 import { CurrentUser, SessionGuard } from '../auth/session.guard.js';
+import { UsersService } from '../auth/users.service.js';
 import { AgentPreviewService } from '../bot/agent-preview.service.js';
 
 /** Previews per business per hour (each one is a real model call). */
 export const PREVIEW_RATE_LIMITER = Symbol('PREVIEW_RATE_LIMITER');
 
 const versionSchema = z.coerce.number().int().positive().max(2_147_483_647);
+const role = z.enum(['OWNER', 'AGENT']);
+const addUserBodySchema = z
+  .object({
+    email: z.string().trim().pipe(z.email()),
+    name: z.string().trim().min(1).max(100),
+    role,
+  })
+  .strict();
+const updateUserBodySchema = z
+  .object({ role: role.optional(), active: z.boolean().optional() })
+  .strict()
+  .refine((b) => b.role !== undefined || b.active !== undefined, {
+    message: 'send role, active or both',
+  });
 
 /**
- * The backoffice: the business's settings, for its OWNERs only. Every route
+ * The backoffice: the business's agent and people, for its OWNERs only. Every route
  * lives under /inbox/businesses/:businessId/settings.
  */
 @Controller('inbox/businesses/:businessId/settings')
@@ -45,6 +61,7 @@ export class SettingsController {
     private readonly agents: AgentsService,
     private readonly preview: AgentPreviewService,
     @Inject(PREVIEW_RATE_LIMITER) private readonly previews: LoginRateLimiter,
+    private readonly users: UsersService,
   ) {}
 
   @Get('agent')
@@ -105,5 +122,36 @@ export class SettingsController {
       );
     }
     return this.preview.run(access.businessId, messages);
+  }
+
+  @Get('users')
+  async listUsers(@CurrentBusiness() access: BusinessAccess) {
+    return { users: await this.users.listMembers(access.businessId) };
+  }
+
+  /**
+   * `{ email, name, role }`. A new user gets a temporary password, shown
+   * only in this response (`temporaryPassword`, null for an existing user).
+   */
+  @Post('users')
+  @HttpCode(HttpStatus.CREATED)
+  addUser(@CurrentBusiness() access: BusinessAccess, @Body() body: unknown) {
+    return this.users.addMember(
+      access.businessId,
+      parseOrBadRequest(addUserBodySchema, body ?? {}, 'body'),
+    );
+  }
+
+  /** `{ role?, active? }` in this business; 409 `LAST_OWNER`. */
+  @Patch('users/:userId')
+  updateUser(
+    @CurrentBusiness() access: BusinessAccess,
+    @Param('userId') userId: string,
+    @Body() body: unknown,
+  ) {
+    return this.users.updateMember(access.businessId, {
+      userId: parseOrBadRequest(z.uuid(), userId, 'userId'),
+      ...parseOrBadRequest(updateUserBodySchema, body ?? {}, 'body'),
+    });
   }
 }
