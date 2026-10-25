@@ -4,7 +4,7 @@ import { loadAgentProfile } from '../agents/agent-profile.js';
 import { ContentService } from '../content/content.service.js';
 import { ContextService, type Tx } from '../conversations/context.service.js';
 import type { CommandId } from './commands.js';
-import { renderReply } from './replies.js';
+import { renderReply, replyButtons } from './replies.js';
 import { planTransition } from './transitions.js';
 
 export const HANDOFF_REASON_USER_COMMAND = 'user_command';
@@ -77,6 +77,10 @@ export class CommandService {
       demoBusinessName: this.content.getBarbershop().name,
       botName,
     });
-    return { contextId, replies: [reply] };
+    return {
+      contextId,
+      replies: [reply],
+      buttons: replyButtons(plan.reply),
+    };
   }
 }

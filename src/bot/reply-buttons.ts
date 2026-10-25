@@ -19,18 +19,6 @@ export const EXIT_DEMO_BUTTON: ReplyButton = {
   title: '👋 Salir de la demo',
 };
 
-/**
- * Buttons for a reply that invites to write a command: `"demo"` gets
- * "Probar la demo" and `"salir"` gets "Salir de la demo". Used for the
- * fixed replies and as a default for the model's text.
- */
-export function textButtons(text: string): ReplyButton[] {
-  return [
-    ...(text.includes('"demo"') ? [DEMO_BUTTON] : []),
-    ...(text.includes('"salir"') ? [EXIT_DEMO_BUTTON] : []),
-  ];
-}
-
 const storedSchema = z
   .array(z.object({ id: z.string(), title: z.string() }))
   .max(MAX_BUTTONS);

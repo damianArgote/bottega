@@ -5,7 +5,6 @@ import { ConversationMode } from '../generated/prisma/client.js';
 import type { LeadValues } from '../leads/lead-values.js';
 import { AI_FALLBACK_REPLY } from './ai-replies.js';
 import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
-import { textButtons } from './reply-buttons.js';
 import { buildCommercialInstructions } from './prompts.js';
 import { renderReply } from './replies.js';
 import { toolDefinitionsFor } from './tools/registry.js';
@@ -116,9 +115,7 @@ export async function runCommercialTurn(input: {
         ? outcome.effects
         : [],
     buttons:
-      outcome.kind === 'text'
-        ? (offeredButtons(outcome.effects) ?? textButtons(reply))
-        : [],
+      outcome.kind === 'text' ? (offeredButtons(outcome.effects) ?? []) : [],
     model,
     usage,
   };

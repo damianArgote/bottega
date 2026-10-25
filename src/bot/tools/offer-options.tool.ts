@@ -7,7 +7,7 @@ const schema = z
   .object({
     options: z
       .array(textArg(MAX_BUTTON_TITLE))
-      .min(2)
+      .min(1)
       .max(MAX_BUTTONS)
       .refine((titles) => titles.every((t) => t !== null), {
         message: 'options cannot be empty',
@@ -23,14 +23,14 @@ const schema = z
 type OfferArgs = z.infer<typeof schema>;
 
 /**
- * Shows 2 or 3 choices as WhatsApp reply buttons under the reply (e.g. the
+ * Shows 1 to 3 choices as WhatsApp reply buttons under the reply (e.g. the
  * plans) instead of asking "which one do you prefer?". Tapping one sends its
  * title back as the user's text. Once per reply.
  */
 export const offerOptionsTool: ToolHandler<OfferArgs> = {
   name: 'offer_options',
   description:
-    'Muestra 2 o 3 opciones como botones debajo de tu respuesta (por ejemplo, los planes). Usala cuando le propongas elegir entre opciones concretas, en lugar de preguntar cuál prefiere. Cada opción, de 20 caracteres como máximo. Igual escribí tu respuesta en texto.',
+    'Muestra de 1 a 3 opciones como botones debajo de tu respuesta (por ejemplo, los planes, o "🧪 Probar la demo"). Usala cuando le propongas elegir entre opciones concretas, en lugar de preguntar cuál prefiere o pedirle que escriba algo. Cada opción, de 20 caracteres como máximo. Igual escribí tu respuesta en texto.',
   allowedModes: [ConversationMode.COMMERCIAL, ConversationMode.DEMO],
   jsonSchema: {
     type: 'object',
@@ -39,7 +39,7 @@ export const offerOptionsTool: ToolHandler<OfferArgs> = {
         type: 'array',
         items: { type: 'string' },
         description:
-          'Entre 2 y 3 opciones, cada una de 20 caracteres como máximo.',
+          'De 1 a 3 opciones, cada una de 20 caracteres como máximo.',
       },
     },
     required: ['options'],

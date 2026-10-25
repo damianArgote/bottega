@@ -1,4 +1,4 @@
-import { storedButtons, textButtons } from './reply-buttons.js';
+import { storedButtons } from './reply-buttons.js';
 import { metaErrorKind } from '../whatsapp/meta-errors.js';
 import { botMayReply } from '../inbox/conversation-state.js';
 import {
@@ -203,12 +203,10 @@ export class BotService {
       if (replies.length > 0) {
         await tx.message.createMany({
           data: replies.map((content, index) => {
-            // The model's options go under the last reply; otherwise a
-            // reply that invites to write "demo" or "salir" gets that button.
+            // Buttons (fixed replies, offer_options, the demo's exit) go
+            // under the last reply.
             const own =
-              index === replies.length - 1 && buttons?.length
-                ? buttons
-                : textButtons(content);
+              index === replies.length - 1 && buttons?.length ? buttons : [];
             return {
               conversationId: conversation.id,
               contextId,

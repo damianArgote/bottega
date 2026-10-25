@@ -642,6 +642,36 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       expect(stored.buttons).toHaveLength(3);
     });
 
+    it('inside the demo every model reply carries the exit button; outside it, none', async () => {
+      await say('demo');
+      respond.mockResolvedValueOnce(text('Tenemos corte y barba.'));
+
+      await say('¿qué servicios tienen?');
+
+      expect(sendText).toHaveBeenLastCalledWith(
+        USER,
+        'Tenemos corte y barba.',
+        {
+          buttons: [{ id: 'salir', title: '👋 Salir de la demo' }],
+        },
+      );
+
+      await say('salir');
+      respond.mockResolvedValueOnce(text('¡Genial!'));
+      await say('me encantó');
+      expect(sendText).toHaveBeenLastCalledWith(USER, '¡Genial!');
+    });
+
+    it('"salir" outside the demo offers the demo with a button', async () => {
+      await say('salir');
+
+      expect(sendText).toHaveBeenLastCalledWith(
+        USER,
+        renderReply('NOT_IN_DEMO', vars),
+        { buttons: [{ id: 'demo', title: '🧪 Probar la demo' }] },
+      );
+    });
+
     it('entering the demo sends the "Salir de la demo" button, and its title works as the command', async () => {
       await say('demo');
 

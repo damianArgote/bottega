@@ -436,10 +436,27 @@ ni signos alrededor).
 
 | Comando | Efecto |
 | ------- | ------ |
-| `demo` / `probar demo` | Entra a la demo (contexto nuevo). |
+| `demo` / `probar demo` / `probar la demo` | Entra a la demo (contexto nuevo). |
 | `salir` / `salir de la demo` | Sale de la demo y vuelve al modo comercial. |
 | `reiniciar` | Empieza de cero en el modo actual. No borra nada: cierra el contexto y abre otro. Los datos del lead se conservan. |
 | `humano` / `hablar con una persona` | Pausa el bot y abre un pedido de atención (*handoff*). |
+
+### Botones
+
+El bot no le pide a la persona que escriba comandos: los muestra como botones
+de respuesta de WhatsApp (hasta 3 por mensaje, título de hasta 20
+caracteres). Tocar un botón manda su título como texto, así que los botones
+de la demo funcionan como los comandos (escribirlos a mano también funciona).
+
+- **Demo:** "🧪 Probar la demo" para entrar y "👋 Salir de la demo" para
+  salir. Los textos fijos de la demo llevan su botón, y dentro de la demo cada
+  respuesta del modelo lleva el de salir.
+- **Opciones del modelo:** con la herramienta `offer_options` el modelo
+  muestra de 1 a 3 opciones como botones (por ejemplo los planes; después de
+  elegir uno, ofrece solo los que quedan).
+- Los emojis van solo en los mensajes con botones.
+- Los botones se guardan en `message.buttons`; un texto de más de 1.024
+  caracteres sale sin botones (límite de WhatsApp para mensajes interactivos).
 
 ### Modos y contextos
 

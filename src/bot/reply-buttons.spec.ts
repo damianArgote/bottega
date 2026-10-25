@@ -2,23 +2,35 @@ import {
   DEMO_BUTTON,
   EXIT_DEMO_BUTTON,
   MAX_BUTTON_TITLE,
-  textButtons,
+  storedButtons,
 } from './reply-buttons.js';
+import { replyButtons } from './replies.js';
 
 describe('reply buttons', () => {
-  it('a reply that invites to write "demo" or "salir" gets that button', () => {
-    expect(textButtons('Si querés probarlo, escribí "demo".')).toEqual([
-      DEMO_BUTTON,
-    ]);
-    expect(textButtons('Para volver, escribí "salir".')).toEqual([
-      EXIT_DEMO_BUTTON,
-    ]);
-    expect(textButtons('Probá la demo o hablá con el equipo')).toEqual([]);
+  it('fixed demo replies go out with their button instead of asking to type', () => {
+    expect(replyButtons('NOT_IN_DEMO')).toEqual([DEMO_BUTTON]);
+    for (const key of [
+      'ENTER_DEMO',
+      'ALREADY_IN_DEMO',
+      'RESET_DEMO',
+    ] as const) {
+      expect(replyButtons(key)).toEqual([EXIT_DEMO_BUTTON]);
+    }
+    expect(replyButtons('EXIT_DEMO')).toEqual([]);
+    expect(replyButtons('HUMAN_REQUESTED')).toEqual([]);
   });
 
-  it('titles fit WhatsApp (20 characters) and are recognized as the commands', () => {
+  it('titles fit WhatsApp (20 characters)', () => {
     for (const button of [DEMO_BUTTON, EXIT_DEMO_BUTTON]) {
       expect(button.title.length).toBeLessThanOrEqual(MAX_BUTTON_TITLE);
     }
+  });
+
+  it('reads stored buttons, and nothing from invalid data', () => {
+    expect(storedButtons([{ id: 'a', title: 'A' }])).toEqual([
+      { id: 'a', title: 'A' },
+    ]);
+    expect(storedButtons(null)).toEqual([]);
+    expect(storedButtons([{ id: 1 }])).toEqual([]);
   });
 });

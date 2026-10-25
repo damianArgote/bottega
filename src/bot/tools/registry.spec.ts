@@ -277,8 +277,9 @@ describe('tool registry', () => {
       });
     });
 
-    it('rejects 1 or 4 options, titles over 20 characters, links and repeats', () => {
-      expectRejected(offer(['Solo una']), 'invalid_arguments');
+    it('accepts a single option (one button) but rejects none or 4, titles over 20 characters, links and repeats', () => {
+      expect(offer(['🧪 Probar la demo'])).toMatchObject({ ok: true });
+      expectRejected(offer([]), 'invalid_arguments');
       expectRejected(offer(['a', 'b', 'c', 'd']), 'invalid_arguments');
       expectRejected(offer(['a', 'x'.repeat(21)]), 'invalid_arguments');
       expectRejected(offer(['a', 'www.evil.test']), 'invalid_arguments');

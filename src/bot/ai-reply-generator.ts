@@ -18,6 +18,7 @@ import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from './ai-replies.js';
 import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
+import { EXIT_DEMO_BUTTON } from './reply-buttons.js';
 import { UNSUPPORTED_REPLY } from './echo-replies.js';
 import { historyWhere, toHistoryItems } from './history.js';
 import { JobError } from './job-error.js';
@@ -162,7 +163,12 @@ export class AiReplyGenerator implements ReplyGenerator {
           return fallback();
         }
         const notice = await this.outOfHoursNotice(input, profile);
-        const buttons = offeredButtons(outcome.effects);
+        // Inside the demo every reply can leave it with a tap.
+        const buttons =
+          offeredButtons(outcome.effects) ??
+          (input.mode === ConversationMode.DEMO
+            ? [EXIT_DEMO_BUTTON]
+            : undefined);
         return {
           replies: [notice ? `${reply}\n\n${notice.text}` : reply],
           effects: notice
