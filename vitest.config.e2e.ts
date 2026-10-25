@@ -20,6 +20,8 @@ export default defineConfig({
       ADMIN_API_KEY: 'e2e-admin-api-key-0123456789abcdef',
       // 32 zero bytes, base64: test-only.
       TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      JWT_SECRET: 'e2e-jwt-secret-0123456789abcdef0123456789',
+      INBOX_ORIGIN: 'https://inbox.test',
       // The queue worker would poll the (mocked) database; e2e is HTTP-only.
       WORKER_ENABLED: 'false',
     },

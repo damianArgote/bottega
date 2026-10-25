@@ -151,6 +151,8 @@ el token de la línea de cada conversación, no con el del entorno.
 | -------- | ----------- | ------- | ------ |
 | `ADMIN_API_KEY` | Sí | — | Clave de la [API de administración](#api-de-administración). Mínimo 32 caracteres. Generala con `openssl rand -hex 32`. |
 | `PUBLIC_BASE_URL` | No | — | URL pública de esta API (por ejemplo `https://bottega-api.onrender.com`). Con ella el alta de una línea devuelve la URL completa del webhook. En Render no hace falta: se usa `RENDER_EXTERNAL_URL`, que Render define solo. |
+| `JWT_SECRET` | Sí | — | Firma las sesiones de la bandeja (JWT). Mínimo 32 caracteres: generala con `openssl rand -base64 48`. Usá una distinta por entorno; si la cambiás, todas las sesiones se cierran. |
+| `INBOX_ORIGIN` | Sí | — | Origen de la bandeja web, el único que acepta CORS (con cookies). Solo esquema, dominio y puerto, sin barra final: `http://localhost:4200` en local, la URL publicada de la bandeja en Render. |
 | `TOKEN_ENCRYPTION_KEY` | Sí | — | Cifra las credenciales de Meta de cada línea guardadas en la base (AES-256-GCM). 32 bytes en base64: generala con `openssl rand -base64 32`. Usá una distinta por entorno y guardala bien: si se pierde o se cambia, las credenciales guardadas no se pueden leer. |
 
 ### 5. Migraciones
@@ -466,6 +468,27 @@ Mientras una conversación está pausada (por `humano` o por un admin):
 - Una persona puede responder con la API de administración.
 
 ---
+
+## Sesiones de la bandeja
+
+Las personas de cada negocio entran con su email y contraseña (se dan de alta
+con `POST /admin/businesses/<id>/users`; no hay registro público). La sesión
+vive en dos cookies `httpOnly`, `Secure` y `SameSite=Lax`:
+
+- `bottega_session`: un JWT que dura 15 minutos.
+- `bottega_refresh`: un token de 14 días que solo viaja a `/auth`. En la base
+  se guarda solo su hash; cada refresh lo cambia por uno nuevo (el anterior
+  deja de servir) y el logout lo revoca.
+
+| Método y ruta | Qué hace |
+| ------------- | -------- |
+| `POST /auth/login` | Body `{ "email", "password" }`. Setea las dos cookies y devuelve el usuario. `401` con el mismo mensaje para email desconocido, contraseña incorrecta o usuario inactivo. Hasta 5 intentos por minuto por IP y por email; después, `429`. |
+| `POST /auth/refresh` | Con la cookie de refresh: cookies nuevas. `401` si el token no existe, ya se usó, se revocó o venció. |
+| `POST /auth/logout` | Revoca el refresh y borra las cookies (`204`). |
+| `GET /auth/me` | El usuario, sus negocios y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. |
+
+El límite de intentos es en memoria (sirve con una sola instancia); está
+detrás de la interfaz `LoginRateLimiter` para pasarlo a un almacén compartido.
 
 ## API de administración
 

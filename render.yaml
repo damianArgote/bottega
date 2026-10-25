@@ -53,6 +53,10 @@ services:
         sync: false
       - key: TOKEN_ENCRYPTION_KEY
         sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: INBOX_ORIGIN
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL

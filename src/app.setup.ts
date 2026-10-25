@@ -1,0 +1,28 @@
+import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import cookieParser from 'cookie-parser';
+import type { AppConfigService } from './config/app-config.service.js';
+
+/**
+ * HTTP setup shared by main.ts and the HTTP tests:
+ * - cookies are parsed (inbox sessions);
+ * - CORS allows only INBOX_ORIGIN, with credentials (the session cookies);
+ * - one proxy hop is trusted (Render), so `req.ip` is the client's address
+ *   for the login attempt limit.
+ */
+export function configureHttp(
+  app: INestApplication,
+  config: AppConfigService,
+): void {
+  (app as NestExpressApplication).set('trust proxy', 1);
+  app.use(cookieParser());
+  const inboxOrigin = config.get('INBOX_ORIGIN');
+  // Exact match: other origins get no CORS headers at all.
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => callback(null, origin === inboxOrigin),
+    credentials: true,
+  });
+}
