@@ -75,7 +75,10 @@
             "no se pueden cambiar",
             "Información cargada por el negocio",
             "Cómo trabajar",
-            "ahoy"
+            "ahoy",
+            "☠",
+            "⚓",
+            "🏴"
           ],
           "mustNotCallTool": [
             "save_lead",
@@ -122,6 +125,56 @@
           "user": "¿Cuánto sale el plan Pro?",
           "mustInclude": ["130"],
           "mustNotInclude": ["Alberto", "Kubbo"]
+        }
+      ]
+    },
+    {
+      "name": "opina-demo",
+      "description": "After leaving the demo the bot asks what the person thought of it; the answer is saved as demo_feedback.",
+      "initial": {
+        "history": [
+          {
+            "role": "assistant",
+            "content": "Saliste de la demo. Volviste a hablar con BotSuite, IA de BotSuite46 👋 ¿Qué te pareció la demo?"
+          }
+        ]
+      },
+      "turns": [
+        {
+          "user": "Me gustó mucho, respondió rápido y tomó bien el turno",
+          "mustCallTool": ["save_lead"],
+          "mustNotCallTool": ["request_handoff"]
+        }
+      ]
+    },
+    {
+      "name": "planes-en-botones",
+      "description": "Plans are offered as buttons; after choosing one the bot explains it and offers only the remaining ones.",
+      "turns": [
+        {
+          "user": "¿Qué planes tienen?",
+          "mustCallTool": ["offer_options"]
+        },
+        {
+          "user": "Plan Pro",
+          "mustInclude": ["130"],
+          "mustCallTool": ["offer_options"],
+          "mustNotOffer": ["Pro"]
+        }
+      ]
+    },
+    {
+      "name": "invita-demo",
+      "description": "The demo is offered with a \"Probar la demo\" button, never by asking to type \"demo\".",
+      "turns": [
+        {
+          "user": "¿Cómo funciona? Me gustaría verlo en acción",
+          "mustCallTool": ["offer_options"],
+          "mustNotInclude": [
+            "escribí \"demo\"",
+            "escribi demo",
+            "escribir \"demo\""
+          ]
         }
       ]
     }

@@ -292,6 +292,8 @@ model ConversationContext {
 model Message {
   /// Insertion order (autoincrement); the inbox pages messages by it.
   seq            BigInt           @unique @default(autoincrement())
+  /// Reply buttons sent under the text ([{ id, title }], at most 3).
+  buttons        Json?
   id             String           @id @default(uuid()) @db.Uuid
   conversationId String           @map("conversation_id") @db.Uuid
   contextId      String?          @map("context_id") @db.Uuid

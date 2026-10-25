@@ -16,7 +16,9 @@ describe('demoRequestSummary', () => {
     expect(text).toContain('Barbería X');
     expect(text).toContain('• Nombre: Juan');
     expect(text).toContain('FICTICIA');
-    expect(text).toContain('"salir" para volver a hablar con Lola, IA de Lola');
+    expect(text).toContain(
+      'Tocá el botón para volver a hablar con Lola, IA de Lola',
+    );
     expect(text).not.toContain('BotSuite');
   });
 });

@@ -6,7 +6,7 @@ export const AI_FALLBACK_REPLY =
 
 /** Reply when the daily AI cap of the user is reached. */
 export const AI_LIMIT_REPLY =
-  'Por hoy llegamos al límite de respuestas automáticas 🙏 Mañana sigo respondiéndote. Si querés hablar con una persona del equipo, escribí *humano*.';
+  'Por hoy llegamos al límite de respuestas automáticas. Mañana sigo respondiéndote. Si querés hablar con una persona del equipo, escribí *humano*.';
 
 /** Used when the model saved lead data but wrote no text. */
 export const LEAD_SAVED_ACK = '¡Gracias! Ya lo anoté.';
@@ -31,6 +31,6 @@ export function demoRequestSummary(
     `📝 Solicitud de turno de demo registrada en ${businessName}:`,
     ...lines,
     '⚠️ Es una solicitud FICTICIA de la demo: no es una reserva real ni se cobró ningún pago.',
-    `Escribí "salir" para volver a hablar con ${botName}.`,
+    `Tocá el botón para volver a hablar con ${botName}.`,
   ].join('\n');
 }

@@ -4,18 +4,21 @@ import { MODE_PROFILES, type ToolName } from '../mode-profiles.js';
 import { registerDemoRequestTool } from './register-demo-request.tool.js';
 import { requestHandoffTool } from './request-handoff.tool.js';
 import type { LeadField } from '../../agents/agent-profile.schema.js';
+import { offerOptionsTool } from './offer-options.tool.js';
 import { saveLeadToolFor } from './save-lead.tool.js';
 import type { PlannedEffect, ToolContext, ToolHandler } from './tool.js';
 
 const STATIC_HANDLERS = {
   register_demo_request: registerDemoRequestTool,
   request_handoff: requestHandoffTool,
+  offer_options: offerOptionsTool,
 } satisfies Partial<Record<ToolName, ToolHandler>>;
 
 const TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
   'save_lead',
   'register_demo_request',
   'request_handoff',
+  'offer_options',
 ]);
 
 /** True for the name of a tool the bot has (any mode or business). */

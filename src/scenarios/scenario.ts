@@ -15,6 +15,7 @@ const TOOL_NAMES = [
   'save_lead',
   'register_demo_request',
   'request_handoff',
+  'offer_options',
 ] as const;
 const text = z.string().trim().min(1);
 
@@ -29,6 +30,8 @@ const turnSchema = z
     mustCallTool: z.array(z.enum(TOOL_NAMES)).optional(),
     /** Each tool must not be called at all (accepted or not). */
     mustNotCallTool: z.array(z.enum(TOOL_NAMES)).optional(),
+    /** No offer_options button in this turn may contain these texts. */
+    mustNotOffer: z.array(text).optional(),
   })
   .strict();
 
@@ -108,6 +111,18 @@ export function checkTurn(
   for (const tool of turn.mustCallTool ?? []) {
     if (!result.toolCalls.some((c) => c.name === tool && c.accepted)) {
       failures.push(`mustCallTool ${tool} (no accepted call)`);
+    }
+  }
+  const offered = result.toolCalls
+    .filter((c) => c.name === 'offer_options' && c.accepted)
+    .flatMap((c) => {
+      const options = (c.arguments as { options?: unknown } | null)?.options;
+      return Array.isArray(options) ? options.map(String) : [];
+    })
+    .map(normalize);
+  for (const entry of turn.mustNotOffer ?? []) {
+    if (offered.some((o) => o.includes(normalize(entry)))) {
+      failures.push(`mustNotOffer "${entry}"`);
     }
   }
   for (const tool of turn.mustNotCallTool ?? []) {

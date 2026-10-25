@@ -1,6 +1,22 @@
+/** A WhatsApp reply button: tapping it sends its title back as text. */
+export interface ReplyButton {
+  id: string;
+  /** At most 20 characters. */
+  title: string;
+}
+
+export interface SendOptions {
+  /** Up to 3 reply buttons under the text (sent as an interactive message). */
+  buttons?: readonly ReplyButton[];
+}
+
 /** Sends WhatsApp messages from one line. Never throws. */
 export interface WhatsAppClient {
-  sendText(to: string, body: string): Promise<SendOutcome>;
+  sendText(
+    to: string,
+    body: string,
+    options?: SendOptions,
+  ): Promise<SendOutcome>;
   /**
    * Marks an inbound message as read (best effort: false on any failure).
    * Optional: clients that cannot send (or test doubles) leave it out.

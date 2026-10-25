@@ -62,7 +62,8 @@ export class LineWhatsAppClientFactory implements WhatsAppClientFactory {
     }
     const credentials = { phoneNumberId: line.phoneNumberId, accessToken };
     return {
-      sendText: (to, body) => this.graph.sendText(credentials, to, body),
+      sendText: (to, body, options) =>
+        this.graph.sendText(credentials, to, body, options),
       markRead: (waMessageId) => this.graph.markRead(credentials, waMessageId),
     };
   }

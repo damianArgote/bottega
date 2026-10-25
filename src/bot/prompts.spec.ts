@@ -69,6 +69,9 @@ describe('prompt builders', () => {
     expect(prompt).toContain('- Negocio: "Consultorio Sur"');
     expect(prompt).not.toContain('Rubro: "');
     expect(prompt).toContain('NUNCA vuelvas a preguntar');
+    expect(prompt).toContain(
+      'Usá emojis solo en las respuestas que llevan botones',
+    );
 
     expect(prompt).not.toContain('asistente virtual');
     expect(prompt).not.toContain('Bottega');
@@ -100,6 +103,8 @@ describe('prompt builders', () => {
       expect(botsuitePrompt).not.toContain(text);
     }
     expect(salonPrompt).not.toContain('BotSuite');
+    // The fixed rules carry no business's data (prices, plan names).
+    expect(salonPrompt).not.toMatch(/USD|plan Pro/i);
     expect(salonPrompt).toContain('Sos Lola, IA de Peluquería Lola.');
     expect(salonPrompt).toContain('- Celular (obligatorio)');
   });
@@ -136,7 +141,8 @@ describe('prompt builders', () => {
     expect(prompt).toContain('FICTICIA');
     expect(prompt).toContain('Corte de pelo: $12.000 ARS (30 min)');
     expect(prompt).toContain(barbershop.address);
-    expect(prompt).toContain('"salir"');
+    expect(prompt).toContain('"Salir de la demo"');
+    expect(prompt).not.toContain('escribir "salir"');
     expect(prompt).not.toContain('Datos ya conocidos');
     expect(prompt).not.toContain('## Qué hacemos');
     expect(prompt).not.toContain('save_lead');
