@@ -188,10 +188,13 @@ export class AuthService {
     return this.issue({ ...user, mustChangePassword: false });
   }
 
-  /** GET /auth/me: the user, their businesses and their role in each. */
+  /**
+   * GET /auth/me: the user, their businesses and their role in each (only
+   * the active memberships).
+   */
   async me(user: SessionUser) {
     const memberships = await this.prisma.membership.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, active: true },
       orderBy: { createdAt: 'asc' },
       select: {
         role: true,

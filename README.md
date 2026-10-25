@@ -502,7 +502,7 @@ vive en dos cookies `httpOnly`, `Secure` y `SameSite=Lax`:
 | `POST /auth/login` | Body `{ "email", "password" }`. Setea las dos cookies y devuelve el usuario. `401` con el mismo mensaje para email desconocido, contraseña incorrecta o usuario inactivo. Hasta 5 intentos por minuto por IP y por email; después, `429`. |
 | `POST /auth/refresh` | Con la cookie de refresh: cookies nuevas. `401` si el token no existe, ya se usó, se revocó o venció. |
 | `POST /auth/logout` | Revoca el refresh y borra las cookies (`204`). |
-| `GET /auth/me` | El usuario, sus negocios y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. `user.mustChangePassword` dice si tiene una contraseña temporal (también viene en el login): la web le pide una nueva antes de entrar a la bandeja. |
+| `GET /auth/me` | El usuario, sus negocios (solo donde está activo) y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. `user.mustChangePassword` dice si tiene una contraseña temporal (también viene en el login): la web le pide una nueva antes de entrar a la bandeja. |
 | `POST /auth/change-password` | Con sesión. Body `{ "currentPassword", "newPassword" }` (la nueva, de 10 caracteres o más y distinta). `401` si la actual no es correcta. Cierra todas las otras sesiones del usuario y deja cookies nuevas para esta. |
 
 El límite de intentos es en memoria (sirve con una sola instancia); está
@@ -549,6 +549,10 @@ del negocio: un `AGENT` recibe `403`.
 | `GET agent/versions` | Las últimas 20 versiones, de la más nueva a la más vieja: `{ version, createdAt, author, changes }`, donde `changes` lista cada campo que cambió contra la versión anterior con su texto antes y después (las listas, como JSON). |
 | `POST agent/versions/<version>/restore` | Guarda esa versión como una nueva (conserva `model` y `demoEnabled`). `404` si no existe, `409` `VERSION_INVALID` si ya no pasa la validación. |
 | `POST agent/preview` | El mismo preview que la API de admin (no manda nada ni guarda nada). Hasta 20 por hora por negocio; después, `429`. El límite vive en memoria: se reinicia con cada deploy. |
+
+| `GET users` | Las personas del negocio: `id`, `email`, `name`, `role`, `active` (en este negocio), `mustChangePassword` y `addedAt`. |
+| `POST users` | Body `{ "email", "name", "role" }`. Un email nuevo crea el usuario con una contraseña temporal aleatoria que viene **una sola vez** en la respuesta (`temporaryPassword`) y lo marca `mustChangePassword`. Un email que ya existe (por ejemplo, de otro negocio) solo suma la membresía y conserva su contraseña (`temporaryPassword: null`). `409` si ya es del negocio. |
+| `PATCH users/<userId>` | Body `{ "role"?, "active"? }`. `active: false` le saca el acceso a **este** negocio en el momento (los otros no cambian). `409` `LAST_OWNER` si el negocio se quedaría sin un `OWNER` activo; `404` si no es del negocio. |
 
 Cada cambio del perfil (backoffice, API de admin, restaurar o el seed) guarda
 una copia en `agent_profile_version`.

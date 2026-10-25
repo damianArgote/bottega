@@ -31,4 +31,4 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 ## Deuda conocida
 Lo que el código actual contradice o complica del plan, y qué prompt lo resuelve. Al cerrar un punto, sacalo de esta lista en el mismo PR.
 
-1. **Admin sin filtro por negocio** → 05b. `GET /admin/leads` y `GET /admin/handoffs` listan los de todos los negocios y la API de admin usa una sola `ADMIN_API_KEY`; la bandeja (`/inbox/...`) ya filtra por el negocio del usuario.
+Nada pendiente por ahora. La API de admin (`/admin/...`, una sola `ADMIN_API_KEY`) sigue viendo todos los negocios a propósito: es la herramienta del equipo. Los dueños usan la bandeja y el backoffice (`/inbox/...`), que filtran por su negocio.
