@@ -46,12 +46,12 @@ const tool = (name: string, args: Record<string, unknown>): AiResponse => ({
   model: MODEL,
 });
 
+/** save_lead arguments for BotSuite46's lead fields. */
 const lead = (fields: Record<string, string>) => ({
   name: null,
-  businessName: null,
+  business_name: null,
   industry: null,
   need: null,
-  contactNotes: null,
   ...fields,
 });
 
@@ -248,6 +248,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await say('hola');
     respond.mockClear();
     const { id } = await conversation();
+    // Written by the previous release: fixed column only, no data.
     await prisma.lead.create({
       data: { conversationId: id, industry: 'salud' },
     });
@@ -256,7 +257,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       .mockResolvedValueOnce(
         tool(
           'save_lead',
-          lead({ name: 'Ana', businessName: 'Consultorio Sur' }),
+          lead({ name: 'Ana', business_name: 'Consultorio Sur' }),
         ),
       )
       .mockResolvedValueOnce(text('¡Gracias, Ana! ¿Qué te gustaría resolver?'));
@@ -265,6 +266,12 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(await prisma.lead.findMany()).toEqual([
       expect.objectContaining({
         conversationId: id,
+        businessId: (await prisma.business.findFirstOrThrow()).id,
+        data: {
+          name: 'Ana',
+          business_name: 'Consultorio Sur',
+          industry: 'salud',
+        },
         name: 'Ana',
         businessName: 'Consultorio Sur',
         industry: 'salud',

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Tx } from '../../conversations/context.service.js';
 import { DemosService } from '../../demos/demos.service.js';
-import type { LeadFields } from '../../leads/leads.service.js';
+import type { LeadValues } from '../../leads/lead-values.js';
 import { LeadsService } from '../../leads/leads.service.js';
 import { CommandService, type CommandOutcome } from '../command.service.js';
 import { CommandId } from '../commands.js';
@@ -34,13 +34,13 @@ export class ToolEffectsService {
     conversationId: string,
     generated: GeneratedOutcome,
   ): Promise<CommandOutcome> {
-    const lead: LeadFields = {};
+    const lead: LeadValues = {};
     let handoff: Extract<PlannedEffect, { kind: 'request_handoff' }> | null =
       null;
     for (const effect of generated.effects) {
       switch (effect.kind) {
         case 'save_lead':
-          Object.assign(lead, effect.fields);
+          Object.assign(lead, effect.values);
           break;
         case 'register_demo_request':
           await this.demos.registerDemoRequest(

@@ -1,52 +1,52 @@
 import { Injectable } from '@nestjs/common';
-import { z } from 'zod';
 import type { Lead, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-
-const field = z.string().max(500).optional();
-
-/** Lead fields the bot may capture. Unknown keys are rejected. */
-export const leadFieldsSchema = z
-  .object({
-    name: field,
-    businessName: field,
-    industry: field,
-    need: field,
-    contactNotes: field,
-  })
-  .strict();
-
-export type LeadFields = z.infer<typeof leadFieldsSchema>;
+import {
+  cleanLeadValues,
+  type LeadValues,
+  leadValuesOf,
+  legacyColumnsFor,
+} from './lead-values.js';
 
 @Injectable()
 export class LeadsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Creates or updates the conversation's lead with the non-empty fields
-   * only, so known data is never blanked. Returns null (and writes nothing)
-   * when no field has content. Throws a ZodError on invalid input.
+   * Creates or updates the conversation's lead, merging the non-empty values
+   * into Lead.data (so known data is never blanked) and setting its business.
+   * The old keys also go to the fixed columns until 02b T7 drops them.
+   * Returns null (and writes nothing) when no value has content. Throws a
+   * ZodError on invalid keys or lengths.
    */
   async upsertFromConversation(
     conversationId: string,
-    fields: LeadFields,
+    values: Record<string, string>,
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<Lead | null> {
-    const parsed = leadFieldsSchema.parse(fields);
-    const data: LeadFields = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      const trimmed = value?.trim();
-      if (trimmed) {
-        data[key as keyof LeadFields] = trimmed;
-      }
-    }
-    if (Object.keys(data).length === 0) {
+    const cleaned = cleanLeadValues(values);
+    if (Object.keys(cleaned).length === 0) {
       return null;
     }
+    const [existing, conversation] = await Promise.all([
+      tx.lead.findUnique({ where: { conversationId } }),
+      tx.conversation.findUniqueOrThrow({
+        where: { id: conversationId },
+        select: { line: { select: { businessId: true } } },
+      }),
+    ]);
+    // Read-modify-write is safe: jobs of one conversation run one at a time
+    // and the caller's transaction holds the conversation row lock.
+    const data: LeadValues = { ...leadValuesOf(existing), ...cleaned };
+    const fields = {
+      businessId: conversation.line.businessId,
+      data,
+      ...legacyColumnsFor(cleaned),
+    };
     return tx.lead.upsert({
       where: { conversationId },
-      create: { conversationId, ...data },
-      update: data,
+      create: { conversationId, ...fields },
+      update: fields,
     });
   }
 }

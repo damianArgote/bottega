@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { BarbershopDemo } from '../../content/content.schema.js';
 import type { DemoRequestInput } from '../../demos/demos.service.js';
 import type { ConversationMode } from '../../generated/prisma/client.js';
-import type { LeadFields } from '../../leads/leads.service.js';
+import type { LeadField } from '../../agents/agent-profile.schema.js';
+import type { LeadValues } from '../../leads/lead-values.js';
 import type { ToolName } from '../mode-profiles.js';
 
 /**
@@ -10,7 +11,7 @@ import type { ToolName } from '../mode-profiles.js';
  * job's phase-1 transaction (never during the model loop).
  */
 export type PlannedEffect =
-  | { kind: 'save_lead'; fields: LeadFields }
+  | { kind: 'save_lead'; values: LeadValues }
   | { kind: 'register_demo_request'; request: DemoRequestInput }
   | { kind: 'request_handoff'; reason: string | null };
 
@@ -22,6 +23,8 @@ export interface ToolContext {
   planned: readonly PlannedEffect[];
   /** The business's profile offers the demo (register_demo_request). */
   demoEnabled: boolean;
+  /** The business's lead fields: save_lead is generated from them. */
+  leadFields: readonly LeadField[];
 }
 
 /**

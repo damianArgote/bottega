@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import type { LeadField } from '../../agents/agent-profile.schema.js';
 import { ConversationMode } from '../../generated/prisma/client.js';
-import type { LeadFields } from '../../leads/leads.service.js';
+import type { LeadValues } from '../../leads/lead-values.js';
 import {
   nullableString,
   strictObject,
@@ -10,51 +11,87 @@ import {
 
 const MAX = 200;
 
-const schema = z
-  .object({
-    name: textArg(MAX),
-    businessName: textArg(MAX),
-    industry: textArg(MAX),
-    need: textArg(MAX),
-    contactNotes: textArg(MAX),
-  })
-  .strict();
+const PHONE_SEPARATORS = /[\s().-]/g;
+const PHONE = /^\+?\d{6,15}$/;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-type SaveLeadArgs = z.infer<typeof schema>;
-
-/** Real prospect data, commercial mode only. Merges, never blanks. */
-export const saveLeadTool: ToolHandler<SaveLeadArgs> = {
-  name: 'save_lead',
-  description:
-    'Guarda datos del prospecto que el usuario dio en la conversación. Pasá solo los datos nuevos o corregidos y null en el resto. Nunca inventes datos.',
-  allowedModes: [ConversationMode.COMMERCIAL],
-  jsonSchema: strictObject({
-    name: nullableString('Nombre de la persona (máx. 200 caracteres).'),
-    businessName: nullableString('Nombre del negocio (máx. 200 caracteres).'),
-    industry: nullableString('Rubro del negocio (máx. 200 caracteres).'),
-    need: nullableString(
-      'Qué necesita resolver con el asistente (máx. 200 caracteres).',
-    ),
-    contactNotes: nullableString(
-      'Otros datos de contacto o comentarios (máx. 200 caracteres).',
-    ),
-  }),
-  schema,
-  plan(args) {
-    const fields: LeadFields = {};
-    for (const [key, value] of Object.entries(args)) {
-      if (value) {
-        fields[key as keyof LeadFields] = value;
-      }
-    }
-    const saved = Object.keys(fields);
-    if (saved.length === 0) {
-      return { ok: false, error: 'No llegó ningún dato para guardar.' };
-    }
-    return {
-      ok: true,
-      effect: { kind: 'save_lead', fields },
-      output: { saved },
-    };
+/** Argument schema and model-facing hint for each lead field kind. */
+const KINDS: Record<
+  LeadField['kind'],
+  { arg: () => z.ZodType<string | null, unknown>; hint: string }
+> = {
+  text: { arg: () => textArg(MAX), hint: '' },
+  // Stored as digits with an optional leading "+".
+  phone: {
+    arg: () =>
+      textArg(40)
+        .transform((v) => (v === null ? null : v.replace(PHONE_SEPARATORS, '')))
+        .refine((v) => v === null || PHONE.test(v), {
+          message: 'must be a phone number',
+        }),
+    hint: ' Un número de teléfono, con característica.',
+  },
+  email: {
+    arg: () =>
+      textArg(MAX)
+        .transform((v) => (v === null ? null : v.toLowerCase()))
+        .refine((v) => v === null || EMAIL.test(v), {
+          message: 'must be an email address',
+        }),
+    hint: ' Una dirección de email.',
+  },
+  date: {
+    arg: () => textArg(100),
+    hint: ' Una fecha, como la dijo el usuario.',
   },
 };
+
+type SaveLeadArgs = Record<string, string | null>;
+
+/**
+ * save_lead for one business: its JSON Schema and validation are generated
+ * from the profile's lead fields, so only declared keys can be stored. Real
+ * prospect data, commercial mode only. Merges, never blanks.
+ */
+export function saveLeadToolFor(
+  fields: readonly LeadField[],
+): ToolHandler<SaveLeadArgs> {
+  return {
+    name: 'save_lead',
+    description:
+      'Guarda datos del prospecto que el usuario dio en la conversación. Pasá solo los datos nuevos o corregidos y null en el resto. Nunca inventes datos.',
+    allowedModes: [ConversationMode.COMMERCIAL],
+    jsonSchema: strictObject(
+      Object.fromEntries(
+        fields.map((f) => [
+          f.key,
+          nullableString(
+            `${f.label}.${KINDS[f.kind].hint} (máx. ${MAX} caracteres).`,
+          ),
+        ]),
+      ),
+    ),
+    schema: z
+      .object(
+        Object.fromEntries(fields.map((f) => [f.key, KINDS[f.kind].arg()])),
+      )
+      .strict(),
+    plan(args) {
+      const values: LeadValues = {};
+      for (const [key, value] of Object.entries(args)) {
+        if (value) {
+          values[key] = value;
+        }
+      }
+      const saved = Object.keys(values);
+      if (saved.length === 0) {
+        return { ok: false, error: 'No llegó ningún dato para guardar.' };
+      }
+      return {
+        ok: true,
+        effect: { kind: 'save_lead', values },
+        output: { saved },
+      };
+    },
+  };
+}
