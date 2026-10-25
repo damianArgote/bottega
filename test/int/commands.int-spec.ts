@@ -23,7 +23,11 @@ import {
 
 const USER = '5491100001234';
 const content = new ContentService();
-const vars = { demoBusinessName: content.getBarbershop().name };
+const vars = {
+  demoBusinessName: content.getBarbershop().name,
+  // resetDb seeds the profile with the test business's botName.
+  botName: 'Bot de botsuite46',
+};
 
 describe('Deterministic commands and contexts (integration)', () => {
   const config = testConfig();
@@ -320,7 +324,7 @@ describe('Deterministic commands and contexts (integration)', () => {
       await leads.upsertFromConversation(id, {
         name: '',
         industry: '  ',
-        businessName: 'Consultorio Sur',
+        business_name: 'Consultorio Sur',
       });
 
       expect(await prisma.lead.findMany()).toEqual([

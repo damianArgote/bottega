@@ -10,6 +10,7 @@ import { AiUsageService, usageDay } from '../../src/ai/ai-usage.service.js';
 import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from '../../src/bot/ai-replies.js';
 import { AiReplyGenerator } from '../../src/bot/ai-reply-generator.js';
 import { renderReply } from '../../src/bot/replies.js';
+import { Prisma } from '../../src/generated/prisma/client.js';
 import { BotWorker } from '../../src/bot/worker.js';
 import { ContentService } from '../../src/content/content.service.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
@@ -27,7 +28,11 @@ import {
 const USER = '5491100001234';
 const MODEL = 'test-model';
 const content = new ContentService();
-const vars = { demoBusinessName: content.getBarbershop().name };
+const vars = {
+  demoBusinessName: content.getBarbershop().name,
+  // resetDb seeds the profile with the test business's botName.
+  botName: 'Bot de botsuite46',
+};
 
 const text = (outputText: string): AiResponse => ({
   outputText,
@@ -46,12 +51,12 @@ const tool = (name: string, args: Record<string, unknown>): AiResponse => ({
   model: MODEL,
 });
 
+/** save_lead arguments for BotSuite46's lead fields. */
 const lead = (fields: Record<string, string>) => ({
   name: null,
-  businessName: null,
+  business_name: null,
   industry: null,
   need: null,
-  contactNotes: null,
   ...fields,
 });
 
@@ -85,6 +90,11 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   let worker: BotWorker;
   let seq = 0;
 
+  // Monday 12:00 in Buenos Aires: within BotSuite46's seeded opening hours,
+  // so no out-of-hours notice unless a test moves the clock.
+  const WITHIN_HOURS = new Date('2026-10-26T15:00:00Z');
+  let now = WITHIN_HOURS;
+
   const buildWorker = (cap = 50) => {
     const aiConfig = testConfig({
       BOT_REPLY_MODE: 'ai',
@@ -98,6 +108,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       prisma,
       content,
       config: aiConfig,
+      clock: () => now,
     });
     const bot = buildBotService(prisma, { sendText }, generator);
     return new BotWorker(
@@ -124,6 +135,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     sendText.mockImplementation(() =>
       Promise.resolve({ kind: 'sent', waMessageId: `wamid.out.${(seq += 1)}` }),
     );
+    now = WITHIN_HOURS;
     worker = buildWorker();
   });
 
@@ -145,18 +157,102 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   const usageOutcomes = async () =>
     (await prisma.aiUsage.findMany()).map((u) => u.outcome).sort();
 
-  it("introduces the bot with its business's botName", async () => {
-    await prisma.business.updateMany({
-      data: { botName: 'BotSuite, IA de BotSuite46' },
+  const profile = () => prisma.agentProfile.findFirstOrThrow();
+
+  it("answers with the business's agent profile: name, information and model", async () => {
+    await prisma.agentProfile.updateMany({
+      data: {
+        botName: 'Sofi, IA de BotSuite46',
+        persona: 'Tono de prueba.',
+        businessInfo: 'Plan único: USD 1.',
+        model: 'profile-model',
+        version: 3,
+      },
     });
     respond.mockResolvedValueOnce(text('¡Hola!'));
 
     await say('hola');
 
-    expect(request(0)?.instructions).toContain(
-      'Sos BotSuite, IA de BotSuite46.',
-    );
-    expect(request(0)?.instructions).not.toContain('asistente virtual');
+    const instructions = request(0)?.instructions;
+    expect(instructions).toContain('Sos Sofi, IA de BotSuite46.');
+    expect(instructions).toContain('Tono de prueba.');
+    expect(instructions).toContain('Plan único: USD 1.');
+    // The profile's name wins over Business.botName (its initial value).
+    expect(instructions).not.toContain('Bot de botsuite46');
+    expect(instructions).not.toContain('asistente virtual');
+    expect(request(0)?.model).toBe('profile-model');
+    const [usage] = await prisma.aiUsage.findMany();
+    expect(usage).toMatchObject({ outcome: 'OK', agentProfileVersion: 3 });
+  });
+
+  it('uses OPENAI_MODEL when the profile has no model', async () => {
+    respond.mockResolvedValueOnce(text('¡Hola!'));
+
+    await say('hola');
+
+    expect(request(0)?.model).toBe(MODEL);
+    expect((await profile()).model).toBeNull();
+    const [usage] = await prisma.aiUsage.findMany();
+    expect(usage?.agentProfileVersion).toBe((await profile()).version);
+  });
+
+  it('with the agent switched off, the AI does not answer', async () => {
+    await prisma.agentProfile.updateMany({ data: { enabled: false } });
+
+    await say('hola');
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(sendText).not.toHaveBeenCalled();
+    expect(await prisma.aiUsage.count()).toBe(0);
+    // The inbound message is kept for the team.
+    expect(
+      await prisma.message.findMany({
+        select: { direction: true, content: true },
+      }),
+    ).toEqual([{ direction: 'INBOUND', content: 'hola' }]);
+    const job = await prisma.processingJob.findFirstOrThrow();
+    expect(job.status).toBe('COMPLETED');
+  });
+
+  it('with the agent switched off, commands still answer', async () => {
+    await prisma.agentProfile.updateMany({ data: { enabled: false } });
+
+    await say('humano');
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
+  });
+
+  it('a business without a stored profile counts as switched off, without demo', async () => {
+    await prisma.agentProfile.deleteMany();
+
+    await say('hola');
+    await say('demo');
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(sendText).toHaveBeenCalledTimes(1);
+    expect(lastSent()).toBe(renderReply('DEMO_UNAVAILABLE', vars));
+  });
+
+  it('with demoEnabled false, "demo" answers that there is no demo', async () => {
+    await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
+
+    await say('demo');
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(lastSent()).toBe(renderReply('DEMO_UNAVAILABLE', vars));
+    expect((await conversation()).mode).toBe('COMMERCIAL');
+  });
+
+  it('does not offer register_demo_request once the demo is disabled', async () => {
+    await say('demo');
+    await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
+    respond.mockResolvedValueOnce(text('Hola'));
+
+    await say('quiero un turno');
+
+    expect((await conversation()).mode).toBe('DEMO');
+    expect(request(0)?.tools.map((t) => t.name)).toEqual(['request_handoff']);
   });
 
   it('save_lead in commercial mode merges the lead and sends the model reply', async () => {
@@ -164,6 +260,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await say('hola');
     respond.mockClear();
     const { id } = await conversation();
+    // Written by the previous release: fixed column only, no data.
     await prisma.lead.create({
       data: { conversationId: id, industry: 'salud' },
     });
@@ -172,7 +269,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       .mockResolvedValueOnce(
         tool(
           'save_lead',
-          lead({ name: 'Ana', businessName: 'Consultorio Sur' }),
+          lead({ name: 'Ana', business_name: 'Consultorio Sur' }),
         ),
       )
       .mockResolvedValueOnce(text('¡Gracias, Ana! ¿Qué te gustaría resolver?'));
@@ -181,6 +278,12 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(await prisma.lead.findMany()).toEqual([
       expect.objectContaining({
         conversationId: id,
+        businessId: (await prisma.business.findFirstOrThrow()).id,
+        data: {
+          name: 'Ana',
+          business_name: 'Consultorio Sur',
+          industry: 'salud',
+        },
         name: 'Ana',
         businessName: 'Consultorio Sur',
         industry: 'salud',
@@ -306,6 +409,13 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(respond).toHaveBeenCalledTimes(2);
     expect(lastSent()).toBe(AI_LIMIT_REPLY);
     expect(await usageOutcomes()).toEqual(['LIMITED', 'OK', 'OK']);
+    const limited = await prisma.aiUsage.findFirstOrThrow({
+      where: { outcome: 'LIMITED' },
+    });
+    expect(limited).toMatchObject({
+      model: MODEL,
+      agentProfileVersion: (await profile()).version,
+    });
   });
 
   it('retries a retryable AI error and regenerates without duplicating effects', async () => {
@@ -406,5 +516,97 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       ['assistant', renderReply('RESET_COMMERCIAL', vars)],
       ['user', 'de nuevo'],
     ]);
+  });
+
+  describe('out-of-hours notice', () => {
+    const NOTICE = 'El equipo atiende de lunes a viernes de 9 a 18.';
+    // Monday 22:00 and Tuesday 20:00 in Buenos Aires (UTC-3).
+    const MONDAY_NIGHT = new Date('2026-10-27T01:00:00Z');
+    const TUESDAY_NIGHT = new Date('2026-10-27T23:00:00Z');
+    const setHours = (outOfHoursMessage: string | null = NOTICE) =>
+      prisma.agentProfile.updateMany({
+        data: {
+          outOfHoursMessage,
+          openingHours: { mon: ['09:00-18:00'], tue: ['09:00-18:00'] },
+        },
+      });
+    const noticeDay = async () =>
+      (await conversation()).outOfHoursNoticeOn?.toISOString().slice(0, 10);
+
+    it('answers out of hours and adds the notice once per day and conversation', async () => {
+      await setHours();
+      now = MONDAY_NIGHT;
+      respond
+        .mockResolvedValueOnce(text('¡Hola!'))
+        .mockResolvedValueOnce(text('Dale.'))
+        .mockResolvedValueOnce(text('Buenas.'));
+
+      await say('hola');
+      expect(lastSent()).toBe(`¡Hola!\n\n${NOTICE}`);
+      expect(await noticeDay()).toBe('2026-10-26');
+
+      await say('otra cosa');
+      expect(lastSent()).toBe('Dale.');
+
+      now = TUESDAY_NIGHT;
+      await say('volví');
+      expect(lastSent()).toBe(`Buenas.\n\n${NOTICE}`);
+      expect(await noticeDay()).toBe('2026-10-27');
+    });
+
+    it('adds nothing within hours, without a message or without hours', async () => {
+      respond.mockResolvedValue(text('¡Hola!'));
+
+      await setHours();
+      await say('hola');
+      expect(lastSent()).toBe('¡Hola!');
+
+      now = MONDAY_NIGHT;
+      await setHours(null);
+      await say('hola');
+      expect(lastSent()).toBe('¡Hola!');
+
+      await prisma.agentProfile.updateMany({
+        data: { outOfHoursMessage: NOTICE, openingHours: Prisma.DbNull },
+      });
+      await say('hola');
+      expect(lastSent()).toBe('¡Hola!');
+      expect(await noticeDay()).toBeUndefined();
+    });
+
+    it("uses the business's timezone", async () => {
+      await setHours();
+      await prisma.business.updateMany({ data: { timezone: 'UTC' } });
+      // 17:30 in Buenos Aires (open) but 20:30 in UTC (closed).
+      now = new Date('2026-10-26T20:30:00Z');
+      respond.mockResolvedValueOnce(text('¡Hola!'));
+
+      await say('hola');
+
+      expect(lastSent()).toBe(`¡Hola!\n\n${NOTICE}`);
+    });
+
+    it('does not add the notice inside the demo', async () => {
+      await setHours();
+      now = MONDAY_NIGHT;
+      await say('demo');
+      respond.mockResolvedValueOnce(text('¡Hola! Bienvenido.'));
+
+      await say('hola');
+
+      expect(lastSent()).toBe('¡Hola! Bienvenido.');
+      expect(await noticeDay()).toBeUndefined();
+    });
+
+    it('does not add the notice to the handoff reply', async () => {
+      await setHours();
+      now = MONDAY_NIGHT;
+      respond.mockResolvedValueOnce(tool('request_handoff', { reason: null }));
+
+      await say('quiero hablar con alguien');
+
+      expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
+      expect(await noticeDay()).toBeUndefined();
+    });
   });
 });

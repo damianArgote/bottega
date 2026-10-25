@@ -18,7 +18,6 @@ import {
 
 export interface OpenAiProviderOptions {
   apiKey: string;
-  model: string;
   timeoutMs: number;
 }
 
@@ -57,7 +56,7 @@ export class OpenAiProvider implements AiProvider {
     let response: OpenAiResponse;
     try {
       response = await this.client.responses.create({
-        model: this.options.model,
+        model: request.model,
         instructions: request.instructions,
         input: request.input.map(toOpenAiItem),
         tools: request.tools.map((tool) => ({
@@ -89,7 +88,7 @@ export class OpenAiProvider implements AiProvider {
         inputTokens: response.usage?.input_tokens ?? 0,
         outputTokens: response.usage?.output_tokens ?? 0,
       },
-      model: response.model || this.options.model,
+      model: response.model || request.model,
     };
   }
 }

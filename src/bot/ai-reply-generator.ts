@@ -8,16 +8,16 @@ import {
 } from '../ai/ai.provider.js';
 import { AI_MAX_MODEL_ROUNDS } from '../ai/ai-limits.js';
 import type { AiUsageService } from '../ai/ai-usage.service.js';
+import {
+  type AgentProfile,
+  loadAgentProfile,
+} from '../agents/agent-profile.js';
 import type { AppConfigService } from '../config/app-config.service.js';
 import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import {
-  AI_FALLBACK_REPLY,
-  AI_LIMIT_REPLY,
-  demoRequestSummary,
-  LEAD_SAVED_ACK,
-} from './ai-replies.js';
+import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from './ai-replies.js';
+import { finalReply, runAgentTurn } from './agent-turn.js';
 import { UNSUPPORTED_REPLY } from './echo-replies.js';
 import { historyWhere, toHistoryItems } from './history.js';
 import { JobError } from './job-error.js';
@@ -30,23 +30,26 @@ import type {
   ReplyGenerator,
   ReplyInput,
 } from './reply-generator.js';
-import {
-  planToolCall,
-  TOOL_HANDLERS,
-  toolDefinitionsFor,
-} from './tools/registry.js';
+import { leadValuesOf } from '../leads/lead-values.js';
+import { isOpenAt, localDay } from '../agents/opening-hours.js';
 import type { PlannedEffect } from './tools/tool.js';
-import { DEFAULT_BOT_NAME } from '../lines/default-line.seed.js';
-
-/** WhatsApp allows 4096 characters; keep model text well below it. */
-const MAX_REPLY_CHARS = 3000;
+import { isToolName, toolDefinitionsFor } from './tools/registry.js';
 
 const fallback = (): GeneratedReply => ({
   replies: [AI_FALLBACK_REPLY],
   effects: [],
 });
 
+/** What every model call of one inbound message shares. */
+interface Turn {
+  input: ReplyInput;
+  model: string;
+  agentProfileVersion: number | null;
+}
+
 export interface AiReplyGeneratorDeps {
+  /** Current time (tests); defaults to the system clock. */
+  clock?: () => Date;
   provider: AiProvider;
   usage: AiUsageService;
   prisma: PrismaService;
@@ -57,11 +60,14 @@ export interface AiReplyGeneratorDeps {
 /**
  * BOT_REPLY_MODE=ai. For one inbound text:
  *
+ * 0. Agent switched off (AgentProfile.enabled false, or no stored profile):
+ *    no model call and no reply; the inbound message is already stored.
  * 1. Daily cap: when the conversation already made
  *    AI_MAX_INTERACTIONS_PER_USER_PER_DAY model calls today (OK or ERROR,
  *    day in America/Argentina/Buenos_Aires), no call is made: a LIMITED usage
  *    row is recorded and a fixed reply is returned.
- * 2. Builds the mode's instructions and the history of the active context.
+ * 2. Builds the mode's instructions from the business's agent profile (its
+ *    model, or OPENAI_MODEL) and the history of the active context.
  * 3. Runs up to {@link AI_MAX_MODEL_ROUNDS} model calls. Tool calls are
  *    validated and planned in memory (registry) and their results fed back;
  *    nothing is written here, effects are applied by the worker's phase-1
@@ -76,19 +82,33 @@ export class AiReplyGenerator implements ReplyGenerator {
   constructor(private readonly deps: AiReplyGeneratorDeps) {}
 
   async generate(input: ReplyInput): Promise<GeneratedReply> {
+    const profile = await loadAgentProfile(
+      this.deps.prisma,
+      input.conversationId,
+    );
+    if (!profile.enabled) {
+      // Switched off: the AI does not answer until the agent is turned on.
+      return { replies: [], effects: [] };
+    }
     if (input.message.type !== 'TEXT') {
       return { replies: [UNSUPPORTED_REPLY], effects: [] };
     }
     const { config, usage } = this.deps;
+    const turn: Turn = {
+      input,
+      model: profile.model ?? config.get('OPENAI_MODEL') ?? '',
+      agentProfileVersion: profile.version,
+    };
     const cap = config.get('AI_MAX_INTERACTIONS_PER_USER_PER_DAY');
     if ((await usage.countToday(input.conversationId)) >= cap) {
       await usage.record({
         conversationId: input.conversationId,
-        model: config.get('OPENAI_MODEL') ?? '',
+        model: turn.model,
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: 0,
         outcome: AiOutcome.LIMITED,
+        agentProfileVersion: turn.agentProfileVersion,
       });
       return { replies: [AI_LIMIT_REPLY], effects: [] };
     }
@@ -97,60 +117,115 @@ export class AiReplyGenerator implements ReplyGenerator {
       ...(await this.history(input)),
       { kind: 'message', role: 'user', content: input.message.content },
     ];
+    const toolOptions = {
+      demoEnabled: profile.demoEnabled,
+      leadFields: profile.leadFields,
+    };
     const request = {
-      instructions: await this.instructions(input),
-      tools: toolDefinitionsFor(input.mode),
+      model: turn.model,
+      instructions: await this.instructions(input, profile),
+      tools: toolDefinitionsFor(input.mode, toolOptions),
       maxOutputTokens: config.get('OPENAI_MAX_OUTPUT_TOKENS'),
     };
     const barbershop = this.deps.content.getBarbershop();
-    const effects: PlannedEffect[] = [];
-
-    for (let round = 1; round <= AI_MAX_MODEL_ROUNDS; round += 1) {
-      const response = await this.call(input, {
-        ...request,
-        input: [...items],
-      });
-      if (!response) {
-        return fallback();
-      }
-      if (response.toolCalls.length === 0) {
-        return this.finish(response.outputText, effects);
-      }
-      for (const call of response.toolCalls) {
-        const result = planToolCall(call, {
-          mode: input.mode,
-          barbershop,
-          planned: effects,
-        });
-        items.push(
-          { kind: 'tool_call', ...call },
-          { kind: 'tool_result', callId: call.callId, output: result.output },
+    const outcome = await runAgentTurn(
+      {
+        request,
+        input: items,
+        tools: { mode: input.mode, barbershop, ...toolOptions },
+      },
+      (r) => this.call(turn, r),
+      (rejected) => {
+        const tool = isToolName(rejected.name) ? rejected.name : 'unknown';
+        this.logger.warn(
+          `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${rejected.reason}`,
         );
-        if (result.ok) {
-          effects.push(result.effect);
-        } else {
-          const tool = Object.hasOwn(TOOL_HANDLERS, call.name)
-            ? call.name
-            : 'unknown';
-          this.logger.warn(
-            `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${result.reason}`,
-          );
-        }
-      }
-      if (effects.some((e) => e.kind === 'request_handoff')) {
+      },
+    );
+    switch (outcome.kind) {
+      case 'no_response':
+        return fallback();
+      case 'rounds_exceeded':
+        this.logger.warn(
+          `AI turn exceeded ${AI_MAX_MODEL_ROUNDS} rounds conversation=${input.conversationId}`,
+        );
+        return fallback();
+      case 'handoff':
         // The handoff transition supplies the fixed confirmation reply.
-        return { replies: [], effects };
+        return { replies: [], effects: outcome.effects };
+      case 'text': {
+        const reply = finalReply(outcome.text, outcome.effects, {
+          demoBusinessName: barbershop.name,
+          botName: profile.botName,
+        });
+        if (!reply) {
+          return fallback();
+        }
+        const notice = await this.outOfHoursNotice(input, profile);
+        return notice
+          ? {
+              replies: [`${reply}\n\n${notice.text}`],
+              effects: [...outcome.effects, notice.effect],
+            }
+          : { replies: [reply], effects: outcome.effects };
       }
     }
-    this.logger.warn(
-      `AI turn exceeded ${AI_MAX_MODEL_ROUNDS} rounds conversation=${input.conversationId}`,
-    );
-    return fallback();
+  }
+
+  /**
+   * The profile's out-of-hours message, in commercial mode, when the business
+   * has opening hours,
+   * it is closed now in its timezone and this conversation did not get the
+   * notice today. The effect records the day in the job transaction.
+   */
+  private async outOfHoursNotice(
+    input: ReplyInput,
+    profile: AgentProfile,
+  ): Promise<{ text: string; effect: PlannedEffect } | null> {
+    // Commercial mode only: inside the demo role-play it would break the scene.
+    if (
+      input.mode !== ConversationMode.COMMERCIAL ||
+      !profile.outOfHoursMessage ||
+      !profile.openingHours
+    ) {
+      return null;
+    }
+    const conversation = await this.deps.prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      select: {
+        outOfHoursNoticeOn: true,
+        line: { select: { business: { select: { timezone: true } } } },
+      },
+    });
+    if (!conversation) {
+      return null;
+    }
+    const timezone = conversation.line.business.timezone;
+    const now = this.deps.clock?.() ?? new Date();
+    let day: string;
+    try {
+      if (isOpenAt(profile.openingHours, timezone, now)) {
+        return null;
+      }
+      day = localDay(timezone, now);
+    } catch {
+      this.logger.warn(
+        `Unknown business timezone conversation=${input.conversationId}: no out-of-hours notice`,
+      );
+      return null;
+    }
+    if (conversation.outOfHoursNoticeOn?.toISOString().slice(0, 10) === day) {
+      return null;
+    }
+    return {
+      text: profile.outOfHoursMessage,
+      effect: { kind: 'out_of_hours_notice', day },
+    };
   }
 
   /** One model call with its usage row. Null means "use the fallback". */
   private async call(
-    input: ReplyInput,
+    { input, model, agentProfileVersion }: Turn,
     request: AiRequest,
   ): Promise<AiResponse | null> {
     const started = Date.now();
@@ -164,11 +239,12 @@ export class AiReplyGenerator implements ReplyGenerator {
           : new AiProviderError('ai_unexpected', false);
       await this.deps.usage.record({
         conversationId: input.conversationId,
-        model: this.deps.config.get('OPENAI_MODEL') ?? '',
+        model,
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: Date.now() - started,
         outcome: AiOutcome.ERROR,
+        agentProfileVersion,
       });
       if (failure.retryable && !input.isLastAttempt) {
         throw new JobError(failure.code, true);
@@ -187,59 +263,24 @@ export class AiReplyGenerator implements ReplyGenerator {
       outputTokens: response.usage.outputTokens,
       latencyMs: Date.now() - started,
       outcome: AiOutcome.OK,
+      agentProfileVersion,
     });
     return response;
   }
 
-  /** Final reply: model text plus backend-built confirmations. */
-  private finish(text: string, effects: PlannedEffect[]): GeneratedReply {
-    const parts: string[] = [];
-    const chars = Array.from(text.trim());
-    if (chars.length > 0) {
-      parts.push(
-        chars.length > MAX_REPLY_CHARS
-          ? `${chars.slice(0, MAX_REPLY_CHARS).join('')}…`
-          : chars.join(''),
-      );
-    }
-    const name = this.deps.content.getBarbershop().name;
-    for (const effect of effects) {
-      if (effect.kind === 'register_demo_request') {
-        parts.push(demoRequestSummary(effect.request, name));
-      }
-    }
-    if (parts.length === 0) {
-      if (!effects.some((e) => e.kind === 'save_lead')) {
-        return fallback();
-      }
-      parts.push(LEAD_SAVED_ACK);
-    }
-    return { replies: [parts.join('\n\n')], effects };
-  }
-
-  private async instructions(input: ReplyInput): Promise<string> {
+  private async instructions(
+    input: ReplyInput,
+    profile: AgentProfile,
+  ): Promise<string> {
     const { content, prisma } = this.deps;
     if (input.mode === ConversationMode.DEMO) {
-      // Isolation: no lead data and no commercial info in the demo prompt.
+      // Isolation: no lead data and no business info in the demo prompt.
       return buildDemoInstructions(content.getBarbershop());
     }
-    const [lead, conversation] = await Promise.all([
-      prisma.lead.findUnique({
-        where: { conversationId: input.conversationId },
-      }),
-      prisma.conversation.findUnique({
-        where: { id: input.conversationId },
-        select: {
-          line: { select: { business: { select: { botName: true } } } },
-        },
-      }),
-    ]);
-    return buildCommercialInstructions(
-      content.getCommercialInfo(),
-      lead,
-      // Every conversation has a line once seed:default-line has run.
-      conversation?.line?.business.botName ?? DEFAULT_BOT_NAME,
-    );
+    const lead = await prisma.lead.findUnique({
+      where: { conversationId: input.conversationId },
+    });
+    return buildCommercialInstructions(profile, leadValuesOf(lead));
   }
 
   /** Last AI_HISTORY_LIMIT messages of the active context, oldest first. */

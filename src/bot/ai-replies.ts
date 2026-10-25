@@ -18,6 +18,7 @@ export const LEAD_SAVED_ACK = '¡Gracias! Ya lo anoté.';
 export function demoRequestSummary(
   request: DemoRequestInput,
   businessName: string,
+  botName: string,
 ): string {
   const lines = [
     request.customerName && `• Nombre: ${request.customerName}`,
@@ -30,6 +31,6 @@ export function demoRequestSummary(
     `📝 Solicitud de turno de demo registrada en ${businessName}:`,
     ...lines,
     '⚠️ Es una solicitud FICTICIA de la demo: no es una reserva real ni se cobró ningún pago.',
-    'Escribí "salir" para volver al asistente de BotSuite46.',
+    `Escribí "salir" para volver a hablar con ${botName}.`,
   ].join('\n');
 }

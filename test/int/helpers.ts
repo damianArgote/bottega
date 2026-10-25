@@ -1,8 +1,13 @@
+import { seedDefaultAgentProfile } from '../../src/agents/default-agent-profile.seed.js';
 import { BotService } from '../../src/bot/bot.service.js';
 import { CommandService } from '../../src/bot/command.service.js';
 import type { ReplyGenerator } from '../../src/bot/reply-generator.js';
 import { AppConfigService } from '../../src/config/app-config.service.js';
-import { ContentService } from '../../src/content/content.service.js';
+import { loadContent } from '../../src/content/content.schema.js';
+import {
+  ContentService,
+  DEFAULT_CONTENT_DIR,
+} from '../../src/content/content.service.js';
 import { ContextService } from '../../src/conversations/context.service.js';
 import { DemosService } from '../../src/demos/demos.service.js';
 import { LeadsService } from '../../src/leads/leads.service.js';
@@ -31,24 +36,27 @@ export async function connectPrisma(
   return prisma;
 }
 
+const defaultContent = loadContent(DEFAULT_CONTENT_DIR);
+
 /** Must match WHATSAPP_PHONE_NUMBER_ID in vitest.config.int.ts. */
 export const DEFAULT_PHONE_NUMBER_ID = '000000000000000';
 
 /**
- * Empties every table and recreates the default business and line (the one
- * `npm run seed:default-line` creates from WHATSAPP_PHONE_NUMBER_ID), so
+ * Empties every table and recreates the default business, line and agent
+ * profile (the ones `npm run seed:default-line` creates), so
  * inbound messages without an explicit line are routed as in production.
  */
 export async function resetDb(prisma: PrismaService): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE conversation, conversation_context, message, processing_job,
       lead, demo_request, handoff_request, ai_usage, contact, webhook_event,
-      line, business
+      line, agent_profile, business
       RESTART IDENTITY CASCADE`;
   await createLine(prisma, {
     slug: 'botsuite46',
     phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
   });
+  await seedDefaultAgentProfile(prisma, defaultContent.commercialInfo);
 }
 
 /** Creates a business with one line; returns its ids and route values. */

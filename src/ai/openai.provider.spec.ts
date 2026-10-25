@@ -51,7 +51,7 @@ describe('classifyOpenAiError', () => {
 });
 
 describe('OpenAiProvider', () => {
-  const options = { apiKey: 'sk-test', model: 'model-from-env', timeoutMs: 1 };
+  const options = { apiKey: 'sk-test', timeoutMs: 1 };
 
   const fakeClient = (result: Partial<OpenAiResponse> | Error) => {
     const create = vi.fn<
@@ -66,6 +66,7 @@ describe('OpenAiProvider', () => {
   };
 
   const request = {
+    model: 'model-from-profile',
     instructions: 'Sos un asistente.',
     input: [
       { kind: 'message' as const, role: 'user' as const, content: 'hola' },
@@ -83,7 +84,7 @@ describe('OpenAiProvider', () => {
     maxOutputTokens: 300,
   };
 
-  it('sends a stateless, strict-tools request with the configured model', async () => {
+  it("sends a stateless, strict-tools request with the request's model", async () => {
     const { client, create } = fakeClient({
       status: 'completed',
       model: 'resolved-model',
@@ -98,7 +99,7 @@ describe('OpenAiProvider', () => {
     const response = await new OpenAiProvider(options, client).respond(request);
 
     expect(create).toHaveBeenCalledWith({
-      model: 'model-from-env',
+      model: 'model-from-profile',
       instructions: 'Sos un asistente.',
       input: [
         { type: 'message', role: 'user', content: 'hola' },

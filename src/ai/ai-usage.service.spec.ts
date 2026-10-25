@@ -44,6 +44,7 @@ describe('AiUsageService.record', () => {
         outputTokens: 4,
         latencyMs: 321,
         outcome: 'OK',
+        agentProfileVersion: 2,
       },
       new Date('2026-10-12T01:00:00Z'),
     );
@@ -52,6 +53,7 @@ describe('AiUsageService.record', () => {
       conversationId: 'conv-1',
       day: new Date('2026-10-11T00:00:00Z'),
       outcome: 'OK',
+      agentProfileVersion: 2,
     });
     expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
       event: 'ai_call',
@@ -61,6 +63,7 @@ describe('AiUsageService.record', () => {
       outputTokens: 4,
       latencyMs: 321,
       outcome: 'OK',
+      agentProfileVersion: 2,
     });
     log.mockRestore();
   });

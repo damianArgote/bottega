@@ -96,6 +96,9 @@ export class ContextService {
         where: { id: conversationId },
         data: { paused: true, pausedAt: new Date() },
       });
+      // TODO(prompt 04): also mark the conversation as pending for the inbox
+      // (taken/returned by a person); until then the open HandoffRequest and
+      // the pause are what the team sees.
       const handoff = await t.handoffRequest.create({
         data: { conversationId, reason, status: HandoffStatus.OPEN },
       });

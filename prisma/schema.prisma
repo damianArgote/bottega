@@ -118,14 +118,51 @@ model Business {
   name      String
   slug      String   @unique
   /// How the bot introduces itself, e.g. "BotSuite, IA de BotSuite46".
+  /// Initial value of AgentProfile.botName; the profile's name is the one used.
   botName   String   @map("bot_name")
+  /// IANA zone for the business's opening hours.
+  timezone  String   @default("America/Argentina/Buenos_Aires")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  lines    Line[]
-  contacts Contact[]
+  lines        Line[]
+  contacts     Contact[]
+  agentProfile AgentProfile?
+  leads        Lead[]
 
   @@map("business")
+}
+
+/// The AI agent of a business (one per business in the MVP). Validated by
+/// agentProfileSchema (src/agents) on every write; every text field is
+/// business information for the prompt, never system instructions.
+model AgentProfile {
+  id                String   @id @default(uuid()) @db.Uuid
+  businessId        String   @unique @map("business_id") @db.Uuid
+  enabled           Boolean  @default(true)
+  botName           String   @map("bot_name")
+  persona           String   @default("")
+  /// Markdown: services, prices, hours, area, payment methods.
+  businessInfo      String   @default("") @map("business_info")
+  /// [{ question, answer }]
+  faq               Json     @default("[]")
+  /// [{ key, label, required, kind }]
+  leadFields        Json     @default("[]") @map("lead_fields")
+  handoffRules      String   @default("") @map("handoff_rules")
+  outOfHoursMessage String?  @map("out_of_hours_message")
+  /// { mon: ["09:00-18:00"], ... } in Business.timezone; null: no notice.
+  openingHours      Json?    @map("opening_hours")
+  /// OpenAI model id; null uses OPENAI_MODEL.
+  model             String?
+  demoEnabled       Boolean  @default(false) @map("demo_enabled")
+  /// Goes up on every change; recorded on AiUsage.
+  version           Int      @default(1)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@map("agent_profile")
 }
 
 /// A WhatsApp phone number of a business, with its own Meta credentials.
@@ -181,17 +218,19 @@ model Contact {
 
 /// One thread per (line, contact): it is reopened, never split.
 model Conversation {
-  id              String           @id @default(uuid()) @db.Uuid
-  lineId          String           @map("line_id") @db.Uuid
-  contactId       String           @map("contact_id") @db.Uuid
-  mode            ConversationMode @default(COMMERCIAL)
-  paused          Boolean          @default(false)
-  pausedAt        DateTime?        @map("paused_at")
-  activeContextId String?          @unique @map("active_context_id") @db.Uuid
+  id                 String           @id @default(uuid()) @db.Uuid
+  lineId             String           @map("line_id") @db.Uuid
+  contactId          String           @map("contact_id") @db.Uuid
+  mode               ConversationMode @default(COMMERCIAL)
+  paused             Boolean          @default(false)
+  pausedAt           DateTime?        @map("paused_at")
+  /// Day (Business.timezone) the out-of-hours notice was last added.
+  outOfHoursNoticeOn DateTime?        @map("out_of_hours_notice_on") @db.Date
+  activeContextId    String?          @unique @map("active_context_id") @db.Uuid
   /// Last inbound message time, used to enforce the 24h customer service window.
-  lastInboundAt   DateTime?        @map("last_inbound_at")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  lastInboundAt      DateTime?        @map("last_inbound_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
 
   line            Line                  @relation(fields: [lineId], references: [id], onDelete: Restrict)
   contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Restrict)
@@ -258,6 +297,12 @@ model Message {
 model Lead {
   id             String     @id @default(uuid()) @db.Uuid
   conversationId String     @unique @map("conversation_id") @db.Uuid
+  /// Null only for leads the previous release wrote during a deploy, until
+  /// backfillLeads runs (required in 02b T7).
+  businessId     String?    @map("business_id") @db.Uuid
+  /// Captured values by lead field key (AgentProfile.leadFields).
+  data           Json       @default("{}")
+  /// Fixed columns below: still written for the old keys, dropped in 02b T7.
   name           String?
   businessName   String?    @map("business_name")
   industry       String?
@@ -268,7 +313,9 @@ model Lead {
   updatedAt      DateTime   @updatedAt @map("updated_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  business     Business?    @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
+  @@index([businessId])
   @@map("lead")
 }
 
@@ -340,15 +387,17 @@ model ProcessingJob {
 
 /// AI call accounting for the daily per-user cap. Never stores message content.
 model AiUsage {
-  id             String    @id @default(uuid()) @db.Uuid
-  conversationId String    @map("conversation_id") @db.Uuid
-  day            DateTime  @db.Date
-  model          String
-  inputTokens    Int       @map("input_tokens")
-  outputTokens   Int       @map("output_tokens")
-  latencyMs      Int       @map("latency_ms")
-  outcome        AiOutcome
-  createdAt      DateTime  @default(now()) @map("created_at")
+  id                  String    @id @default(uuid()) @db.Uuid
+  conversationId      String    @map("conversation_id") @db.Uuid
+  day                 DateTime  @db.Date
+  model               String
+  inputTokens         Int       @map("input_tokens")
+  outputTokens        Int       @map("output_tokens")
+  latencyMs           Int       @map("latency_ms")
+  outcome             AiOutcome
+  /// AgentProfile.version the reply was generated with (null before profiles).
+  agentProfileVersion Int?      @map("agent_profile_version")
+  createdAt           DateTime  @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 

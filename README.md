@@ -163,8 +163,11 @@ npx prisma migrate status     # estado (lee DATABASE_URL del .env)
 
 Después de migrar, creá el negocio y la línea por defecto (BotSuite46, con el
 número de `WHATSAPP_PHONE_NUMBER_ID`). El script es idempotente: se puede
-correr las veces que quieras, y también asigna a esa línea las conversaciones
-que todavía no tienen una.
+correr las veces que quieras. La primera vez también crea el perfil del agente
+de BotSuite46 a partir de `content/commercial-info.md` (nombre del bot,
+información del negocio, datos a pedir y demo activa); si el perfil ya existe
+no lo toca, así no pisa lo que se edite después. También copia a `Lead.data`
+las columnas fijas de los leads que todavía no estén ahí.
 
 ```bash
 npm run build
@@ -293,7 +296,8 @@ Antes de mergear a `main`:
 - Cargá en Render las variables obligatorias nuevas: si falta una, la
   versión nueva no arranca pero las migraciones ya corrieron.
 - Revisá que el servicio y el Blueprint usen la rama `main`.
-- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`.
+- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`,
+  `seed:default-line agent profile ready` y `seed:default-line leads backfilled`.
 
 Así se hizo el paso a negocios y líneas (prompt 02):
 
@@ -415,8 +419,16 @@ ni signos alrededor).
 
 ### Modos y contextos
 
-- **Comercial:** habla de Bottega usando `content/commercial-info.md` y puede
-  guardar datos del prospecto (lead).
+- **Comercial:** atiende como el agente del negocio, con su perfil
+  (`AgentProfile`: nombre, tono, información, preguntas frecuentes, datos a
+  pedir y cuándo derivar), y puede guardar datos del prospecto (lead) con
+  `save_lead`, que se arma con los datos a pedir del perfil: solo acepta esas
+  claves y valida teléfono y email. Los datos quedan en `Lead.data` por clave. Si el
+  perfil está apagado (`enabled = false`) o el negocio todavía no tiene uno, la
+  IA no contesta; los comandos siguen funcionando. Fuera del horario del
+  perfil (`openingHours`, en `Business.timezone`) el bot responde igual y, si
+  hay `outOfHoursMessage`, lo agrega a su respuesta una vez por día y por
+  conversación. BotSuite46 arranca con lunes a viernes de 9 a 18.
 - **Demo:** atiende como la barbería ficticia. Lo que se registra ahí es
   ficticio y nunca se mezcla con el lead.
 - Cada modo tiene su propio historial: lo dicho en la demo no aparece en el
@@ -448,7 +460,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 
 | Método y ruta | Qué hace |
 | ------------- | -------- |
-| `GET /admin/leads?status=&limit=` | Leads, más nuevos primero. `status`: `NEW`, `CONTACTED`, `QUALIFIED`, `DISCARDED`. |
+| `GET /admin/leads?status=&limit=` | Leads, más nuevos primero. `status`: `NEW`, `CONTACTED`, `QUALIFIED`, `DISCARDED`. Cada lead trae `businessId` y `data` (los datos por clave de lead); las columnas fijas (`name`, `businessName`, ...) siguen hasta que se borren. |
 | `GET /admin/handoffs?status=&limit=` | Pedidos de atención. `status`: `OPEN` o `RESOLVED`. |
 | `GET /admin/conversations/<id>?limit=` | Conversación, ventana de 24 h, lead, handoffs abiertos y últimos mensajes. |
 | `GET /admin/conversations/by-wa/<wa-id>?limit=` | Lo mismo, buscando por número (solo dígitos, ej. `5491112345678`). |
@@ -456,6 +468,9 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/conversations/<id>/pause` | Pausa el bot. Abre un handoff (motivo `admin`) solo si no hay uno abierto. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/resume` | Reanuda el bot. Por defecto resuelve los handoffs abiertos. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/messages` | Envía una respuesta escrita por una persona. |
+| `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
+| `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version`. Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
+| `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
 
 `limit` va de 1 a 200 (default 50). Errores: `400` parámetros inválidos,
 `404` conversación inexistente.
@@ -540,7 +555,7 @@ Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404
 
 | Archivo | Para qué |
 | ------- | -------- |
-| `content/commercial-info.md` | Lo que el bot sabe de Bottega (modo comercial). Donde dice `[COMPLETAR]`, el bot responde que el equipo lo confirma. |
+| `content/commercial-info.md` | Texto inicial de la información del negocio de BotSuite46. Solo se usa la primera vez, cuando `seed:default-line` crea el perfil del agente; después el bot lee el perfil de la base y editar este archivo no lo cambia. Donde dice `[COMPLETAR]`, el bot responde que el equipo lo confirma. |
 | `content/demos/barbershop.json` | Datos de la barbería ficticia: servicios, precios, horarios, preguntas frecuentes. |
 
 - Después de editar, **reiniciá la app**.
@@ -562,6 +577,24 @@ mensajes reales ni consumen créditos.
 | `npm run test:int` | Integración con Postgres real | `npm run db:up`. Usa la base `bottega_test` (la crea sola y la vacía en cada test). |
 | `npm run lint` | ESLint | — |
 | `npm run build` | Compila a `dist/` | — |
+
+### Escenarios del agente (modelo real)
+
+`npm run test:scenarios` corre los escenarios de `scenarios/<slug>.json` contra
+el **modelo real de OpenAI**: cuesta plata y por eso no está en `npm test` ni en
+CI. Necesita el `.env` con `OPENAI_API_KEY` y `OPENAI_MODEL` (además de las
+variables obligatorias de la app); no usa la base. Para correr solo algunos:
+`npm run test:scenarios -- saludo pide-humano`. Termina con código 1 si algún
+escenario falla, e imprime cada respuesta del bot y las herramientas que llamó.
+
+Cada archivo tiene el `business` (el perfil del agente contra el que corren;
+hoy `botsuite46`, el perfil inicial del seed) y una lista de `scenarios` con
+`name`, `initial` opcional (`known`: datos del lead ya conocidos; `history`:
+mensajes anteriores) y `turns`. Cada turno lleva el texto del usuario y
+aserciones sobre la respuesta: `mustInclude` (cada texto tiene que aparecer;
+una lista dentro significa "alguno de estos"), `mustNotInclude`,
+`mustCallTool` (llamada y aceptada) y `mustNotCallTool`. El texto se compara
+sin mayúsculas ni tildes. `npm test` valida el formato de los archivos.
 
 En GitHub, el workflow `.github/workflows/ci.yml` corre lint, las tres suites
 (con un Postgres propio) y el build en cada PR a `develop` o `main` y en cada

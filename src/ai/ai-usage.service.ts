@@ -31,6 +31,8 @@ export interface AiUsageRecord {
   outputTokens: number;
   latencyMs: number;
   outcome: AiOutcome;
+  /** Version of the agent profile used; null without a stored profile. */
+  agentProfileVersion: number | null;
 }
 
 /** AI call accounting (never stores or logs message content). */
@@ -65,6 +67,7 @@ export class AiUsageService {
         outputTokens: entry.outputTokens,
         latencyMs: entry.latencyMs,
         outcome: entry.outcome,
+        agentProfileVersion: entry.agentProfileVersion,
       }),
     );
   }

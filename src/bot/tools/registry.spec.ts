@@ -1,11 +1,13 @@
 import { loadContent } from '../../content/content.schema.js';
 import { DEFAULT_CONTENT_DIR } from '../../content/content.service.js';
 import { MODE_PROFILES, type ToolName } from '../mode-profiles.js';
+import { DEFAULT_LEAD_FIELDS } from '../../agents/default-agent-profile.seed.js';
 import {
   planToolCall,
-  TOOL_HANDLERS,
   toolDefinitionsFor,
+  toolHandlerFor,
   type ToolCallResult,
+  type ToolOptions,
 } from './registry.js';
 import type { PlannedEffect, ToolContext } from './tool.js';
 
@@ -14,7 +16,26 @@ const barbershop = loadContent(DEFAULT_CONTENT_DIR).barbershop;
 const ctx = (
   mode: ToolContext['mode'],
   planned: PlannedEffect[] = [],
-): ToolContext => ({ mode, barbershop, planned });
+  demoEnabled = true,
+): ToolContext => ({
+  mode,
+  barbershop,
+  planned,
+  demoEnabled,
+  leadFields: DEFAULT_LEAD_FIELDS,
+});
+
+/** BotSuite46's profile: the demo and its four lead fields. */
+const options: ToolOptions = {
+  demoEnabled: true,
+  leadFields: DEFAULT_LEAD_FIELDS,
+};
+
+const TOOL_NAMES: ToolName[] = [
+  'save_lead',
+  'register_demo_request',
+  'request_handoff',
+];
 
 const call = (name: string, args: unknown) => ({
   callId: 'call_1',
@@ -24,10 +45,9 @@ const call = (name: string, args: unknown) => ({
 
 const lead = (overrides: Record<string, unknown> = {}) => ({
   name: null,
-  businessName: null,
+  business_name: null,
   industry: null,
   need: null,
-  contactNotes: null,
   ...overrides,
 });
 
@@ -49,7 +69,9 @@ function expectRejected(result: ToolCallResult, reason: string) {
 
 describe('tool registry', () => {
   it('keeps every JSON schema strict and mirrored by its zod schema', () => {
-    for (const tool of Object.values(TOOL_HANDLERS)) {
+    for (const tool of TOOL_NAMES.map((name) =>
+      toolHandlerFor(name, options),
+    )) {
       const schema = tool.jsonSchema as {
         properties: Record<string, { type: string[] }>;
         required: string[];
@@ -71,12 +93,14 @@ describe('tool registry', () => {
 
   it('offers each mode exactly its allowed tools, consistent with allowedModes', () => {
     for (const profile of Object.values(MODE_PROFILES)) {
-      const names = toolDefinitionsFor(profile.mode).map((t) => t.name);
+      const names = toolDefinitionsFor(profile.mode, options).map(
+        (t) => t.name,
+      );
       expect(names).toEqual(profile.allowedTools);
       for (const name of names) {
-        expect(TOOL_HANDLERS[name as ToolName].allowedModes).toContain(
-          profile.mode,
-        );
+        expect(
+          toolHandlerFor(name as ToolName, options).allowedModes,
+        ).toContain(profile.mode);
       }
     }
   });
@@ -117,7 +141,7 @@ describe('tool registry', () => {
         ok: true,
         effect: {
           kind: 'save_lead',
-          fields: { name: 'Ana Pérez', need: 'turnos' },
+          values: { name: 'Ana Pérez', need: 'turnos' },
         },
       });
     });
@@ -141,7 +165,7 @@ describe('tool registry', () => {
       );
       expectRejected(
         planToolCall(
-          call('save_lead', lead({ contactNotes: 'ver https://evil.test' })),
+          call('save_lead', lead({ need: 'ver https://evil.test' })),
           commercial,
         ),
         'invalid_arguments',
@@ -149,6 +173,23 @@ describe('tool registry', () => {
       expectRejected(
         planToolCall(call('save_lead', lead({ name: ' \n ' })), commercial),
         'plan_rejected',
+      );
+    });
+  });
+
+  describe('save_lead without lead fields', () => {
+    it('is not offered and is rejected if called anyway', () => {
+      const noFields = { ...options, leadFields: [] };
+
+      expect(
+        toolDefinitionsFor('COMMERCIAL', noFields).map((t) => t.name),
+      ).toEqual(['request_handoff']);
+      expectRejected(
+        planToolCall(call('save_lead', { name: 'Ana' }), {
+          ...ctx('COMMERCIAL'),
+          leadFields: [],
+        }),
+        'tool_not_allowed',
       );
     });
   });
@@ -221,6 +262,33 @@ describe('tool registry', () => {
           ctx('DEMO'),
         ),
         'invalid_arguments',
+      );
+    });
+  });
+
+  describe('without the demo (demoEnabled false)', () => {
+    it('register_demo_request is not offered', () => {
+      const names = (mode: ToolContext['mode'], demoEnabled: boolean) =>
+        toolDefinitionsFor(mode, { ...options, demoEnabled }).map(
+          (t) => t.name,
+        );
+
+      expect(names('DEMO', false)).not.toContain('register_demo_request');
+      expect(names('DEMO', false)).toContain('request_handoff');
+      expect(names('DEMO', true)).toContain('register_demo_request');
+      expect(names('COMMERCIAL', false)).toEqual([
+        'save_lead',
+        'request_handoff',
+      ]);
+    });
+
+    it('register_demo_request is rejected if the model calls it anyway', () => {
+      expectRejected(
+        planToolCall(
+          call('register_demo_request', booking()),
+          ctx('DEMO', [], false),
+        ),
+        'tool_not_allowed',
       );
     });
   });

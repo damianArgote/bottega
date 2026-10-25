@@ -4,6 +4,8 @@ import request from 'supertest';
 import { type App } from 'supertest/types.js';
 import { AdminService } from '../src/admin/admin.service.js';
 import { BusinessesService } from '../src/admin/businesses.service.js';
+import { AgentsService } from '../src/agents/agents.service.js';
+import { AgentPreviewService } from '../src/bot/agent-preview.service.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { WHATSAPP_CLIENT_FACTORY } from '../src/whatsapp/whatsapp.client.js';
@@ -23,10 +25,17 @@ describe('Admin API (e2e)', () => {
     sendHumanReply: vi.fn(),
   };
   const businesses = { createBusiness: vi.fn(), createLine: vi.fn() };
+  const agents = { get: vi.fn(), put: vi.fn() };
+  const preview = { run: vi.fn() };
   let app: INestApplication<App>;
 
   beforeEach(async () => {
-    for (const fn of [...Object.values(admin), ...Object.values(businesses)]) {
+    for (const fn of [
+      ...Object.values(admin),
+      ...Object.values(businesses),
+      ...Object.values(agents),
+      ...Object.values(preview),
+    ]) {
       fn.mockReset();
     }
     admin.listLeads.mockResolvedValue([]);
@@ -39,6 +48,10 @@ describe('Admin API (e2e)', () => {
       .useValue(admin)
       .overrideProvider(BusinessesService)
       .useValue(businesses)
+      .overrideProvider(AgentsService)
+      .useValue(agents)
+      .overrideProvider(AgentPreviewService)
+      .useValue(preview)
       .compile();
     app = moduleRef.createNestApplication({ rawBody: true, logger: false });
     await app.init();
@@ -131,6 +144,127 @@ describe('Admin API (e2e)', () => {
         'Hola, soy Damián',
         'reply-1',
       );
+    });
+  });
+
+  describe('agent profile', () => {
+    const BUSINESS_ID = '0b9f6c1e-9d2a-4f3b-8c4d-2a1b3c4d5e6f';
+    const auth = { 'X-Admin-Api-Key': ADMIN_KEY };
+    const body = {
+      enabled: true,
+      botName: 'Lola, IA de Peluquería Lola',
+      persona: 'Simpática.',
+      businessInfo: 'Brushing: $9.000',
+      faq: [],
+      leadFields: [
+        { key: 'name', label: 'Nombre', required: true, kind: 'text' },
+      ],
+      handoffRules: '',
+      outOfHoursMessage: null,
+      model: null,
+      demoEnabled: false,
+    };
+    const path = `/admin/businesses/${BUSINESS_ID}/agent`;
+
+    it('requires the admin key on every agent route', async () => {
+      await http().get(path).expect(401);
+      await http().put(path).send(body).expect(401);
+      await http()
+        .post(`${path}/preview`)
+        .send({ messages: [{ role: 'user', content: 'hola' }] })
+        .expect(401);
+
+      expect(agents.get).not.toHaveBeenCalled();
+      expect(agents.put).not.toHaveBeenCalled();
+      expect(preview.run).not.toHaveBeenCalled();
+    });
+
+    it('gets and puts the profile', async () => {
+      agents.get.mockResolvedValue({ version: 1 });
+      agents.put.mockResolvedValue({ version: 2 });
+
+      await http().get(path).set(auth).expect(200, { version: 1 });
+      await http().put(path).set(auth).send(body).expect(200, { version: 2 });
+
+      expect(agents.get).toHaveBeenCalledWith(BUSINESS_ID);
+      // openingHours is optional and defaults to null (no out-of-hours notice).
+      expect(agents.put).toHaveBeenCalledWith(BUSINESS_ID, {
+        ...body,
+        openingHours: null,
+      });
+    });
+
+    it.each([
+      [
+        'persona over 1.000 characters',
+        { ...body, persona: 'a'.repeat(1_001) },
+      ],
+      [
+        'a lead field key not in snake_case',
+        {
+          ...body,
+          leadFields: [
+            { key: 'Name', label: 'X', required: true, kind: 'text' },
+          ],
+        },
+      ],
+      ['an unknown field', { ...body, systemPrompt: 'x' }],
+      ['a missing field', { ...body, demoEnabled: undefined }],
+    ])('put returns 400 for %s', async (_label, invalid) => {
+      await http().put(path).set(auth).send(invalid).expect(400);
+
+      expect(agents.put).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for a business id that is not a uuid', async () => {
+      await http().get('/admin/businesses/abc/agent').set(auth).expect(400);
+
+      expect(agents.get).not.toHaveBeenCalled();
+    });
+
+    it('previews a turn', async () => {
+      preview.run.mockResolvedValue({ reply: 'Hola' });
+      const messages = [
+        { role: 'assistant', content: '¿Cómo te llamás?' },
+        { role: 'user', content: 'Ana' },
+      ];
+
+      await http()
+        .post(`${path}/preview`)
+        .set(auth)
+        .send({ messages })
+        .expect(200, { reply: 'Hola' });
+
+      expect(preview.run).toHaveBeenCalledWith(BUSINESS_ID, messages);
+    });
+
+    it.each([
+      ['no messages', { messages: [] }],
+      [
+        'a last message from the assistant',
+        {
+          messages: [{ role: 'assistant', content: 'Hola' }],
+        },
+      ],
+      ['an unknown role', { messages: [{ role: 'system', content: 'x' }] }],
+      ['an empty message', { messages: [{ role: 'user', content: '  ' }] }],
+      [
+        'a message over 1.000 characters',
+        { messages: [{ role: 'user', content: 'a'.repeat(1_001) }] },
+      ],
+      [
+        'more than 20 messages',
+        {
+          messages: Array.from({ length: 21 }, () => ({
+            role: 'user',
+            content: 'hola',
+          })),
+        },
+      ],
+    ])('preview returns 400 for %s', async (_label, invalid) => {
+      await http().post(`${path}/preview`).set(auth).send(invalid).expect(400);
+
+      expect(preview.run).not.toHaveBeenCalled();
     });
   });
 
