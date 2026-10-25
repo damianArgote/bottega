@@ -17,7 +17,7 @@ import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from './ai-replies.js';
-import { finalReply, runAgentTurn } from './agent-turn.js';
+import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
 import { UNSUPPORTED_REPLY } from './echo-replies.js';
 import { historyWhere, toHistoryItems } from './history.js';
 import { JobError } from './job-error.js';
@@ -162,12 +162,14 @@ export class AiReplyGenerator implements ReplyGenerator {
           return fallback();
         }
         const notice = await this.outOfHoursNotice(input, profile);
-        return notice
-          ? {
-              replies: [`${reply}\n\n${notice.text}`],
-              effects: [...outcome.effects, notice.effect],
-            }
-          : { replies: [reply], effects: outcome.effects };
+        const buttons = offeredButtons(outcome.effects);
+        return {
+          replies: [notice ? `${reply}\n\n${notice.text}` : reply],
+          effects: notice
+            ? [...outcome.effects, notice.effect]
+            : outcome.effects,
+          ...(buttons ? { buttons } : {}),
+        };
       }
     }
   }

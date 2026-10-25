@@ -1,3 +1,4 @@
+import type { ReplyButton } from '../../whatsapp/whatsapp.client.js';
 import { Injectable } from '@nestjs/common';
 import type { Tx } from '../../conversations/context.service.js';
 import { DemosService } from '../../demos/demos.service.js';
@@ -14,6 +15,8 @@ export interface GeneratedOutcome {
   contextId: string;
   replies: string[];
   effects: readonly PlannedEffect[];
+  /** Reply buttons for the last reply (offer_options). */
+  buttons?: ReplyButton[];
 }
 
 /**
@@ -53,6 +56,9 @@ export class ToolEffectsService {
         case 'request_handoff':
           handoff = effect;
           break;
+        case 'reply_buttons':
+          // Sent with the reply (GeneratedOutcome.buttons): nothing to store.
+          break;
         case 'out_of_hours_notice':
           await tx.conversation.update({
             where: { id: conversationId },
@@ -73,6 +79,10 @@ export class ToolEffectsService {
           : HANDOFF_REASON_AI_TOOL,
       });
     }
-    return { contextId: generated.contextId, replies: generated.replies };
+    return {
+      contextId: generated.contextId,
+      replies: generated.replies,
+      ...(generated.buttons ? { buttons: generated.buttons } : {}),
+    };
   }
 }

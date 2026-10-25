@@ -3,7 +3,7 @@ import type { ReplyKey } from './replies.js';
 
 /** Tools the model may call (see tools/registry.ts). */
 export type ToolName =
-  'save_lead' | 'register_demo_request' | 'request_handoff';
+  'save_lead' | 'register_demo_request' | 'request_handoff' | 'offer_options';
 
 /** Which editable content (see ContentService) feeds the mode's prompt. */
 export type KnowledgeRef =
@@ -25,14 +25,14 @@ export const MODE_PROFILES: Readonly<Record<ConversationMode, ModeProfile>> = {
     mode: ConversationMode.COMMERCIAL,
     enterReply: 'EXIT_DEMO',
     resetReply: 'RESET_COMMERCIAL',
-    allowedTools: ['save_lead', 'request_handoff'],
+    allowedTools: ['save_lead', 'request_handoff', 'offer_options'],
     knowledge: { kind: 'commercial-info' },
   },
   [ConversationMode.DEMO]: {
     mode: ConversationMode.DEMO,
     enterReply: 'ENTER_DEMO',
     resetReply: 'RESET_DEMO',
-    allowedTools: ['register_demo_request', 'request_handoff'],
+    allowedTools: ['register_demo_request', 'request_handoff', 'offer_options'],
     knowledge: { kind: 'demo', scenario: 'barbershop' },
   },
 };

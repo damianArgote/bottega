@@ -26,6 +26,8 @@ export type PreviewToolCall = TurnToolCall;
 export interface PreviewResult {
   /** What the bot would send. */
   reply: string;
+  /** Reply buttons under it. */
+  buttons: { id: string; title: string }[];
   toolCalls: PreviewToolCall[];
   model: string;
   agentProfileVersion: number | null;
@@ -94,6 +96,7 @@ export class AgentPreviewService {
     }
     return {
       reply: result.reply,
+      buttons: result.buttons,
       toolCalls: result.toolCalls,
       model: result.model,
       agentProfileVersion: profile.version,

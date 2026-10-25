@@ -253,7 +253,10 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await say('quiero un turno');
 
     expect((await conversation()).mode).toBe('DEMO');
-    expect(request(0)?.tools.map((t) => t.name)).toEqual(['request_handoff']);
+    expect(request(0)?.tools.map((t) => t.name)).toEqual([
+      'request_handoff',
+      'offer_options',
+    ]);
   });
 
   it('save_lead in commercial mode merges the lead and sends the model reply', async () => {
@@ -296,6 +299,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(request(0)?.tools.map((t) => t.name)).toEqual([
       'save_lead',
       'request_handoff',
+      'offer_options',
     ]);
     const usage = await prisma.aiUsage.findMany();
     expect(usage.map((u) => u.outcome)).toEqual(['OK', 'OK', 'OK']);
@@ -605,6 +609,52 @@ describe('AI reply pipeline (integration, mocked model)', () => {
 
       expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
       expect(await noticeDay()).toBeUndefined();
+    });
+  });
+
+  describe('reply buttons', () => {
+    it("the model's options go out as buttons under its reply, and a tap comes back as text", async () => {
+      respond
+        .mockResolvedValueOnce(
+          tool('offer_options', { options: ['Inicial', 'Pro', 'Ventas'] }),
+        )
+        .mockResolvedValueOnce(
+          text('Tenemos tres planes. ¿Cuál querés conocer?'),
+        );
+
+      await say('¿Qué planes tienen?');
+
+      expect(sendText).toHaveBeenLastCalledWith(
+        USER,
+        'Tenemos tres planes. ¿Cuál querés conocer?',
+        {
+          buttons: [
+            { id: 'option_1', title: 'Inicial' },
+            { id: 'option_2', title: 'Pro' },
+            { id: 'option_3', title: 'Ventas' },
+          ],
+        },
+      );
+      const stored = await prisma.message.findFirstOrThrow({
+        where: { direction: 'OUTBOUND' },
+        orderBy: { seq: 'desc' },
+      });
+      expect(stored.buttons).toHaveLength(3);
+    });
+
+    it('entering the demo sends the "Salir de la demo" button, and its title works as the command', async () => {
+      await say('demo');
+
+      expect(sendText).toHaveBeenLastCalledWith(
+        USER,
+        renderReply('ENTER_DEMO', vars),
+        { buttons: [{ id: 'salir', title: '👋 Salir de la demo' }] },
+      );
+
+      await say('👋 Salir de la demo');
+
+      expect((await conversation()).mode).toBe('COMMERCIAL');
+      expect(lastSent()).toBe(renderReply('EXIT_DEMO', vars));
     });
   });
 });

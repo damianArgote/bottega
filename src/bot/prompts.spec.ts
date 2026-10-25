@@ -100,6 +100,8 @@ describe('prompt builders', () => {
       expect(botsuitePrompt).not.toContain(text);
     }
     expect(salonPrompt).not.toContain('BotSuite');
+    // The fixed rules carry no business's data (prices, plan names).
+    expect(salonPrompt).not.toMatch(/USD|plan Pro/i);
     expect(salonPrompt).toContain('Sos Lola, IA de Peluquería Lola.');
     expect(salonPrompt).toContain('- Celular (obligatorio)');
   });

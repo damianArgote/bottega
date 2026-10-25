@@ -1,3 +1,4 @@
+import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 import { Injectable } from '@nestjs/common';
 import { loadAgentProfile } from '../agents/agent-profile.js';
 import { ContentService } from '../content/content.service.js';
@@ -17,6 +18,8 @@ export interface CommandOutcome {
   /** Context the replies belong to (the new one after a context change). */
   contextId: string;
   replies: string[];
+  /** Explicit buttons for the last reply (else derived from its text). */
+  buttons?: ReplyButton[];
 }
 
 /** Applies a deterministic command planned by {@link planTransition}. */

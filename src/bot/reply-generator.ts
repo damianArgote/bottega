@@ -1,3 +1,4 @@
+import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 import type { ConversationMode } from '../generated/prisma/client.js';
 import { echoReply, UNSUPPORTED_REPLY } from './echo-replies.js';
 import type { PlannedEffect } from './tools/tool.js';
@@ -32,6 +33,8 @@ export interface GeneratedReply {
    * that persists the replies (never by the generator itself).
    */
   effects: PlannedEffect[];
+  /** Reply buttons for the last reply (offer_options); none by default. */
+  buttons?: ReplyButton[];
 }
 
 /**

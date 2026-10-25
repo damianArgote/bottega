@@ -2,6 +2,7 @@ import type { AiInputItem, AiRequest, AiResponse } from '../ai/ai.provider.js';
 import { AI_MAX_MODEL_ROUNDS } from '../ai/ai-limits.js';
 import { demoRequestSummary, LEAD_SAVED_ACK } from './ai-replies.js';
 import { planToolCall } from './tools/registry.js';
+import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 import type { PlannedEffect, ToolContext } from './tools/tool.js';
 
 /** WhatsApp allows 4096 characters; keep model text well below it. */
@@ -88,6 +89,14 @@ export async function runAgentTurn(
     }
   }
   return { kind: 'rounds_exceeded', calls };
+}
+
+/** The buttons offer_options planned for this reply, if any. */
+export function offeredButtons(
+  effects: readonly PlannedEffect[],
+): ReplyButton[] | undefined {
+  const offer = effects.find((e) => e.kind === 'reply_buttons');
+  return offer?.kind === 'reply_buttons' ? offer.buttons : undefined;
 }
 
 /**

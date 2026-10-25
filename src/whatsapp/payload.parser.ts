@@ -47,6 +47,13 @@ const messageSchema = z.object({
   timestamp: unixSeconds,
   type: z.string().min(1),
   text: z.object({ body: z.string() }).optional(),
+  interactive: z
+    .object({
+      type: z.string(),
+      button_reply: z.object({ title: z.string() }).optional(),
+      list_reply: z.object({ title: z.string() }).optional(),
+    })
+    .optional(),
 });
 
 const statusSchema = z.object({
@@ -159,17 +166,24 @@ function parseMessage(
     from: message.from,
     timestamp: toDate(message.timestamp),
   };
-  if (message.type !== 'text') {
+  // A tapped reply button or list option arrives as its title, like text.
+  const tapped =
+    message.type === 'interactive'
+      ? (message.interactive?.button_reply?.title ??
+        message.interactive?.list_reply?.title)
+      : undefined;
+  if (message.type !== 'text' && tapped === undefined) {
     return { kind: 'unsupported', ...base, messageType: message.type };
   }
-  if (!message.text) {
+  const body = tapped ?? message.text?.body;
+  if (body === undefined) {
     return ignored('text message without body');
   }
   const profileName = profileNames.get(message.from);
   return {
     kind: 'text',
     ...base,
-    text: message.text.body,
+    text: body,
     ...(profileName !== undefined ? { profileName } : {}),
   };
 }

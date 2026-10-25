@@ -143,6 +143,22 @@
           "mustNotCallTool": ["request_handoff"]
         }
       ]
+    },
+    {
+      "name": "planes-en-botones",
+      "description": "Plans are offered as buttons; after choosing one the bot explains it and offers only the remaining ones.",
+      "turns": [
+        {
+          "user": "¿Qué planes tienen?",
+          "mustCallTool": ["offer_options"]
+        },
+        {
+          "user": "Plan Pro",
+          "mustInclude": ["130"],
+          "mustCallTool": ["offer_options"],
+          "mustNotOffer": ["Pro"]
+        }
+      ]
     }
   ]
 }

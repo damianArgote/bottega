@@ -1,3 +1,4 @@
+import { storedButtons, textButtons } from './reply-buttons.js';
 import { metaErrorKind } from '../whatsapp/meta-errors.js';
 import { botMayReply } from '../inbox/conversation-state.js';
 import {
@@ -13,6 +14,7 @@ import {
   MessageDirection,
   MessageStatus,
   MessageType,
+  Prisma,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { ClaimedJob } from '../queue/queue.service.js';
@@ -155,7 +157,7 @@ export class BotService {
       if (!contextId) {
         throw new JobError('active_context_missing', false);
       }
-      const { replies, effects } = await this.generator.generate({
+      const { replies, effects, buttons } = await this.generator.generate({
         conversationId: conversation.id,
         mode: conversation.mode,
         contextId,
@@ -166,7 +168,12 @@ export class BotService {
         },
         isLastAttempt: job.attempts >= job.maxAttempts,
       });
-      generated = { contextId, replies, effects };
+      generated = {
+        contextId,
+        replies,
+        effects,
+        ...(buttons ? { buttons } : {}),
+      };
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -190,21 +197,31 @@ export class BotService {
         return 'skipped';
       }
 
-      const { contextId, replies } = command
+      const { contextId, replies, buttons } = command
         ? await this.commands.apply(tx, conversation.id, command)
         : await this.effects.apply(tx, conversation.id, generated!);
       if (replies.length > 0) {
         await tx.message.createMany({
-          data: replies.map((content, index) => ({
-            conversationId: conversation.id,
-            contextId,
-            direction: MessageDirection.OUTBOUND,
-            type: MessageType.TEXT,
-            content,
-            status: MessageStatus.QUEUED,
-            author: MessageAuthor.BOT,
-            idempotencyKey: `${job.id}:${index}`,
-          })),
+          data: replies.map((content, index) => {
+            // The model's options go under the last reply; otherwise a
+            // reply that invites to write "demo" or "salir" gets that button.
+            const own =
+              index === replies.length - 1 && buttons?.length
+                ? buttons
+                : textButtons(content);
+            return {
+              conversationId: conversation.id,
+              contextId,
+              direction: MessageDirection.OUTBOUND,
+              type: MessageType.TEXT,
+              content,
+              status: MessageStatus.QUEUED,
+              author: MessageAuthor.BOT,
+              idempotencyKey: `${job.id}:${index}`,
+              buttons:
+                own.length > 0 ? own.map((b) => ({ ...b })) : Prisma.DbNull,
+            };
+          }),
         });
         await recordOutboundActivity(tx, conversation.id, replies.at(-1)!);
       }
@@ -252,7 +269,11 @@ export class BotService {
 
     let outcome: SendOutcome;
     try {
-      outcome = await client.sendText(waId, row.content);
+      const buttons = storedButtons(row.buttons);
+      outcome =
+        buttons.length > 0
+          ? await client.sendText(waId, row.content, { buttons })
+          : await client.sendText(waId, row.content);
     } catch {
       // The port should never throw; if it does, the request may have left.
       outcome = { kind: 'uncertain', reason: 'client threw' };

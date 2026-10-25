@@ -15,6 +15,7 @@ export type CommandId = (typeof CommandId)[keyof typeof CommandId];
 const COMMANDS: ReadonlyMap<string, CommandId> = new Map([
   ['demo', CommandId.ENTER_DEMO],
   ['probar demo', CommandId.ENTER_DEMO],
+  ['probar la demo', CommandId.ENTER_DEMO],
   ['salir', CommandId.EXIT_DEMO],
   ['salir de la demo', CommandId.EXIT_DEMO],
   ['reiniciar', CommandId.RESET],

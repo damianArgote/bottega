@@ -149,6 +149,52 @@ describe('GraphWhatsAppClient', () => {
     },
   );
 
+  describe('reply buttons', () => {
+    const buttons = [
+      { id: 'demo', title: '🧪 Probar la demo' },
+      { id: 'salir', title: '👋 Salir de la demo' },
+    ];
+
+    it('sends an interactive message with reply buttons', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { messages: [{ id: 'wamid.ok' }] }),
+      );
+
+      expect(await client.sendText(LINE, TO, BODY, { buttons })).toEqual({
+        kind: 'sent',
+        waMessageId: 'wamid.ok',
+      });
+      const [, init] = fetchMock.mock.calls[0]!;
+      expect(JSON.parse(init?.body as string)).toEqual({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: TO,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: BODY },
+          action: {
+            buttons: buttons.map((b) => ({
+              type: 'reply',
+              reply: { id: b.id, title: b.title },
+            })),
+          },
+        },
+      });
+    });
+
+    it('falls back to plain text when the body is too long for an interactive message', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { messages: [{ id: 'wamid.ok' }] }),
+      );
+
+      await client.sendText(LINE, TO, 'x'.repeat(1025), { buttons });
+
+      const [, init] = fetchMock.mock.calls[0]!;
+      expect(JSON.parse(init?.body as string)).toMatchObject({ type: 'text' });
+    });
+  });
+
   describe('markRead', () => {
     it('sends the documented read receipt and returns true', async () => {
       fetchMock.mockResolvedValue(jsonResponse(200, { success: true }));

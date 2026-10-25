@@ -68,6 +68,15 @@ describe('LineWhatsAppClientFactory', () => {
       { phoneNumberId: '111', accessToken: 'line-token-secret' },
       '5491100001234',
       'hola',
+      undefined,
+    );
+    const buttons = [{ id: 'demo', title: 'Probar la demo' }];
+    await client.sendText('5491100001234', 'hola', { buttons });
+    expect(sendText).toHaveBeenLastCalledWith(
+      { phoneNumberId: '111', accessToken: 'line-token-secret' },
+      '5491100001234',
+      'hola',
+      { buttons },
     );
   });
 
