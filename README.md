@@ -144,6 +144,7 @@ mal formato, no inicia y te dice **qué variable** falla (nunca muestra su valor
 | Variable | Obligatoria | Default | Qué es |
 | -------- | ----------- | ------- | ------ |
 | `ADMIN_API_KEY` | Sí | — | Clave de la [API de administración](#api-de-administración). Mínimo 32 caracteres. Generala con `openssl rand -hex 32`. |
+| `TOKEN_ENCRYPTION_KEY` | Sí | — | Cifra las credenciales de Meta de cada línea guardadas en la base (AES-256-GCM). 32 bytes en base64: generala con `openssl rand -base64 32`. Usá una distinta por entorno y guardala bien: si se pierde o se cambia, las credenciales guardadas no se pueden leer. |
 
 ### 5. Migraciones
 
@@ -211,7 +212,8 @@ es PostgreSQL en **Neon**. La configuración está en `render.yaml` (Blueprint).
    elegí este repositorio. Render lee `render.yaml`.
 2. Completá las variables que pide (son las de `sync: false`): `DATABASE_URL`,
    `DATABASE_URL_UNPOOLED`, `META_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`,
-   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `ADMIN_API_KEY` y, solo
+   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `ADMIN_API_KEY`,
+   `TOKEN_ENCRYPTION_KEY` y, solo
    para el modo IA, `OPENAI_API_KEY` y `OPENAI_MODEL`. Ver [tabla de
    variables](#4-configurar-el-env).
    - Usá un token de **System User** para `WHATSAPP_ACCESS_TOKEN`: el temporal
