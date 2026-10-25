@@ -280,6 +280,25 @@ describe('Backoffice users (integration, HTTP)', () => {
     ).toMatchObject({ role: 'OWNER', active: true });
   });
 
+  it('an OWNER whose account is disabled does not count as an active OWNER', async () => {
+    const pepe = await add(a, 'pepe@example.com', 'OWNER');
+    await prisma.user.update({ where: { id: pepe }, data: { active: false } });
+    const cookie = await sessionOf('olga@example.com');
+
+    const res = await http()
+      .patch(`${users$()}/${olga}`)
+      .set('Cookie', cookie)
+      .send({ role: 'AGENT' })
+      .expect(409);
+
+    expect(res.body).toMatchObject({ code: 'LAST_OWNER' });
+    expect(
+      await prisma.membership.findUniqueOrThrow({
+        where: { userId_businessId: { userId: olga, businessId: a } },
+      }),
+    ).toMatchObject({ role: 'OWNER' });
+  });
+
   it('a change waits for a concurrent one, so two OWNERs cannot demote each other', async () => {
     const pablo = await add(a, 'pablo@example.com', 'OWNER');
     let release!: () => void;

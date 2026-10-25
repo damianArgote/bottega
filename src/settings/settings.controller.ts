@@ -66,7 +66,7 @@ export class SettingsController {
 
   @Get('agent')
   agent(@CurrentBusiness() access: BusinessAccess) {
-    return this.agents.get(access.businessId);
+    return this.agents.getSettings(access.businessId);
   }
 
   /** The 02b profile without `model` and `demoEnabled` (admin API only). */

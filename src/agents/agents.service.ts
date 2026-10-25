@@ -16,12 +16,16 @@ import { toAgentProfile, toProfileData, toSnapshot } from './agent-profile.js';
 /** Versions listed by GET .../settings/agent/versions. */
 export const VERSIONS_LISTED = 20;
 
-/** What the admin API and the backoffice return for a business's agent. */
+/** What the admin API returns for a business's agent. */
 export type AgentProfileView = AgentProfileInput & {
   businessId: string;
   version: number;
   updatedAt: Date;
-  /** Who made the last change; null: the admin API, the seed or unknown. */
+};
+
+/** What the backoffice returns: also who made the last change. */
+export type AgentSettingsView = AgentProfileView & {
+  /** null: the admin API, the seed or unknown. */
   updatedBy: { id: string; name: string } | null;
 };
 
@@ -40,7 +44,7 @@ type StoredWithAuthor = StoredAgentProfile & {
 
 const withAuthor = { updatedBy: { select: { id: true, name: true } } };
 
-function view(stored: StoredWithAuthor): AgentProfileView {
+function view(stored: StoredWithAuthor): AgentSettingsView {
   return {
     businessId: stored.businessId,
     ...toAgentProfile(stored),
@@ -60,7 +64,16 @@ function view(stored: StoredWithAuthor): AgentProfileView {
 export class AgentsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Admin API (its response has no author). */
   async get(businessId: string): Promise<AgentProfileView> {
+    const { updatedBy: _author, ...profile } =
+      await this.getSettings(businessId);
+    void _author;
+    return profile;
+  }
+
+  /** Backoffice: the profile and who made the last change. */
+  async getSettings(businessId: string): Promise<AgentSettingsView> {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: { agentProfile: { include: withAuthor } },
@@ -78,8 +91,17 @@ export class AgentsService {
    * Admin API: replaces the whole profile (already validated by
    * agentProfileSchema). Creates it with version 1.
    */
-  put(businessId: string, input: AgentProfileInput): Promise<AgentProfileView> {
-    return this.write(businessId, input, null);
+  async put(
+    businessId: string,
+    input: AgentProfileInput,
+  ): Promise<AgentProfileView> {
+    const { updatedBy: _author, ...profile } = await this.write(
+      businessId,
+      input,
+      null,
+    );
+    void _author;
+    return profile;
   }
 
   /**
@@ -90,7 +112,7 @@ export class AgentsService {
     businessId: string,
     input: AgentSettingsInput,
     userId: string,
-  ): Promise<AgentProfileView> {
+  ): Promise<AgentSettingsView> {
     return this.write(businessId, input, userId);
   }
 
@@ -122,7 +144,7 @@ export class AgentsService {
     businessId: string,
     version: number,
     userId: string,
-  ): Promise<AgentProfileView> {
+  ): Promise<AgentSettingsView> {
     const row = await this.prisma.agentProfileVersion.findUnique({
       where: { businessId_version: { businessId, version } },
     });
@@ -148,7 +170,7 @@ export class AgentsService {
     businessId: string,
     input: AgentSettingsInput | AgentProfileInput,
     userId: string | null,
-  ): Promise<AgentProfileView> {
+  ): Promise<AgentSettingsView> {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: { id: true },

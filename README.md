@@ -503,7 +503,7 @@ vive en dos cookies `httpOnly`, `Secure` y `SameSite=Lax`:
 | `POST /auth/refresh` | Con la cookie de refresh: cookies nuevas. `401` si el token no existe, ya se usó, se revocó o venció. |
 | `POST /auth/logout` | Revoca el refresh y borra las cookies (`204`). |
 | `GET /auth/me` | El usuario, sus negocios (solo donde está activo) y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. `user.mustChangePassword` dice si tiene una contraseña temporal (también viene en el login): la web le pide una nueva antes de entrar a la bandeja. |
-| `POST /auth/change-password` | Con sesión. Body `{ "currentPassword", "newPassword" }` (la nueva, de 10 caracteres o más y distinta). `401` si la actual no es correcta. Cierra todas las otras sesiones del usuario y deja cookies nuevas para esta. |
+| `POST /auth/change-password` | Con sesión. Body `{ "currentPassword", "newPassword" }` (la nueva, de 10 caracteres o más y distinta). `401` si la actual no es correcta. Las otras sesiones del usuario ya no pueden renovarse (su acceso actual vence en hasta 15 minutos) y esta recibe cookies nuevas. |
 
 El límite de intentos es en memoria (sirve con una sola instancia); está
 detrás de la interfaz `LoginRateLimiter` para pasarlo a un almacén compartido.
@@ -595,7 +595,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/conversations/<id>/resume` | Reanuda el bot. Por defecto resuelve los handoffs abiertos. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/messages` | Envía una respuesta escrita por una persona. |
 | `POST /admin/businesses/<id>/users` | Body `{ "email", "name", "password", "role" }` (`role`: `OWNER` o `AGENT`; contraseña de 10 caracteres o más). Da de alta a una persona del negocio: si el email es nuevo crea el usuario (email en minúsculas, contraseña con argon2id); si ya existe, solo le suma el negocio y no cambia su contraseña ni su nombre. `409` si ya pertenece al negocio. No hay registro público. |
-| `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version` y `updatedBy`. `404` si el negocio no existe o no tiene perfil. |
+| `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
 | `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version` y guarda una copia (ver [Configuración del negocio](#configuración-del-negocio-backoffice)). Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
 

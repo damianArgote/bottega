@@ -69,7 +69,6 @@ export const userView = {
   email: true,
   name: true,
   active: true,
-  mustChangePassword: true,
 } as const;
 
 /** Emails are stored and compared trimmed and in lowercase. */
@@ -183,11 +182,14 @@ export class UsersService {
   ): Promise<MemberView> {
     return this.prisma.$transaction(async (tx) => {
       const members = await tx.$queryRaw<MemberState[]>`
-        SELECT user_id AS "userId", role::text AS role, active
-        FROM membership
-        WHERE business_id = ${businessId}::uuid
-        ORDER BY id
-        FOR UPDATE`;
+        SELECT m.user_id AS "userId", m.role::text AS role,
+          -- A disabled account cannot sign in: it counts as inactive.
+          (m.active AND u.active) AS active
+        FROM membership m
+        JOIN app_user u ON u.id = m.user_id
+        WHERE m.business_id = ${businessId}::uuid
+        ORDER BY m.id
+        FOR UPDATE OF m`;
       if (!members.some((m) => m.userId === change.userId)) {
         throw new NotFoundException('User not found in this business');
       }
