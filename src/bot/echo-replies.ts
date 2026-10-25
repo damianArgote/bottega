@@ -10,5 +10,5 @@ export function echoReply(text: string): string {
     chars.length > MAX_ECHOED_CHARS
       ? `${chars.slice(0, MAX_ECHOED_CHARS).join('')}…`
       : chars.join('');
-  return `Hola! Soy Bottega 🤖 Recibí tu mensaje: "${echoed}"`;
+  return `Hola! Soy BotSuite46 🤖 Recibí tu mensaje: "${echoed}"`;
 }

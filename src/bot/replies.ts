@@ -17,7 +17,7 @@ const REPLIES = {
   ALREADY_IN_DEMO: () =>
     'Ya estás en la demo 😉 Seguí escribiendo como si fueras cliente, o escribí "salir" para volver.',
   EXIT_DEMO: () =>
-    'Saliste de la demo. Volviste a hablar con el asistente de Bottega 👋 ¿Querés contarme qué necesitás para tu negocio?',
+    'Saliste de la demo. Volviste a hablar con el asistente de BotSuite46 👋 ¿Querés contarme qué necesitás para tu negocio?',
   NOT_IN_DEMO: () =>
     'No estás en ninguna demo. Si querés probar una, escribí "demo".',
   RESET_COMMERCIAL: () =>
@@ -25,7 +25,7 @@ const REPLIES = {
   RESET_DEMO: () =>
     'Empezamos la demo de nuevo 🔄 Seguís en la barbería ficticia; escribí "salir" para volver.',
   HUMAN_REQUESTED: () =>
-    'Listo, le aviso al equipo de Bottega. Una persona te va a responder por acá lo antes posible. Mientras tanto, el asistente automático queda en pausa.',
+    'Listo, le aviso al equipo de BotSuite46. Una persona te va a responder por acá lo antes posible. Mientras tanto, el asistente automático queda en pausa.',
 } satisfies Record<string, (vars: ReplyVars) => string>;
 
 export type ReplyKey = keyof typeof REPLIES;
