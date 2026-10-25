@@ -62,3 +62,42 @@ export function onOutbound(message: { text: string; now: Date }): StateChange {
     lastMessagePreview: previewOf(message.text),
   };
 }
+
+/** Changes to who attends a conversation (status, assignee, bot pause). */
+export type AttendanceChange = Partial<{
+  status: ConversationStatus;
+  assignedToId: string | null;
+  paused: boolean;
+}>;
+
+/** The bot answers only when nobody is assigned and it is not paused. */
+export function botMayReply(state: {
+  assignedToId: string | null;
+  paused: boolean;
+}): boolean {
+  return state.assignedToId === null && !state.paused;
+}
+
+/** The bot handed off ("humano" or request_handoff): waiting in "Pendientes". */
+export function onHandoff(): AttendanceChange {
+  return { status: 'PENDING', assignedToId: null };
+}
+
+/** A person takes it (409 rules live in the service). */
+export function take(userId: string): AttendanceChange {
+  return { assignedToId: userId, status: 'OPEN' };
+}
+
+/** Nobody attends, and the bot stays quiet until it is handed back. */
+export function release(): AttendanceChange {
+  return { assignedToId: null, paused: true };
+}
+
+/** "Devolver al bot". */
+export function handBack(): AttendanceChange {
+  return { assignedToId: null, paused: false, status: 'OPEN' };
+}
+
+export function resolve(): AttendanceChange {
+  return { status: 'RESOLVED', assignedToId: null, paused: false };
+}

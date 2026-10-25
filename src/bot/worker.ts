@@ -83,8 +83,12 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
       return false;
     }
     try {
-      await this.bot.process(job);
-      await this.queue.complete(job);
+      const result = await this.bot.process(job);
+      if (result.outcome === 'skipped') {
+        await this.queue.skip(job);
+      } else {
+        await this.queue.complete(job);
+      }
     } catch (error) {
       const retryable = !(error instanceof JobError) || error.retryable;
       const outcome = await this.queue.fail(job, error, { retryable });

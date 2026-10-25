@@ -19,10 +19,12 @@ describe('history', () => {
     ]);
   });
 
-  it('filters by the active context, excluding the current message, pending inbound and failed sends', () => {
+  it('filters by the active context, excluding the current message, pending inbound, failed sends and system messages', () => {
     expect(historyWhere('ctx-1', 'msg-9')).toEqual({
       contextId: 'ctx-1',
       id: { not: 'msg-9' },
+      // Inbox notes such as "Damián tomó la conversación" are not chat.
+      type: { not: 'SYSTEM' },
       OR: [
         { direction: 'INBOUND', status: 'PROCESSED' },
         { direction: 'OUTBOUND', status: { not: 'FAILED' } },
