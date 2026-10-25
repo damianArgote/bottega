@@ -46,17 +46,20 @@ describe('Inbox reads (integration)', () => {
     businessId = business.id;
     lineId = business.lines[0]!.id;
     access = { businessId, role: 'OWNER' };
-    ana = (
-      await new UsersService(prisma, new PasswordHasher()).addToBusiness(
-        businessId,
-        {
-          email: 'ana@example.com',
-          name: 'Ana',
-          password: 'una clave larga',
-          role: 'OWNER',
-        },
-      )
-    ).user;
+    ana = {
+      ...(
+        await new UsersService(prisma, new PasswordHasher()).addToBusiness(
+          businessId,
+          {
+            email: 'ana@example.com',
+            name: 'Ana',
+            password: 'una clave larga',
+            role: 'OWNER',
+          },
+        )
+      ).user,
+      mustChangePassword: false,
+    };
   });
 
   const inbound = (from: string, text = 'hola', profileName?: string) =>
