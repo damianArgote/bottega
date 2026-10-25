@@ -24,7 +24,7 @@ describe('prompt builders', () => {
 
     expect(prompt).toContain('Sos BotSuite, IA de BotSuite46.');
     expect(prompt).not.toContain('asistente virtual');
-    expect(prompt).not.toContain('Sos Bottega');
+    expect(prompt).not.toContain('Bottega');
     expect(prompt).toContain('## Qué hacemos');
     expect(prompt).toContain('[COMPLETAR]');
     expect(prompt).toContain('- Nombre: "Ana"');

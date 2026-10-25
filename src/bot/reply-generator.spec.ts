@@ -17,7 +17,7 @@ describe('EchoReplyGenerator', () => {
     const generator = new EchoReplyGenerator();
 
     expect(await generator.generate(input('TEXT', 'hola'))).toEqual({
-      replies: ['Hola! Soy Bottega 🤖 Recibí tu mensaje: "hola"'],
+      replies: ['Hola! Soy BotSuite46 🤖 Recibí tu mensaje: "hola"'],
       effects: [],
     });
     expect(await generator.generate(input('UNSUPPORTED', '[image]'))).toEqual({

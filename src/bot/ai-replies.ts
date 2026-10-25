@@ -30,6 +30,6 @@ export function demoRequestSummary(
     `📝 Solicitud de turno de demo registrada en ${businessName}:`,
     ...lines,
     '⚠️ Es una solicitud FICTICIA de la demo: no es una reserva real ni se cobró ningún pago.',
-    'Escribí "salir" para volver al asistente de Bottega.',
+    'Escribí "salir" para volver al asistente de BotSuite46.',
   ].join('\n');
 }
