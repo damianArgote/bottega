@@ -173,7 +173,8 @@ export class AiReplyGenerator implements ReplyGenerator {
   }
 
   /**
-   * The profile's out-of-hours message, when the business has opening hours,
+   * The profile's out-of-hours message, in commercial mode, when the business
+   * has opening hours,
    * it is closed now in its timezone and this conversation did not get the
    * notice today. The effect records the day in the job transaction.
    */
@@ -181,7 +182,12 @@ export class AiReplyGenerator implements ReplyGenerator {
     input: ReplyInput,
     profile: AgentProfile,
   ): Promise<{ text: string; effect: PlannedEffect } | null> {
-    if (!profile.outOfHoursMessage || !profile.openingHours) {
+    // Commercial mode only: inside the demo role-play it would break the scene.
+    if (
+      input.mode !== ConversationMode.COMMERCIAL ||
+      !profile.outOfHoursMessage ||
+      !profile.openingHours
+    ) {
       return null;
     }
     const conversation = await this.deps.prisma.conversation.findUnique({

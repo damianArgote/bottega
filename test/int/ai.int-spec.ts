@@ -586,6 +586,18 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       expect(lastSent()).toBe(`¡Hola!\n\n${NOTICE}`);
     });
 
+    it('does not add the notice inside the demo', async () => {
+      await setHours();
+      now = MONDAY_NIGHT;
+      await say('demo');
+      respond.mockResolvedValueOnce(text('¡Hola! Bienvenido.'));
+
+      await say('hola');
+
+      expect(lastSent()).toBe('¡Hola! Bienvenido.');
+      expect(await noticeDay()).toBeUndefined();
+    });
+
     it('does not add the notice to the handoff reply', async () => {
       await setHours();
       now = MONDAY_NIGHT;
