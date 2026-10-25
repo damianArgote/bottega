@@ -31,6 +31,5 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 ## Deuda conocida
 Lo que el código actual contradice o complica del plan, y qué prompt lo resuelve. Al cerrar un punto, sacalo de esta lista en el mismo PR.
 
-1. **Agente fijo en código y archivos** → 02b. `MODE_PROFILES` (`src/bot/mode-profiles.ts`) está hardcodeado con `COMMERCIAL`/`DEMO` y la barbería; `ContentService` lee `content/*.md` una vez al arrancar. Pasa a `AgentProfile` en la base.
-2. **Admin sin usuarios** → 03 (usuarios, login, `BusinessAccessGuard`) y 04 (tomar y devolver, integrando la pausa actual). Hoy hay una sola `ADMIN_API_KEY`.
-3. **Sin cursor seguro para el polling** → 04. `Message` solo se ordena por `createdAt` (resolución de ms). El cursor va sobre `Conversation`, con `pg_current_xact_id()` por trigger y `pg_snapshot_xmin` como cursor; los mensajes se paginan por `id`.
+1. **Admin sin usuarios** → 03 (usuarios, login, `BusinessAccessGuard`) y 04 (tomar y devolver, integrando la pausa actual). Hoy hay una sola `ADMIN_API_KEY`.
+2. **Sin cursor seguro para el polling** → 04. `Message` solo se ordena por `createdAt` (resolución de ms). El cursor va sobre `Conversation`, con `pg_current_xact_id()` por trigger y `pg_snapshot_xmin` como cursor; los mensajes se paginan por `id`.
