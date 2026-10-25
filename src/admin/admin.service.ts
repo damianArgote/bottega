@@ -17,6 +17,7 @@ import {
   MessageStatus,
   MessageType,
 } from '../generated/prisma/client.js';
+import { DEFAULT_BUSINESS_SLUG } from '../lines/default-line.seed.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { isUniqueViolation } from '../prisma/sql.js';
 import {
@@ -304,10 +305,23 @@ export class AdminService {
     };
   }
 
+  /**
+   * By id, or by wa_id within the default business (the admin API predates
+   * multiple businesses; a wa_id is only unique per line).
+   */
   private async findConversation(
     where: { id: string } | { waId: string },
   ): Promise<Conversation> {
-    const conversation = await this.prisma.conversation.findUnique({ where });
+    const conversation =
+      'id' in where
+        ? await this.prisma.conversation.findUnique({ where })
+        : await this.prisma.conversation.findFirst({
+            where: {
+              waId: where.waId,
+              line: { business: { slug: DEFAULT_BUSINESS_SLUG } },
+            },
+            orderBy: { createdAt: 'asc' },
+          });
     if (!conversation) {
       throw new NotFoundException('Conversation not found');
     }
