@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   HttpException,
   HttpStatus,
   Inject,
@@ -24,6 +25,8 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string;
+  /** A temporary password: the web asks for a new one before the inbox. */
+  mustChangePassword: boolean;
 }
 
 export interface IssuedSession {
@@ -32,7 +35,12 @@ export interface IssuedSession {
   refresh: string;
 }
 
-const sessionUser = { id: true, email: true, name: true } as const;
+const sessionUser = {
+  id: true,
+  email: true,
+  name: true,
+  mustChangePassword: true,
+} as const;
 
 /** Same message for every login failure, so emails cannot be probed. */
 const INVALID_LOGIN = 'Invalid email or password';
@@ -79,7 +87,8 @@ export class AuthService {
     if (!valid || !user.active) {
       throw new UnauthorizedException(INVALID_LOGIN);
     }
-    return this.issue({ id: user.id, email: user.email, name: user.name });
+    const { id, name, mustChangePassword } = user;
+    return this.issue({ id, email: user.email, name, mustChangePassword });
   }
 
   /**
@@ -111,8 +120,8 @@ export class AuthService {
     if (count !== 1) {
       throw expired;
     }
-    const { id, email, name } = row.user;
-    return this.issue({ id, email, name });
+    const { id, email, name, mustChangePassword } = row.user;
+    return this.issue({ id, email, name, mustChangePassword });
   }
 
   /** Revokes the refresh token, if any. */
@@ -136,9 +145,47 @@ export class AuthService {
       where: { id: userId },
       select: { ...sessionUser, active: true },
     });
-    return user?.active
-      ? { id: user.id, email: user.email, name: user.name }
-      : null;
+    if (!user?.active) {
+      return null;
+    }
+    const { id, email, name, mustChangePassword } = user;
+    return { id, email, name, mustChangePassword };
+  }
+
+  /**
+   * POST /auth/change-password: checks the current password (401), saves
+   * the new one, clears mustChangePassword, ends every other session (all
+   * refresh tokens revoked) and returns a fresh session for this one.
+   */
+  async changePassword(
+    user: SessionUser,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<IssuedSession> {
+    if (currentPassword === newPassword) {
+      throw new BadRequestException(
+        'The new password must be different from the current one',
+      );
+    }
+    const stored = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { passwordHash: true },
+    });
+    if (!(await this.hasher.verify(stored.passwordHash, currentPassword))) {
+      throw new UnauthorizedException('Invalid password');
+    }
+    const passwordHash = await this.hasher.hash(newPassword);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash, mustChangePassword: false },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+    return this.issue({ ...user, mustChangePassword: false });
   }
 
   /** GET /auth/me: the user, their businesses and their role in each. */

@@ -502,7 +502,8 @@ vive en dos cookies `httpOnly`, `Secure` y `SameSite=Lax`:
 | `POST /auth/login` | Body `{ "email", "password" }`. Setea las dos cookies y devuelve el usuario. `401` con el mismo mensaje para email desconocido, contraseña incorrecta o usuario inactivo. Hasta 5 intentos por minuto por IP y por email; después, `429`. |
 | `POST /auth/refresh` | Con la cookie de refresh: cookies nuevas. `401` si el token no existe, ya se usó, se revocó o venció. |
 | `POST /auth/logout` | Revoca el refresh y borra las cookies (`204`). |
-| `GET /auth/me` | El usuario, sus negocios y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. |
+| `GET /auth/me` | El usuario, sus negocios y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. `user.mustChangePassword` dice si tiene una contraseña temporal (también viene en el login): la web le pide una nueva antes de entrar a la bandeja. |
+| `POST /auth/change-password` | Con sesión. Body `{ "currentPassword", "newPassword" }` (la nueva, de 10 caracteres o más y distinta). `401` si la actual no es correcta. Cierra todas las otras sesiones del usuario y deja cookies nuevas para esta. |
 
 El límite de intentos es en memoria (sirve con una sola instancia); está
 detrás de la interfaz `LoginRateLimiter` para pasarlo a un almacén compartido.
@@ -538,7 +539,7 @@ queda `PENDING` y sin asignar.
 
 ### Pendiente
 
-- Recuperar la contraseña por email.
+- Recuperar la contraseña por email (cambiarla con sesión ya se puede).
 - Segundo factor (2FA).
 - Entrar con una cuenta de otro servicio (SSO).
 

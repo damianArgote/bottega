@@ -86,6 +86,7 @@ describe('Auth (integration, HTTP)', () => {
           id: expect.any(String) as unknown,
           email: 'ana@example.com',
           name: 'Ana',
+          mustChangePassword: false,
         },
       });
       const { bottega_session: session, bottega_refresh: refresh } =
@@ -165,6 +166,7 @@ describe('Auth (integration, HTTP)', () => {
           id: expect.any(String) as unknown,
           email: 'ana@example.com',
           name: 'Ana',
+          mustChangePassword: false,
         },
         businesses: [
           {
@@ -267,6 +269,81 @@ describe('Auth (integration, HTTP)', () => {
         .set('Origin', 'https://evil.example')
         .set('Access-Control-Request-Method', 'POST');
       expect(other.headers['access-control-allow-origin']).toBeUndefined();
+    });
+  });
+
+  describe('change password', () => {
+    const change = (cookie: string, body: object) =>
+      http().post('/auth/change-password').set('Cookie', cookie).send(body);
+    const sessionCookies = (res: request.Response) => {
+      const set = cookies(res);
+      return [
+        set.bottega_session!.split(';')[0],
+        set.bottega_refresh!.split(';')[0],
+      ].join('; ');
+    };
+
+    it('changes it: the old password stops working, the new one works, and other sessions end', async () => {
+      const first = sessionCookies(await login());
+      const other = cookies(
+        await login('ana@example.com', PASSWORD, '10.0.9.2'),
+      ).bottega_refresh!.split(';')[0]!;
+
+      const res = await change(first, {
+        currentPassword: PASSWORD,
+        newPassword: 'una clave nueva',
+      }).expect(200);
+
+      expect(res.body).toMatchObject({
+        user: { email: 'ana@example.com', mustChangePassword: false },
+      });
+      expect(cookies(res).bottega_session).toMatch(/; HttpOnly/);
+      await login('ana@example.com', PASSWORD, '10.0.9.3').expect(401);
+      await login('ana@example.com', 'una clave nueva', '10.0.9.4').expect(200);
+      await http().post('/auth/refresh').set('Cookie', other).expect(401);
+    });
+
+    it('rejects a wrong current password, a short or unchanged new one, and no session', async () => {
+      const session = sessionCookies(await login());
+
+      await change(session, {
+        currentPassword: 'otra cosa larga',
+        newPassword: 'una clave nueva',
+      }).expect(401);
+      await change(session, {
+        currentPassword: PASSWORD,
+        newPassword: 'corta',
+      }).expect(400);
+      await change(session, {
+        currentPassword: PASSWORD,
+        newPassword: PASSWORD,
+      }).expect(400);
+      await http()
+        .post('/auth/change-password')
+        .send({ currentPassword: PASSWORD, newPassword: 'una clave nueva' })
+        .expect(401);
+    });
+
+    it('login and me say when the password must be changed, and changing it clears the flag', async () => {
+      await prisma.user.updateMany({ data: { mustChangePassword: true } });
+
+      const logged = await login().expect(200);
+      expect(logged.body).toMatchObject({ user: { mustChangePassword: true } });
+      const session = sessionCookies(logged);
+      const me = await http()
+        .get('/auth/me')
+        .set('Cookie', session.split('; ')[0]!)
+        .expect(200);
+      expect(me.body).toMatchObject({ user: { mustChangePassword: true } });
+
+      await change(session, {
+        currentPassword: PASSWORD,
+        newPassword: 'una clave nueva',
+      }).expect(200);
+
+      expect((await prisma.user.findFirstOrThrow()).mustChangePassword).toBe(
+        false,
+      );
     });
   });
 });
