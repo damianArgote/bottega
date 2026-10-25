@@ -249,6 +249,7 @@ describe('Per-line webhooks and webhook events (integration)', () => {
       // No default line yet (e.g. the seed has not run): processing fails.
       await prisma.line.deleteMany();
       await prisma.agentProfile.deleteMany();
+      await prisma.agentProfileVersion.deleteMany();
       await prisma.business.deleteMany();
       const raw = textWebhook(DEFAULT_PHONE_NUMBER_ID, 'wamid.late');
 

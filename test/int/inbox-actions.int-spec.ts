@@ -66,15 +66,21 @@ describe('Inbox conversation actions (integration)', () => {
       await prisma.business.findUniqueOrThrow({ where: { slug: 'botsuite46' } })
     ).id;
     const users = new UsersService(prisma, new PasswordHasher());
-    const add = async (email: string, name: string, role: 'OWNER' | 'AGENT') =>
-      (
+    const add = async (
+      email: string,
+      name: string,
+      role: 'OWNER' | 'AGENT',
+    ) => ({
+      ...(
         await users.addToBusiness(businessId, {
           email,
           name,
           password: 'una clave larga',
           role,
         })
-      ).user;
+      ).user,
+      mustChangePassword: false,
+    });
     ana = await add('ana@example.com', 'Ana', 'AGENT');
     beto = await add('beto@example.com', 'Beto', 'OWNER');
     anaAccess = { businessId, role: 'AGENT' };

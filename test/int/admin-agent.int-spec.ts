@@ -116,6 +116,13 @@ describe('Admin agent profile and preview (integration)', () => {
       await expect(agents.get(salonId)).rejects.toThrow(NotFoundException);
     });
 
+    it('answers without the author, as before the backoffice', async () => {
+      expect(await agents.put(salonId, profile)).not.toHaveProperty(
+        'updatedBy',
+      );
+      expect(await agents.get(salonId)).not.toHaveProperty('updatedBy');
+    });
+
     it('creates the profile with version 1, and every put raises the version', async () => {
       expect(await agents.put(salonId, profile)).toMatchObject({
         ...profile,

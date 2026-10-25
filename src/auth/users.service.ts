@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   ConflictException,
   Injectable,
@@ -6,6 +7,11 @@ import {
 import type { MembershipRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { isUniqueViolation } from '../prisma/sql.js';
+import {
+  keepsAnActiveOwner,
+  type MemberChange,
+  type MemberState,
+} from './business-owners.js';
 import { PasswordHasher } from './password-hasher.js';
 
 export interface AddUserInput {
@@ -13,6 +19,48 @@ export interface AddUserInput {
   name: string;
   password: string;
   role: MembershipRole;
+  /** A temporary password: the web asks for a new one first. */
+  mustChangePassword?: boolean;
+}
+
+/** A person of a business, as the backoffice lists them. */
+export interface MemberView {
+  id: string;
+  email: string;
+  name: string;
+  role: MembershipRole;
+  /** The membership: false means no access to this business. */
+  active: boolean;
+  mustChangePassword: boolean;
+  addedAt: Date;
+}
+
+const memberSelect = {
+  role: true,
+  active: true,
+  createdAt: true,
+  user: {
+    select: { id: true, email: true, name: true, mustChangePassword: true },
+  },
+} as const;
+
+function memberView(row: {
+  role: MembershipRole;
+  active: boolean;
+  createdAt: Date;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    mustChangePassword: boolean;
+  };
+}): MemberView {
+  return {
+    ...row.user,
+    role: row.role,
+    active: row.active,
+    addedAt: row.createdAt,
+  };
 }
 
 /** Public view of a user: never includes the password hash. */
@@ -64,7 +112,12 @@ export class UsersService {
         const user =
           existing ??
           (await tx.user.create({
-            data: { email, name: input.name, passwordHash: passwordHash! },
+            data: {
+              email,
+              name: input.name,
+              passwordHash: passwordHash!,
+              mustChangePassword: input.mustChangePassword ?? false,
+            },
             select: userView,
           }));
         const membership = await tx.membership.create({
@@ -81,5 +134,80 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  /** The people of a business, in the order they were added. */
+  async listMembers(businessId: string): Promise<MemberView[]> {
+    const rows = await this.prisma.membership.findMany({
+      where: { businessId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: memberSelect,
+    });
+    return rows.map(memberView);
+  }
+
+  /**
+   * Backoffice: adds a person to the business. A new email gets a random
+   * temporary password, returned only here (null for an existing user, who
+   * keeps theirs), and must change it. 409 if already a member.
+   */
+  async addMember(
+    businessId: string,
+    input: Omit<AddUserInput, 'password' | 'mustChangePassword'>,
+  ): Promise<{ user: MemberView; temporaryPassword: string | null }> {
+    const temporaryPassword = randomBytes(12).toString('base64url');
+    const { user, createdUser } = await this.addToBusiness(businessId, {
+      ...input,
+      password: temporaryPassword,
+      mustChangePassword: true,
+    });
+    const row = await this.prisma.membership.findUniqueOrThrow({
+      where: { userId_businessId: { userId: user.id, businessId } },
+      select: memberSelect,
+    });
+    return {
+      user: memberView(row),
+      temporaryPassword: createdUser ? temporaryPassword : null,
+    };
+  }
+
+  /**
+   * Changes a person's role or active flag in the business. The business's
+   * memberships are locked first, so two concurrent changes cannot leave it
+   * without an active OWNER (409 `LAST_OWNER`). 404 if not a member.
+   */
+  async updateMember(
+    businessId: string,
+    change: MemberChange,
+  ): Promise<MemberView> {
+    return this.prisma.$transaction(async (tx) => {
+      const members = await tx.$queryRaw<MemberState[]>`
+        SELECT m.user_id AS "userId", m.role::text AS role,
+          -- A disabled account cannot sign in: it counts as inactive.
+          (m.active AND u.active) AS active
+        FROM membership m
+        JOIN app_user u ON u.id = m.user_id
+        WHERE m.business_id = ${businessId}::uuid
+        ORDER BY m.id
+        FOR UPDATE OF m`;
+      if (!members.some((m) => m.userId === change.userId)) {
+        throw new NotFoundException('User not found in this business');
+      }
+      if (!keepsAnActiveOwner(members, change)) {
+        throw new ConflictException({
+          message: 'The business needs at least one active OWNER',
+          code: 'LAST_OWNER',
+        });
+      }
+      const row = await tx.membership.update({
+        where: { userId_businessId: { userId: change.userId, businessId } },
+        data: {
+          ...(change.role ? { role: change.role } : {}),
+          ...(change.active === undefined ? {} : { active: change.active }),
+        },
+        select: memberSelect,
+      });
+      return memberView(row);
+    });
   }
 }

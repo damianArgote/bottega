@@ -11,7 +11,10 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { parseOrBadRequest } from '../admin/admin.schemas.js';
+import {
+  MIN_PASSWORD_LENGTH,
+  parseOrBadRequest,
+} from '../admin/admin.schemas.js';
 import {
   clearAuthCookies,
   readCookie,
@@ -25,6 +28,19 @@ const loginBodySchema = z
   .object({
     email: z.string().trim().min(1).max(254),
     password: z.string().min(1).max(200),
+  })
+  .strict();
+
+const changePasswordBodySchema = z
+  .object({
+    currentPassword: z.string().min(1).max(200),
+    newPassword: z
+      .string()
+      .min(
+        MIN_PASSWORD_LENGTH,
+        `must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      )
+      .max(200),
   })
   .strict();
 
@@ -71,6 +87,29 @@ export class AuthController {
   ): Promise<void> {
     await this.auth.logout(readCookie(req.cookies, REFRESH_COOKIE));
     clearAuthCookies(res);
+  }
+
+  /** Body `{ currentPassword, newPassword }` (new: 10+ characters). */
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionGuard)
+  async changePassword(
+    @CurrentUser() user: SessionUser,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { currentPassword, newPassword } = parseOrBadRequest(
+      changePasswordBodySchema,
+      body ?? {},
+      'body',
+    );
+    const issued = await this.auth.changePassword(
+      user,
+      currentPassword,
+      newPassword,
+    );
+    setAuthCookies(res, issued);
+    return { user: issued.user };
   }
 
   @Get('me')
