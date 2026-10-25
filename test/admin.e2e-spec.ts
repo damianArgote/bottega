@@ -5,6 +5,7 @@ import { type App } from 'supertest/types.js';
 import { AdminService } from '../src/admin/admin.service.js';
 import { BusinessesService } from '../src/admin/businesses.service.js';
 import { AgentsService } from '../src/agents/agents.service.js';
+import { UsersService } from '../src/auth/users.service.js';
 import { AgentPreviewService } from '../src/bot/agent-preview.service.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -27,6 +28,7 @@ describe('Admin API (e2e)', () => {
   const businesses = { createBusiness: vi.fn(), createLine: vi.fn() };
   const agents = { get: vi.fn(), put: vi.fn() };
   const preview = { run: vi.fn() };
+  const users = { addToBusiness: vi.fn() };
   let app: INestApplication<App>;
 
   beforeEach(async () => {
@@ -35,6 +37,7 @@ describe('Admin API (e2e)', () => {
       ...Object.values(businesses),
       ...Object.values(agents),
       ...Object.values(preview),
+      ...Object.values(users),
     ]) {
       fn.mockReset();
     }
@@ -52,6 +55,8 @@ describe('Admin API (e2e)', () => {
       .useValue(agents)
       .overrideProvider(AgentPreviewService)
       .useValue(preview)
+      .overrideProvider(UsersService)
+      .useValue(users)
       .compile();
     app = moduleRef.createNestApplication({ rawBody: true, logger: false });
     await app.init();
@@ -144,6 +149,46 @@ describe('Admin API (e2e)', () => {
         'Hola, soy Damián',
         'reply-1',
       );
+    });
+  });
+
+  describe('business users', () => {
+    const BUSINESS_ID = '0b9f6c1e-9d2a-4f3b-8c4d-2a1b3c4d5e6f';
+    const path = `/admin/businesses/${BUSINESS_ID}/users`;
+    const auth = { 'X-Admin-Api-Key': ADMIN_KEY };
+    const body = {
+      email: 'ana@example.com',
+      name: 'Ana',
+      password: 'una clave larga',
+      role: 'OWNER',
+    };
+
+    it('requires the admin key', async () => {
+      await http().post(path).send(body).expect(401);
+
+      expect(users.addToBusiness).not.toHaveBeenCalled();
+    });
+
+    it('adds a user with 201 and never echoes the password', async () => {
+      users.addToBusiness.mockResolvedValue({ createdUser: true });
+
+      const res = await http().post(path).set(auth).send(body).expect(201);
+
+      expect(users.addToBusiness).toHaveBeenCalledWith(BUSINESS_ID, body);
+      expect(JSON.stringify(res.body)).not.toContain(body.password);
+    });
+
+    it.each([
+      ['an invalid email', { ...body, email: 'ana' }],
+      ['a password under 10 characters', { ...body, password: 'corta' }],
+      ['an unknown role', { ...body, role: 'ADMIN' }],
+      ['a missing name', { ...body, name: undefined }],
+      ['an unknown field', { ...body, active: false }],
+    ])('returns 400 for %s', async (_label, invalid) => {
+      const res = await http().post(path).set(auth).send(invalid).expect(400);
+
+      expect(JSON.stringify(res.body)).not.toContain(body.password);
+      expect(users.addToBusiness).not.toHaveBeenCalled();
     });
   });
 

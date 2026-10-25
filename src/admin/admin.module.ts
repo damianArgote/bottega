@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AgentsService } from '../agents/agents.service.js';
 import { AiModule } from '../ai/ai.module.js';
+import { AuthModule } from '../auth/auth.module.js';
 import { AgentPreviewService } from '../bot/agent-preview.service.js';
 import { ContentModule } from '../content/content.module.js';
 import { ConversationsModule } from '../conversations/conversations.module.js';
@@ -14,6 +15,7 @@ import { BusinessesService } from './businesses.service.js';
 @Module({
   imports: [
     AiModule,
+    AuthModule,
     ContentModule,
     ConversationsModule,
     LinesModule,

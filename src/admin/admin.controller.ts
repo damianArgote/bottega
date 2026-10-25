@@ -15,9 +15,11 @@ import {
 import type { Response } from 'express';
 import { agentProfileSchema } from '../agents/agent-profile.schema.js';
 import { AgentsService } from '../agents/agents.service.js';
+import { UsersService } from '../auth/users.service.js';
 import { AgentPreviewService } from '../bot/agent-preview.service.js';
 import { AdminApiKeyGuard } from './admin-api-key.guard.js';
 import {
+  addUserBodySchema,
   agentPreviewBodySchema,
   businessIdSchema,
   conversationIdSchema,
@@ -53,7 +55,18 @@ export class AdminController {
     private readonly businesses: BusinessesService,
     private readonly agents: AgentsService,
     private readonly preview: AgentPreviewService,
+    private readonly users: UsersService,
   ) {}
+
+  /** Adds an operator to the business (creates the user if new). */
+  @Post('businesses/:id/users')
+  @HttpCode(HttpStatus.CREATED)
+  addUser(@Param('id') id: string, @Body() body: unknown) {
+    return this.users.addToBusiness(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      parseOrBadRequest(addUserBodySchema, body ?? {}, 'body'),
+    );
+  }
 
   @Get('businesses/:id/agent')
   agent(@Param('id') id: string) {

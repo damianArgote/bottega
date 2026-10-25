@@ -28,7 +28,7 @@ async function emptyDb(prisma: PrismaService): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE conversation, conversation_context, message, processing_job,
       lead, demo_request, handoff_request, ai_usage, contact, webhook_event,
-      line, agent_profile, business
+      line, agent_profile, membership, app_user, business
       RESTART IDENTITY CASCADE`;
 }
 
