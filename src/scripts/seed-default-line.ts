@@ -1,10 +1,14 @@
-// Creates or updates the default business and line from the env.
+// Creates or updates the default business and line from the env, and the
+// business's agent profile from content/commercial-info.md (first run only).
 // Idempotent: Render runs it after the migrations on every deploy
 // (render.yaml preDeployCommand).
 // Usage: npm run build && npm run seed:default-line
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { EnvValidationError, parseEnv } from '../config/env.schema.js';
+import { seedDefaultAgentProfile } from '../agents/default-agent-profile.seed.js';
+import { loadContent } from '../content/content.schema.js';
+import { DEFAULT_CONTENT_DIR } from '../content/content.service.js';
 import { PrismaClient } from '../generated/prisma/client.js';
 import { CredentialsCipher } from '../lines/credentials-cipher.js';
 import { seedDefaultLine } from '../lines/default-line.seed.js';
@@ -23,6 +27,13 @@ async function main(): Promise<void> {
       result.outcome === 'skipped'
         ? 'seed:default-line skipped: WHATSAPP_PHONE_NUMBER_ID is not set'
         : `seed:default-line done: line ${result.lineId}`,
+    );
+    const { commercialInfo } = loadContent(DEFAULT_CONTENT_DIR);
+    const profile = await seedDefaultAgentProfile(prisma, commercialInfo);
+    console.log(
+      profile.outcome === 'skipped'
+        ? 'seed:default-line agent profile skipped: no default business'
+        : `seed:default-line agent profile ready: ${profile.profileId}`,
     );
   } finally {
     await prisma.$disconnect();
