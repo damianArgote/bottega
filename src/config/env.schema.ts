@@ -3,6 +3,13 @@ import { worstCaseAiJobMs } from '../ai/ai-limits.js';
 
 const GRAPH_API_VERSION_PATTERN = /^v\d+\.\d+$/;
 const ADMIN_API_KEY_MIN_LENGTH = 32;
+const ENCRYPTION_KEY_BYTES = 32;
+
+/** True when `value` is canonical base64 for exactly `bytes` bytes. */
+function isBase64Key(value: string, bytes: number): boolean {
+  const decoded = Buffer.from(value, 'base64');
+  return decoded.length === bytes && decoded.toString('base64') === value;
+}
 
 const requiredString = (name: string) =>
   z
@@ -107,6 +114,13 @@ export const envSchema = z
     // time (AI call + several sends with WHATSAPP_HTTP_TIMEOUT_MS each), or a
     // slow job could be picked up twice.
     QUEUE_LEASE_MS: positiveInt('QUEUE_LEASE_MS', 120_000),
+
+    // Encrypts per-line Meta credentials at rest (AES-256-GCM). Losing or
+    // changing it makes the stored credentials unreadable.
+    TOKEN_ENCRYPTION_KEY: requiredString('TOKEN_ENCRYPTION_KEY').refine(
+      (value) => isBase64Key(value, ENCRYPTION_KEY_BYTES),
+      'TOKEN_ENCRYPTION_KEY must be 32 bytes encoded in base64 (openssl rand -base64 32)',
+    ),
 
     ADMIN_API_KEY: requiredString('ADMIN_API_KEY').min(
       ADMIN_API_KEY_MIN_LENGTH,

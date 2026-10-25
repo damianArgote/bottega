@@ -6,6 +6,8 @@ const SECRETS = {
   WHATSAPP_ACCESS_TOKEN: 'access-token-value-should-never-leak',
   OPENAI_API_KEY: 'sk-openai-value-should-never-leak',
   ADMIN_API_KEY: 'admin-key-value-should-never-leak-0123456789',
+  // 32 random bytes, base64.
+  TOKEN_ENCRYPTION_KEY: 'Q2xhdmVEZVBydWViYU5vVXNhckVuUHJvZHVjY2lvbiE=',
 };
 
 function validEnv(
@@ -19,6 +21,7 @@ function validEnv(
     WHATSAPP_PHONE_NUMBER_ID: '123456789012345',
     WHATSAPP_GRAPH_API_VERSION: 'v26.0',
     ADMIN_API_KEY: SECRETS.ADMIN_API_KEY,
+    TOKEN_ENCRYPTION_KEY: SECRETS.TOKEN_ENCRYPTION_KEY,
     ...overrides,
   };
 }
@@ -76,6 +79,7 @@ describe('parseEnv', () => {
     'WHATSAPP_PHONE_NUMBER_ID',
     'WHATSAPP_GRAPH_API_VERSION',
     'ADMIN_API_KEY',
+    'TOKEN_ENCRYPTION_KEY',
   ])('rejects a missing %s', (key) => {
     const error = captureError(validEnv({ [key]: undefined }));
 
@@ -102,6 +106,24 @@ describe('parseEnv', () => {
       ]);
     },
   );
+
+  it.each([
+    ['too short', Buffer.alloc(16, 1).toString('base64')],
+    ['too long', Buffer.alloc(48, 1).toString('base64')],
+    ['not base64', 'this is definitely not base64 at all!!!!!!!'],
+  ])('rejects a TOKEN_ENCRYPTION_KEY that is %s', (_label, value) => {
+    const error = captureError(validEnv({ TOKEN_ENCRYPTION_KEY: value }));
+
+    expect(error.problems).toEqual([
+      'TOKEN_ENCRYPTION_KEY: TOKEN_ENCRYPTION_KEY must be 32 bytes encoded in base64 (openssl rand -base64 32)',
+    ]);
+  });
+
+  it('accepts a 32-byte base64 TOKEN_ENCRYPTION_KEY', () => {
+    const env = parseEnv(validEnv());
+
+    expect(Buffer.from(env.TOKEN_ENCRYPTION_KEY, 'base64')).toHaveLength(32);
+  });
 
   it('rejects an admin api key shorter than 32 characters', () => {
     const error = captureError(validEnv({ ADMIN_API_KEY: 'short-key' }));

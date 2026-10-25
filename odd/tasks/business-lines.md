@@ -1,0 +1,47 @@
+# Feature: business-lines (prompt 02)
+Objective: one backend serving several WhatsApp lines of several businesses without mixing data (base for the inbox). Source: `docs/prompts/02-negocios-lineas-eventos.md`.
+Branch: chained PRs `feat/business-lines-<n>-*`, each stacked on the previous, all targeting `develop`. Delivery: ask-on-risk, chain strategy stacked (cached 2026-10-11, adapted to `develop`). Test runner: vitest (`npm test`, `npm run test:e2e`, `npm run test:int`).
+
+## Specs
+Quoted verbatim from the prompt (Spanish), grouped and numbered. Assumptions are marked.
+
+- **S1 Business.** "`Business`: `id`, `name`, `slug` único, `botName` (cómo se presenta el bot), `createdAt`, `updatedAt`."
+- **S2 Line.** "`Line`: `id`, `businessId`, `phoneNumberId` **único**, `wabaId`, `displayPhone`, `accessTokenEncrypted` (nullable), `active`, timestamps." plus "Sumá a `Line`: `appId`, `appSecretEncrypted`, `accessTokenEncrypted` (token del System User del cliente), `verifyToken` (generado por Bottega al dar de alta la línea) y `webhookKey` (aleatorio, único, de 24 caracteres URL-safe)."
+- **S3 Contact.** "`Contact`: `id`, `businessId`, `waId`, `profileName` (lo que manda Meta), `name` (lo que pone el operador), `optOut`; `@@unique([businessId, waId])`."
+- **S4 Conversation.** "`Conversation`: reemplazá el `waId @unique` global por `lineId` + `contactId` con `@@unique([lineId, contactId])`. Un hilo por par línea-contacto: se reabre, no se parte."
+- **S5 WebhookEvent.** "`WebhookEvent`: `id` (bigint autoincrement), `payload` jsonb, `receivedAt`, `processedAt` nullable, `attempts`, `error`. Índice parcial sobre `receivedAt` donde `processed_at IS NULL` (a mano en el SQL de la migración)."
+- **S6 Data migration.** "**Migración de datos:** la migración crea un `Business` "BotSuite46" y una `Line` con el `phone_number_id` que hoy está en `WHATSAPP_PHONE_NUMBER_ID`. Como el SQL no lee el `.env`, hacelo con un script idempotente `npm run seed:default-line` que se corre una vez después del deploy; la migración deja `lineId` nullable, el script lo completa, y una segunda migración lo vuelve `NOT NULL`. Documentá el orden en el README."
+  - Assumption A1: the seed also creates `Contact` rows for existing conversations and fills `contactId`, since S4 replaces `waId`.
+  - Assumption A2 (deviation, to confirm): Render's `preDeployCommand` runs the idempotent seed after `prisma:deploy`, so no inbound message falls in the gap between deploy and a manual seed. The NOT NULL migration ships in a later deploy.
+- **S7 Encryption.** "Cifrado AES-256-GCM con `TOKEN_ENCRYPTION_KEY` (32 bytes en base64, obligatoria, validada en `env.schema.ts`). `LineCredentialsService` con `encrypt/decrypt` y tests. Nunca se devuelven los secretos por la API ni se loguean."
+- **S8 Per-line webhook.** "**Webhook por línea:** `GET/POST /webhooks/whatsapp/:webhookKey`. El GET compara contra el `verifyToken` de esa línea; el POST valida la firma con el `appSecret` de esa línea **antes** de guardar nada. Un `webhookKey` desconocido responde 404 sin tocar la base más que para buscarlo." and "La firma se valida con el secreto de la línea que identifica la ruta (`webhookKey`) **antes** de parsear. El guard actual de secreto único queda solo para la ruta sin clave de la línea por defecto."
+- **S9 Default route.** "Mantené `/webhooks/whatsapp` (sin clave) para la línea por defecto que usa las variables de entorno actuales, así lo que ya funciona no se rompe."
+- **S10 Cross-line payload.** "Un payload firmado por la app de la línea A que trae un `phone_number_id` de la línea B se descarta con un warning."
+- **S11 Client per line.** "`GraphWhatsAppClient` recibe `phoneNumberId` y token por llamada en vez de leerlos de la config global. Dejá de crearlo una sola vez en `whatsapp.module.ts`: un `WhatsAppClientFactory` lo arma por línea con las credenciales descifradas."
+- **S12 Parser.** "`parseWebhookPayload` deja de filtrar por el `phoneNumberId` del config: devuelve el `phone_number_id` de cada cambio y el servicio busca la `Line`. Un `phone_number_id` sin línea se registra como warning y no crea nada."
+- **S13 Optional env.** "`META_APP_SECRET`, el token y `WHATSAPP_PHONE_NUMBER_ID` pasan a opcionales en `env.schema.ts`: si están, alimentan la línea por defecto y el seed; si no están, la app arranca igual y la ruta sin clave responde 404."
+  - Assumption A3: `WHATSAPP_VERIFY_TOKEN` also becomes optional (it only serves the keyless route).
+- **S14 Bot identity.** "El prompt del bot usa `business.botName` en lugar del nombre fijo. Para el negocio por defecto, `botName = "BotSuite, IA de BotSuite46"`." and "Sacá "Sos Bottega, el asistente virtual…" de `src/bot/prompts.ts` y "asistente virtual" también del prompt de la demo. Actualizá `prompts.spec.ts` para que compruebe que el prompt usa `botName` y que **no** contiene "asistente virtual"." and "El historial y el contexto se cargan por `conversationId` como hoy; revisá que ninguna consulta dependa del `waId` global."
+- **S15 Admin.** "La API de admin existente sigue funcionando para el negocio por defecto. Agregá `POST /admin/businesses` y `POST /admin/businesses/:id/lines` (con API key de admin) para dar de alta un negocio y su línea. El alta de la línea recibe `phoneNumberId`, `wabaId`, `appId`, `appSecret` y `accessToken`, y devuelve la URL del webhook y el `verifyToken` para pegar en la app de Meta del cliente. Después del alta, el endpoint llama a `POST /{waba_id}/subscribed_apps` con el token de la línea y devuelve si quedó suscripta."
+- **S16 Acceptance.** "Tests: una firma hecha con el secreto de otra línea da 401; dos líneas de dos negocios reciben un mensaje del mismo `wa_id` y quedan dos contactos y dos conversaciones separadas; el mismo payload dos veces deja un solo mensaje; un procesamiento que falla queda pendiente y el reprocesador lo termina; un `phone_number_id` desconocido no crea nada." and "Lint, unit, e2e e int en verde."
+  - Assumption A4: once the raw `WebhookEvent` is stored, the webhook answers 200 even if processing fails (the reprocessor finishes it). Today a processing failure answers 5xx.
+- **Out of scope.** "Usuarios y login (prompt 03), bandeja (prompt 04), plantillas, media."
+
+## Tasks
+| ID | Specs | Route | Status | Commit |
+|----|-------|-------|--------|--------|
+| T1 | S7, S13 (`TOKEN_ENCRYPTION_KEY` only) | inline | done | see L3 |
+| T2 | S1-S6, S14 (waId review), A1, A2 | inline | pending | |
+| T3 | S5, S8-S10, S12, S13, S16 | inline | pending | |
+| T4 | S11 | inline | pending | |
+| T5 | S15 | inline | pending | |
+| T6 | S14 | inline | pending | |
+| T7 | S6 (NOT NULL migration), README order, CLAUDE.md debt 1-4 | inline | pending | |
+
+Route evidence: units depend on each other in order (schema → webhook → client → admin), so there is no parallel writer reason; all inline. High-risk items per task: T1 security (2); T2 data migration (1) and deploy (5); T3 security (2) and webhook contract (3); T4 credentials (2); T5 security (2); T7 data migration (1).
+
+## Log
+- L1 (2026-10-25, user): "si" to "¿Arranco el prompt 02 (varios negocios y números) desde `develop`?". The authoritative request text is `docs/prompts/02-negocios-lineas-eventos.md`.
+- L2 (2026-10-25): explorer map. Only `ConversationsService.recordInbound` creates conversations (`ON CONFLICT (wa_id)`); only BotService and AdminService send, both to `conversation.waId` through the singleton `WHATSAPP_CLIENT`; the webhook e2e stubs Prisma as `{}`; "Bottega" is hard-coded in prompts.ts, replies.ts, ai-replies.ts and echo-replies.ts; resetDb needs the new tables. Production (Neon) already holds 1 conversation, so the data migration must run on real data.
+- L3 (2026-10-25): T1 done on `feat/business-lines-1-credentials`. `CredentialsCipher` (AES-256-GCM, `v1.<iv>.<tag>.<data>` base64url) + `LineCredentialsService` + `TOKEN_ENCRYPTION_KEY` (required, canonical base64 of 32 bytes). RED observed (cipher module missing; 5 env tests failing), then GREEN. Checks: lint clean, unit 199, e2e 30, int 75. Deploy note: Render and local `.env` need `TOKEN_ENCRYPTION_KEY` before this reaches them, or the app does not boot.
+- Next: T2 (needs A2 confirmed).
