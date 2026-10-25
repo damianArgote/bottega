@@ -150,6 +150,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | Variable | Obligatoria | Default | Qué es |
 | -------- | ----------- | ------- | ------ |
 | `ADMIN_API_KEY` | Sí | — | Clave de la [API de administración](#api-de-administración). Mínimo 32 caracteres. Generala con `openssl rand -hex 32`. |
+| `PUBLIC_BASE_URL` | No | — | URL pública de esta API (por ejemplo `https://bottega-api.onrender.com`). Con ella el alta de una línea devuelve la URL completa del webhook. En Render no hace falta: se usa `RENDER_EXTERNAL_URL`, que Render define solo. |
 | `TOKEN_ENCRYPTION_KEY` | Sí | — | Cifra las credenciales de Meta de cada línea guardadas en la base (AES-256-GCM). 32 bytes en base64: generala con `openssl rand -base64 32`. Usá una distinta por entorno y guardala bien: si se pierde o se cambia, las credenciales guardadas no se pueden leer. |
 
 ### 5. Migraciones
@@ -449,6 +450,39 @@ curl -s -X POST -H "$H" -H 'Content-Type: application/json' \
 | `replayed` | 200 | Ya se había procesado con esa `Idempotency-Key`. |
 | `uncertain` | 202 | No se sabe si Meta lo recibió. **No se reenvía automáticamente**: revisá el chat antes de mandarlo de nuevo. |
 | `rejected` | 502 | Meta lo rechazó (`code`, `detail`). Queda como `FAILED`. |
+
+### Dar de alta un negocio y su línea
+
+Cada negocio tiene **su propia app de Meta**, dentro de su propio portfolio.
+Primero se crea el negocio y después su línea, con los datos de esa app:
+
+```bash
+curl -X POST "$API/admin/businesses" -H "X-Admin-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Peluquería Ana","slug":"peluqueria-ana","botName":"Ana, IA de Peluquería Ana"}'
+# → 201 {"id":"<businessId>", ...}
+
+curl -X POST "$API/admin/businesses/<businessId>/lines" -H "X-Admin-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"phoneNumberId":"...","wabaId":"...","appId":"...","appSecret":"...","accessToken":"..."}'
+```
+
+| Campo | De dónde sale |
+| ----- | ------------- |
+| `phoneNumberId` | WhatsApp → API Setup: el **ID** del número. |
+| `wabaId` | El ID de la cuenta de WhatsApp Business (en API Setup). |
+| `appId` / `appSecret` | App settings → Basic de la app de Meta del negocio. |
+| `accessToken` | Token del **System User** del negocio, con `whatsapp_business_messaging` y `whatsapp_business_management`. |
+| `displayPhone` | Opcional: el número para mostrar. |
+
+La respuesta (`201`) trae lo que hay que pegar en la app de Meta del negocio
+(WhatsApp → Configuración): `webhookUrl` y `verifyToken`. Además, Bottega
+suscribe la app a la cuenta de WhatsApp (`subscription.subscribed`). Si la
+suscripción falla, la línea queda creada igual y el motivo viene en
+`subscription`; se puede suscribir a mano desde el dashboard de la app.
+
+El `appSecret` y el `accessToken` se guardan cifrados y **nunca** se devuelven.
+Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404`.
 
 ---
 

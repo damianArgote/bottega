@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { type App } from 'supertest/types.js';
 import { AdminService } from '../src/admin/admin.service.js';
+import { BusinessesService } from '../src/admin/businesses.service.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { WHATSAPP_CLIENT_FACTORY } from '../src/whatsapp/whatsapp.client.js';
@@ -21,10 +22,11 @@ describe('Admin API (e2e)', () => {
     resume: vi.fn(),
     sendHumanReply: vi.fn(),
   };
+  const businesses = { createBusiness: vi.fn(), createLine: vi.fn() };
   let app: INestApplication<App>;
 
   beforeEach(async () => {
-    for (const fn of Object.values(admin)) {
+    for (const fn of [...Object.values(admin), ...Object.values(businesses)]) {
       fn.mockReset();
     }
     admin.listLeads.mockResolvedValue([]);
@@ -35,6 +37,8 @@ describe('Admin API (e2e)', () => {
       .useValue(fixedClientFactory({ sendText: vi.fn() }))
       .overrideProvider(AdminService)
       .useValue(admin)
+      .overrideProvider(BusinessesService)
+      .useValue(businesses)
       .compile();
     app = moduleRef.createNestApplication({ rawBody: true, logger: false });
     await app.init();
@@ -127,6 +131,108 @@ describe('Admin API (e2e)', () => {
         'Hola, soy Damián',
         'reply-1',
       );
+    });
+  });
+
+  describe('businesses and lines', () => {
+    const BUSINESS_ID = '0b9f6c1e-9d2a-4f3b-8c4d-2a1b3c4d5e6f';
+    const lineBody = {
+      phoneNumberId: '700000000000001',
+      wabaId: '800000000000001',
+      appId: '900000000000001',
+      appSecret: 'client-app-secret-value',
+      accessToken: 'EAAG-client-system-user-token-value',
+    };
+    const auth = { 'X-Admin-Api-Key': ADMIN_KEY };
+
+    it('requires the admin key', async () => {
+      await http()
+        .post('/admin/businesses')
+        .send({ name: 'A', slug: 'a', botName: 'A' })
+        .expect(401);
+      await http()
+        .post(`/admin/businesses/${BUSINESS_ID}/lines`)
+        .send(lineBody)
+        .expect(401);
+
+      expect(businesses.createBusiness).not.toHaveBeenCalled();
+      expect(businesses.createLine).not.toHaveBeenCalled();
+    });
+
+    it('creates a business with 201', async () => {
+      businesses.createBusiness.mockResolvedValue({ id: BUSINESS_ID });
+
+      await http()
+        .post('/admin/businesses')
+        .set(auth)
+        .send({
+          name: 'Peluquería Ana',
+          slug: 'peluqueria-ana',
+          botName: 'Ana',
+        })
+        .expect(201, { id: BUSINESS_ID });
+
+      expect(businesses.createBusiness).toHaveBeenCalledWith({
+        name: 'Peluquería Ana',
+        slug: 'peluqueria-ana',
+        botName: 'Ana',
+      });
+    });
+
+    it.each([
+      ['a slug with spaces', { name: 'A', slug: 'mi negocio', botName: 'A' }],
+      ['a missing botName', { name: 'A', slug: 'a' }],
+      ['an unknown field', { name: 'A', slug: 'a', botName: 'A', extra: 1 }],
+    ])('returns 400 for %s', async (_label, body) => {
+      await http().post('/admin/businesses').set(auth).send(body).expect(400);
+
+      expect(businesses.createBusiness).not.toHaveBeenCalled();
+    });
+
+    it('creates a line with 201', async () => {
+      businesses.createLine.mockResolvedValue({ webhookPath: '/x' });
+
+      await http()
+        .post(`/admin/businesses/${BUSINESS_ID}/lines`)
+        .set(auth)
+        .send(lineBody)
+        .expect(201, { webhookPath: '/x' });
+
+      expect(businesses.createLine).toHaveBeenCalledWith(BUSINESS_ID, lineBody);
+    });
+
+    it.each([
+      ['a non-numeric phone number id', { ...lineBody, phoneNumberId: 'abc' }],
+      ['a missing app secret', { ...lineBody, appSecret: undefined }],
+      ['a too short access token', { ...lineBody, accessToken: 'short' }],
+    ])('returns 400 for %s', async (_label, body) => {
+      await http()
+        .post(`/admin/businesses/${BUSINESS_ID}/lines`)
+        .set(auth)
+        .send(body)
+        .expect(400);
+
+      expect(businesses.createLine).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for an invalid business id', async () => {
+      await http()
+        .post('/admin/businesses/not-a-uuid/lines')
+        .set(auth)
+        .send(lineBody)
+        .expect(400);
+    });
+
+    it('never echoes secrets in a validation error', async () => {
+      const res = await http()
+        .post(`/admin/businesses/${BUSINESS_ID}/lines`)
+        .set(auth)
+        .send({ ...lineBody, phoneNumberId: 'abc' })
+        .expect(400);
+
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain(lineBody.appSecret);
+      expect(raw).not.toContain(lineBody.accessToken);
     });
   });
 });

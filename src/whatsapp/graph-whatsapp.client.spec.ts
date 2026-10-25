@@ -225,4 +225,55 @@ describe('GraphWhatsAppClient', () => {
       ['https://graph.facebook.com/v26.0/222/messages', 'Bearer token-b'],
     ]);
   });
+
+  describe('subscribeApp', () => {
+    it('subscribes the app to the WhatsApp account with the line token', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { success: true }));
+
+      const result = await client.subscribeApp('5550001', TOKEN);
+
+      expect(result).toEqual({ subscribed: true });
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe(
+        'https://graph.facebook.com/v26.0/5550001/subscribed_apps',
+      );
+      expect(init).toMatchObject({
+        method: 'POST',
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      });
+    });
+
+    it('reports a Meta rejection without throwing', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(400, {
+          error: { code: 100, message: 'Unsupported post request' },
+        }),
+      );
+
+      const result = await client.subscribeApp('5550001', TOKEN);
+
+      expect(result).toEqual({
+        subscribed: false,
+        code: 100,
+        message: 'Unsupported post request',
+      });
+    });
+
+    it('reports a 2xx without success as not subscribed', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { success: false }));
+
+      expect(await client.subscribeApp('5550001', TOKEN)).toMatchObject({
+        subscribed: false,
+      });
+    });
+
+    it('reports a network failure without throwing', async () => {
+      fetchMock.mockRejectedValue(networkError('ECONNREFUSED'));
+
+      expect(await client.subscribeApp('5550001', TOKEN)).toMatchObject({
+        subscribed: false,
+        code: 'network_error',
+      });
+    });
+  });
 });

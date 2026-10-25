@@ -224,6 +224,22 @@ describe('parseEnv', () => {
     ]);
   });
 
+  it('normalizes PUBLIC_BASE_URL without a trailing slash', () => {
+    const env = parseEnv(
+      validEnv({ PUBLIC_BASE_URL: 'https://bottega.example.com/' }),
+    );
+
+    expect(env.PUBLIC_BASE_URL).toBe('https://bottega.example.com');
+  });
+
+  it('rejects a PUBLIC_BASE_URL that is not an http(s) URL', () => {
+    const error = captureError(validEnv({ PUBLIC_BASE_URL: 'bottega.com' }));
+
+    expect(error.problems).toEqual([
+      'PUBLIC_BASE_URL: PUBLIC_BASE_URL must be an http(s) URL',
+    ]);
+  });
+
   it('accepts a direct database url for migrations', () => {
     const env = parseEnv(
       validEnv({ DATABASE_URL_UNPOOLED: 'postgresql://u:p@direct.host/db' }),
