@@ -2,6 +2,8 @@
 export interface ReplyVars {
   /** Name of the fictitious demo business, from the demo content file. */
   demoBusinessName: string;
+  /** How the business's bot introduces itself (AgentProfile.botName). */
+  botName: string;
 }
 
 /** Fixed bot replies for deterministic commands (Spanish, voseo). */
@@ -16,8 +18,8 @@ const REPLIES = {
     ].join('\n'),
   ALREADY_IN_DEMO: () =>
     'Ya estás en la demo 😉 Seguí escribiendo como si fueras cliente, o escribí "salir" para volver.',
-  EXIT_DEMO: () =>
-    'Saliste de la demo. Volviste a hablar con el asistente de BotSuite46 👋 ¿Querés contarme qué necesitás para tu negocio?',
+  EXIT_DEMO: ({ botName }: ReplyVars) =>
+    `Saliste de la demo. Volviste a hablar con ${botName} 👋 ¿Querés contarme qué necesitás para tu negocio?`,
   DEMO_UNAVAILABLE: () =>
     'Por acá no hay una demo para probar. ¿En qué te puedo ayudar?',
   NOT_IN_DEMO: () =>
@@ -27,7 +29,7 @@ const REPLIES = {
   RESET_DEMO: () =>
     'Empezamos la demo de nuevo 🔄 Seguís en la barbería ficticia; escribí "salir" para volver.',
   HUMAN_REQUESTED: () =>
-    'Listo, le aviso al equipo de BotSuite46. Una persona te va a responder por acá lo antes posible. Mientras tanto, el asistente automático queda en pausa.',
+    'Listo, le aviso al equipo. Una persona te va a responder por acá lo antes posible. Mientras tanto, las respuestas automáticas quedan en pausa.',
 } satisfies Record<string, (vars: ReplyVars) => string>;
 
 export type ReplyKey = keyof typeof REPLIES;

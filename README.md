@@ -465,6 +465,9 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/conversations/<id>/pause` | Pausa el bot. Abre un handoff (motivo `admin`) solo si no hay uno abierto. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/resume` | Reanuda el bot. Por defecto resuelve los handoffs abiertos. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/messages` | Envía una respuesta escrita por una persona. |
+| `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
+| `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `model`, `demoEnabled`). Lo crea si no existe; cada `PUT` sube `version`. Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
+| `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
 
 `limit` va de 1 a 200 (default 50). Errores: `400` parámetros inválidos,
 `404` conversación inexistente.

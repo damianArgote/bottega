@@ -38,7 +38,7 @@ export class CommandService {
     options: CommandOptions = {},
   ): Promise<CommandOutcome> {
     const conversation = await this.contexts.lock(tx, conversationId);
-    const { demoEnabled } = await loadAgentProfile(tx, conversationId);
+    const { demoEnabled, botName } = await loadAgentProfile(tx, conversationId);
     const plan = planTransition(
       { mode: conversation.mode, demoEnabled },
       command,
@@ -72,6 +72,7 @@ export class CommandService {
 
     const reply = renderReply(plan.reply, {
       demoBusinessName: this.content.getBarbershop().name,
+      botName,
     });
     return { contextId, replies: [reply] };
   }

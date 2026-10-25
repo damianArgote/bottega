@@ -85,15 +85,36 @@ describe('planTransition without the demo (demoEnabled false)', () => {
 });
 
 describe('renderReply', () => {
+  const vars = { demoBusinessName: 'Barbería X', botName: 'Lola, IA de Lola' };
+
+  it.each(['HUMAN_REQUESTED', 'EXIT_DEMO', 'RESET_COMMERCIAL'] as const)(
+    '%s names no business of its own',
+    (key) => {
+      expect(renderReply(key, vars)).not.toContain('BotSuite');
+    },
+  );
+
+  it('EXIT_DEMO says the user is back with the business bot', () => {
+    expect(renderReply('EXIT_DEMO', vars)).toContain(
+      'Volviste a hablar con Lola, IA de Lola',
+    );
+  });
+
   it('DEMO_UNAVAILABLE does not invite to a demo', () => {
-    const text = renderReply('DEMO_UNAVAILABLE', { demoBusinessName: 'X' });
+    const text = renderReply('DEMO_UNAVAILABLE', {
+      ...vars,
+      demoBusinessName: 'X',
+    });
 
     expect(text).not.toContain('"demo"');
     expect(text).not.toContain('X');
   });
 
   it('states the demo is fictitious, how to leave, and names the business', () => {
-    const text = renderReply('ENTER_DEMO', { demoBusinessName: 'Barbería X' });
+    const text = renderReply('ENTER_DEMO', {
+      ...vars,
+      demoBusinessName: 'Barbería X',
+    });
 
     expect(text).toContain('DEMO');
     expect(text).toContain('ficticios');

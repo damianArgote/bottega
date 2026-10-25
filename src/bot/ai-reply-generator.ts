@@ -16,12 +16,8 @@ import type { AppConfigService } from '../config/app-config.service.js';
 import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import {
-  AI_FALLBACK_REPLY,
-  AI_LIMIT_REPLY,
-  demoRequestSummary,
-  LEAD_SAVED_ACK,
-} from './ai-replies.js';
+import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from './ai-replies.js';
+import { finalReply, runAgentTurn } from './agent-turn.js';
 import { UNSUPPORTED_REPLY } from './echo-replies.js';
 import { historyWhere, toHistoryItems } from './history.js';
 import { JobError } from './job-error.js';
@@ -35,15 +31,7 @@ import type {
   ReplyInput,
 } from './reply-generator.js';
 import { leadValuesOf } from '../leads/lead-values.js';
-import {
-  isToolName,
-  planToolCall,
-  toolDefinitionsFor,
-} from './tools/registry.js';
-import type { PlannedEffect } from './tools/tool.js';
-
-/** WhatsApp allows 4096 characters; keep model text well below it. */
-const MAX_REPLY_CHARS = 3000;
+import { isToolName, toolDefinitionsFor } from './tools/registry.js';
 
 const fallback = (): GeneratedReply => ({
   replies: [AI_FALLBACK_REPLY],
@@ -136,48 +124,41 @@ export class AiReplyGenerator implements ReplyGenerator {
       maxOutputTokens: config.get('OPENAI_MAX_OUTPUT_TOKENS'),
     };
     const barbershop = this.deps.content.getBarbershop();
-    const effects: PlannedEffect[] = [];
-
-    for (let round = 1; round <= AI_MAX_MODEL_ROUNDS; round += 1) {
-      const response = await this.call(turn, {
-        ...request,
-        input: [...items],
-      });
-      if (!response) {
-        return fallback();
-      }
-      if (response.toolCalls.length === 0) {
-        return this.finish(response.outputText, effects);
-      }
-      for (const call of response.toolCalls) {
-        const result = planToolCall(call, {
-          mode: input.mode,
-          barbershop,
-          planned: effects,
-          ...toolOptions,
-        });
-        items.push(
-          { kind: 'tool_call', ...call },
-          { kind: 'tool_result', callId: call.callId, output: result.output },
+    const outcome = await runAgentTurn(
+      {
+        request,
+        input: items,
+        tools: { mode: input.mode, barbershop, ...toolOptions },
+      },
+      (r) => this.call(turn, r),
+      (rejected) => {
+        const tool = isToolName(rejected.name) ? rejected.name : 'unknown';
+        this.logger.warn(
+          `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${rejected.reason}`,
         );
-        if (result.ok) {
-          effects.push(result.effect);
-        } else {
-          const tool = isToolName(call.name) ? call.name : 'unknown';
-          this.logger.warn(
-            `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${result.reason}`,
-          );
-        }
-      }
-      if (effects.some((e) => e.kind === 'request_handoff')) {
+      },
+    );
+    switch (outcome.kind) {
+      case 'no_response':
+        return fallback();
+      case 'rounds_exceeded':
+        this.logger.warn(
+          `AI turn exceeded ${AI_MAX_MODEL_ROUNDS} rounds conversation=${input.conversationId}`,
+        );
+        return fallback();
+      case 'handoff':
         // The handoff transition supplies the fixed confirmation reply.
-        return { replies: [], effects };
+        return { replies: [], effects: outcome.effects };
+      case 'text': {
+        const reply = finalReply(outcome.text, outcome.effects, {
+          demoBusinessName: barbershop.name,
+          botName: profile.botName,
+        });
+        return reply
+          ? { replies: [reply], effects: outcome.effects }
+          : fallback();
       }
     }
-    this.logger.warn(
-      `AI turn exceeded ${AI_MAX_MODEL_ROUNDS} rounds conversation=${input.conversationId}`,
-    );
-    return fallback();
   }
 
   /** One model call with its usage row. Null means "use the fallback". */
@@ -223,32 +204,6 @@ export class AiReplyGenerator implements ReplyGenerator {
       agentProfileVersion,
     });
     return response;
-  }
-
-  /** Final reply: model text plus backend-built confirmations. */
-  private finish(text: string, effects: PlannedEffect[]): GeneratedReply {
-    const parts: string[] = [];
-    const chars = Array.from(text.trim());
-    if (chars.length > 0) {
-      parts.push(
-        chars.length > MAX_REPLY_CHARS
-          ? `${chars.slice(0, MAX_REPLY_CHARS).join('')}…`
-          : chars.join(''),
-      );
-    }
-    const name = this.deps.content.getBarbershop().name;
-    for (const effect of effects) {
-      if (effect.kind === 'register_demo_request') {
-        parts.push(demoRequestSummary(effect.request, name));
-      }
-    }
-    if (parts.length === 0) {
-      if (!effects.some((e) => e.kind === 'save_lead')) {
-        return fallback();
-      }
-      parts.push(LEAD_SAVED_ACK);
-    }
-    return { replies: [parts.join('\n\n')], effects };
   }
 
   private async instructions(

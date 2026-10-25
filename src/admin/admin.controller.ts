@@ -7,13 +7,18 @@ import {
   HttpStatus,
   Param,
   Post,
+  Put,
   Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { agentProfileSchema } from '../agents/agent-profile.schema.js';
+import { AgentsService } from '../agents/agents.service.js';
+import { AgentPreviewService } from '../bot/agent-preview.service.js';
 import { AdminApiKeyGuard } from './admin-api-key.guard.js';
 import {
+  agentPreviewBodySchema,
   businessIdSchema,
   conversationIdSchema,
   createBusinessBodySchema,
@@ -46,7 +51,38 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly businesses: BusinessesService,
+    private readonly agents: AgentsService,
+    private readonly preview: AgentPreviewService,
   ) {}
+
+  @Get('businesses/:id/agent')
+  agent(@Param('id') id: string) {
+    return this.agents.get(parseOrBadRequest(businessIdSchema, id, 'id'));
+  }
+
+  /** Replaces the whole profile; every put raises its version. */
+  @Put('businesses/:id/agent')
+  putAgent(@Param('id') id: string, @Body() body: unknown) {
+    return this.agents.put(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      parseOrBadRequest(agentProfileSchema, body ?? {}, 'body'),
+    );
+  }
+
+  /** One turn against the real model; sends and stores nothing. */
+  @Post('businesses/:id/agent/preview')
+  @HttpCode(HttpStatus.OK)
+  previewAgent(@Param('id') id: string, @Body() body: unknown) {
+    const { messages } = parseOrBadRequest(
+      agentPreviewBodySchema,
+      body ?? {},
+      'body',
+    );
+    return this.preview.run(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      messages,
+    );
+  }
 
   @Post('businesses')
   @HttpCode(HttpStatus.CREATED)
