@@ -1,17 +1,5 @@
 import { ZodError } from 'zod';
-import {
-  cleanLeadValues,
-  leadValuesOf,
-  legacyColumnsFor,
-} from './lead-values.js';
-
-const columns = {
-  name: null,
-  businessName: null,
-  industry: null,
-  need: null,
-  contactNotes: null,
-};
+import { cleanLeadValues, leadValuesOf } from './lead-values.js';
 
 describe('lead values', () => {
   it('cleanLeadValues keeps only non-empty, trimmed values', () => {
@@ -25,51 +13,19 @@ describe('lead values', () => {
     expect(() => cleanLeadValues({ name: 'x'.repeat(501) })).toThrow(ZodError);
   });
 
-  it('leadValuesOf merges data and the fixed columns, the columns winning for the old keys', () => {
-    // The previous release may correct a column after the backfill; new code
-    // writes both, so a column is never older than data.
+  it('leadValuesOf reads Lead.data', () => {
     expect(
       leadValuesOf({
-        ...columns,
-        name: 'Ana',
-        businessName: 'Consultorio Sur',
-        contactNotes: 'por la tarde',
-        data: { name: 'Ana (old)', phone: '+5491100000000' },
+        data: { name: 'Ana', business_name: 'Consultorio Sur', phone: '+549' },
       }),
-    ).toEqual({
-      name: 'Ana',
-      business_name: 'Consultorio Sur',
-      contact_notes: 'por la tarde',
-      phone: '+5491100000000',
-    });
+    ).toEqual({ name: 'Ana', business_name: 'Consultorio Sur', phone: '+549' });
   });
 
   it('leadValuesOf ignores non-text data and a missing lead', () => {
-    expect(
-      leadValuesOf({ ...columns, data: { name: 'Ana', age: 30, x: null } }),
-    ).toEqual({ name: 'Ana' });
-    expect(leadValuesOf({ ...columns, data: ['not', 'an', 'object'] })).toEqual(
-      {},
-    );
-    expect(leadValuesOf(null)).toEqual({});
-  });
-
-  it('legacyColumnsFor maps the old keys only', () => {
-    expect(
-      legacyColumnsFor({
-        name: 'Ana',
-        business_name: 'Consultorio Sur',
-        industry: 'salud',
-        need: 'turnos',
-        contact_notes: 'tarde',
-        phone: '123',
-      }),
-    ).toEqual({
+    expect(leadValuesOf({ data: { name: 'Ana', age: 30, x: null } })).toEqual({
       name: 'Ana',
-      businessName: 'Consultorio Sur',
-      industry: 'salud',
-      need: 'turnos',
-      contactNotes: 'tarde',
     });
+    expect(leadValuesOf({ data: ['not', 'an', 'object'] })).toEqual({});
+    expect(leadValuesOf(null)).toEqual({});
   });
 });

@@ -285,18 +285,20 @@ describe('Admin operations (integration)', () => {
   it('lists leads and handoffs filtered by status, newest first', async () => {
     const a = await say('hola', '5491100000001');
     const b = await say('hola', '5491100000002');
+    const { id: businessId } = await prisma.business.findFirstOrThrow();
     // Explicit times: createdAt has ms resolution and could tie.
     await prisma.lead.create({
       data: {
         conversationId: a,
-        name: 'Ana',
+        businessId,
+        data: { name: 'Ana' },
         createdAt: new Date(Date.now() - HOUR),
       },
     });
     await prisma.lead.create({
       data: {
         conversationId: b,
-        name: 'Beto',
+        businessId,
         data: { name: 'Beto', phone: '+5491100000002' },
         status: 'QUALIFIED',
       },
@@ -310,13 +312,14 @@ describe('Admin operations (integration)', () => {
     const open = await admin.listHandoffs({ status: 'OPEN', limit: 50 });
     const limited = await admin.listHandoffs({ limit: 1 });
 
-    expect(qualified.map((l) => l.name)).toEqual(['Beto']);
+    expect(qualified.map((l) => l.conversationId)).toEqual([b]);
+    expect(qualified[0]).toMatchObject({ businessId });
     expect(qualified[0]?.data).toEqual({
       name: 'Beto',
       phone: '+5491100000002',
     });
     expect(qualified[0]?.conversation.waId).toBe('5491100000002');
-    expect(allLeads.map((l) => l.name)).toEqual(['Beto', 'Ana']);
+    expect(allLeads.map((l) => l.conversationId)).toEqual([b, a]);
     expect(open.map((h) => h.conversationId)).toEqual([b]);
     expect(limited).toHaveLength(1);
   });

@@ -194,8 +194,7 @@ describe('Deterministic commands and contexts (integration)', () => {
         where: { conversationId: after.id },
       }),
     ).toMatchObject({
-      name: 'Ana',
-      need: 'turnos',
+      data: { name: 'Ana', need: 'turnos' },
     });
     expect((await history(before.activeContextId!)).length).toBe(3);
     expect(
@@ -330,9 +329,11 @@ describe('Deterministic commands and contexts (integration)', () => {
       expect(await prisma.lead.findMany()).toEqual([
         expect.objectContaining({
           conversationId: id,
-          name: 'Ana',
-          industry: 'salud',
-          businessName: 'Consultorio Sur',
+          data: {
+            name: 'Ana',
+            industry: 'salud',
+            business_name: 'Consultorio Sur',
+          },
           status: 'NEW',
         }),
       ]);
