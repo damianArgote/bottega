@@ -10,15 +10,21 @@ const { barbershop } = content;
 
 describe('prompt builders', () => {
   it('commercial: includes commercial info and known lead fields, not the barbershop', () => {
-    const prompt = buildCommercialInstructions(content.commercialInfo, {
-      name: 'Ana',
-      businessName: 'Consultorio\nSur',
-      industry: null,
-      need: null,
-      contactNotes: null,
-    });
+    const prompt = buildCommercialInstructions(
+      content.commercialInfo,
+      {
+        name: 'Ana',
+        businessName: 'Consultorio\nSur',
+        industry: null,
+        need: null,
+        contactNotes: null,
+      },
+      'BotSuite, IA de BotSuite46',
+    );
 
-    expect(prompt).toContain('Bottega, el asistente virtual');
+    expect(prompt).toContain('Sos BotSuite, IA de BotSuite46.');
+    expect(prompt).not.toContain('asistente virtual');
+    expect(prompt).not.toContain('Sos Bottega');
     expect(prompt).toContain('## Qué hacemos');
     expect(prompt).toContain('[COMPLETAR]');
     expect(prompt).toContain('- Nombre: "Ana"');
@@ -30,7 +36,7 @@ describe('prompt builders', () => {
   });
 
   it('commercial: says there is no known data when the lead is empty', () => {
-    expect(buildCommercialInstructions('Info', null)).toContain(
+    expect(buildCommercialInstructions('Info', null, 'Bot')).toContain(
       'Todavía no hay datos.',
     );
   });
@@ -39,6 +45,7 @@ describe('prompt builders', () => {
     const prompt = buildDemoInstructions(barbershop);
 
     expect(prompt).toContain(barbershop.name);
+    expect(prompt).not.toContain('asistente virtual');
     expect(prompt).toContain('FICTICIA');
     expect(prompt).toContain('Corte de pelo: $12.000 ARS (30 min)');
     expect(prompt).toContain(barbershop.address);
@@ -50,7 +57,7 @@ describe('prompt builders', () => {
 
   it('both: carry the shared safety and style rules', () => {
     for (const prompt of [
-      buildCommercialInstructions('Info', null),
+      buildCommercialInstructions('Info', null, 'Bot'),
       buildDemoInstructions(barbershop),
     ]) {
       expect(prompt).toContain('voseo');
