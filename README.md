@@ -317,6 +317,19 @@ Y el paso de los datos del lead a `Lead.data` (prompt 02b):
 | 2 | `20261025080000_lead_business_required` | Última copia y `business_id` obligatorio. El modelo deja de leer y escribir las columnas fijas, que quedan en la base sin uso. |
 | 3 | (T7b) | Borra `name`, `business_name`, `industry`, `need` y `contact_notes` de `lead`. |
 
+**Volver atrás después del deploy 2 (antes del 3):** la versión anterior lee
+las columnas fijas por encima de `data`, y desde el deploy 2 nadie las
+actualiza. Antes de redesplegarla, copiá `data` a las columnas (en Neon):
+
+```sql
+UPDATE lead SET name = data->>'name', business_name = data->>'business_name',
+  industry = data->>'industry', need = data->>'need',
+  contact_notes = data->>'contact_notes';
+```
+
+Después del deploy 3 las columnas ya no existen y la versión anterior no
+arranca contra esa base: no se vuelve atrás de ese deploy.
+
 **Si el deploy 2 frena por conversaciones sin asignar:** el seed de esta
 versión ya no las asigna. Corré el de la versión anterior (desde `main` antes
 del deploy 2, `npm run build && npm run seed:default-line`), marcá la
