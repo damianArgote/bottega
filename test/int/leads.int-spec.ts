@@ -85,6 +85,15 @@ describe('Leads (integration)', () => {
     });
   });
 
+  it('the fixed lead columns are gone (data holds the values)', async () => {
+    const columns = await prisma.$queryRaw<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'lead'
+        AND column_name IN ('name', 'business_name', 'industry', 'need', 'contact_notes')`;
+
+    expect(columns).toEqual([]);
+  });
+
   it('a lead cannot exist without a business', async () => {
     await expect(prisma.$executeRaw`
       INSERT INTO lead (id, conversation_id, status, created_at, updated_at)
