@@ -39,7 +39,7 @@ Quoted verbatim from the prompt (Spanish), grouped and numbered. Assumptions are
 | T6 | S14 | inline | done | see L12 |
 | T7a | S6 (NOT NULL migration), README order | inline | done | see L14 |
 | T7b | S4 (remove `waId` from the Prisma model) | inline | done | see L16 |
-| T7c | S4 (drop column `conversation.wa_id`) | inline | pending (next deploy) | |
+| T7c | S4 (drop column `conversation.wa_id`) | inline | done | see L18 |
 
 Route evidence: units depend on each other in order (schema → webhook → client → admin), so there is no parallel writer reason; all inline. High-risk items per task: T1 security (2); T2 data migration (1) and deploy (5); T3 security (2) and webhook contract (3); T4 credentials (2); T5 security (2); T7 data migration (1).
 
@@ -60,4 +60,6 @@ Route evidence: units depend on each other in order (schema → webhook → clie
 - L14 (2026-10-25): T7 split in expand/contract. T7a done on `feat/business-lines-7a-required-line`: migration `20261025030000_conversation_line_required` (guard raising a clear error if any conversation lacks line or contact; `line_id`/`contact_id` NOT NULL; `wa_id` nullable), `recordInbound` stops writing `wa_id`, bot and admin take the wa_id from the contact (admin API output unchanged: `conversation.waId`), seed backfill removed. Guard probed on a throwaway DB (raises the message). main's (T6) conversation upsert works against the migrated schema (rollback probe). RED observed for the NOT NULL and the wa_id-not-written tests. Checks: lint clean, unit 225, e2e 52, int 111, build OK. README "Orden de deploy y migraciones" and a CLAUDE.md rule added.
 - L15 (2026-10-25): T7a verification PASS (no blockers); recovery and rollback documented. Released (#17) and deployed: migration applied, inbound processed, echo READ, no pending events.
 - L16 (2026-10-25): T7b split again before committing. Dropping the column in the same release would break the version on `main`: its Prisma model still has `Conversation.waId`, and Prisma names every model column in each SELECT (reproduced: "The column `conversation.wa_id` does not exist in the current database" with main's schema). T7b removes `waId` from the model only (no migration); T7c drops the column in the next release. New int test drops the column and checks inbound, bot reply and admin view still work (fails with main's schema, passes with T7b's).
-- Next: T7c after T7b is deployed.
+- L17 (2026-10-25): T7b released (#20, with #19 `BOT_REPLY_MODE: ai` in the Blueprint). AI mode live in production: lead "Ana / Consultorio Sur / kinesiología / bot para turnos" saved on the second turn (the model batched the `save_lead` call).
+- L18 (2026-10-25): T7c done on `feat/business-lines-7c-drop-wa-id-column`: migration `20261025040000_drop_conversation_wa_id`. Safe against `main` (T7b model has no `waId`). The int test now asserts the column is gone and that inbound, bot reply and admin view work (RED before the migration, GREEN after). Must be released only after T7b is live on Render.
+- Prompt 02 complete once T7c is released. Next: update `content/commercial-info.md` (user, L-pending: needs prices, timelines, hours), then prompt 02b.

@@ -302,7 +302,7 @@ Así se hizo el paso a negocios y líneas (prompt 02):
 | 1 | `20261025010000_business_lines_contacts`, `20261025020000_webhook_events` | Tablas nuevas, `conversation.line_id`/`contact_id` nullable; el seed crea la línea por defecto y asigna las conversaciones existentes. |
 | 2 | `20261025030000_conversation_line_required` | `line_id`/`contact_id` obligatorios (falla con un mensaje claro si queda alguna sin asignar); `wa_id` deja de usarse y pasa a nullable. |
 | 3 | (ninguna) | Saca `waId` del modelo `Conversation`: la columna queda en la base, sin uso. |
-| 4 | (siguiente) | Borra la columna `conversation.wa_id`. |
+| 4 | `20261025040000_drop_conversation_wa_id` | Borra la columna `conversation.wa_id`. |
 
 **Si el deploy 2 frena por conversaciones sin asignar:** el seed de esta
 versión ya no las asigna. Corré el de la versión anterior (desde `main` antes
