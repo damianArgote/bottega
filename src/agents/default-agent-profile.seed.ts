@@ -25,12 +25,19 @@ export const DEFAULT_OPENING_HOURS: OpeningHours = {
 export const DEFAULT_OUT_OF_HOURS_MESSAGE =
   'Te escribo fuera del horario del equipo: atiende de lunes a viernes de 9 a 18. Yo te sigo respondiendo, y si necesitás a una persona, te contesta en ese horario.';
 
-/** The lead fields the commercial bot asked for before profiles existed. */
+/** The lead fields the commercial bot asks for (BotSuite46). */
 export const DEFAULT_LEAD_FIELDS: AgentProfileInput['leadFields'] = [
   { key: 'name', label: 'Nombre', required: true, kind: 'text' },
   { key: 'business_name', label: 'Negocio', required: true, kind: 'text' },
   { key: 'industry', label: 'Rubro', required: true, kind: 'text' },
   { key: 'need', label: 'Necesidad', required: true, kind: 'text' },
+  // Asked when the person leaves the demo (EXIT_DEMO reply).
+  {
+    key: 'demo_feedback',
+    label: 'Qué le pareció la demo (solo si la probó)',
+    required: false,
+    kind: 'text',
+  },
 ];
 
 /**

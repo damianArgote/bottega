@@ -51,6 +51,7 @@ describe('scenario files', () => {
       'cambiar-reglas',
       'fuera-de-tema',
       'no-repite-datos',
+      'opina-demo',
     ]);
     const tools = (name: string) =>
       file.scenarios.find((s) => s.name === name)?.turns.at(-1);

@@ -62,6 +62,12 @@ describe('Agent profiles (integration)', () => {
         },
         { key: 'industry', label: 'Rubro', required: true, kind: 'text' },
         { key: 'need', label: 'Necesidad', required: true, kind: 'text' },
+        {
+          key: 'demo_feedback',
+          label: 'Qué le pareció la demo (solo si la probó)',
+          required: false,
+          kind: 'text',
+        },
       ]);
     });
 
