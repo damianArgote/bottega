@@ -281,6 +281,21 @@ Tocá **Verify and save**. La app tiene que estar corriendo (en Render, o local
 con ngrok activo).
 En los logs vas a ver `Webhook verification accepted`.
 
+**Una URL por línea.** Cada línea (un número de un negocio, con su propia app
+de Meta) tiene su ruta: `https://<servicio>/webhooks/whatsapp/<webhookKey>`,
+con su propio *verify token*. Bottega valida la firma con el *app secret* de
+esa línea antes de guardar nada: una firma de otra app da `401` y una clave
+desconocida da `404`. La ruta sin clave (`/webhooks/whatsapp`) queda para la
+línea por defecto, con las variables de entorno de arriba. Un evento de otro
+número que llega por la ruta de una línea se descarta con un aviso en los logs.
+
+**Nada se pierde si falla el procesamiento.** Cada entrega firmada se guarda
+tal cual llegó (`webhook_event`) antes de responder `200`, y se procesa en el
+momento. Si el procesamiento falla (por ejemplo, la base no responde a mitad
+de camino), el evento queda pendiente y se reintenta solo cada 30 s, hasta 10
+intentos. Solo si no se puede guardar el evento se responde `5xx` y Meta lo
+reenvía.
+
 ### 9. Suscribir el campo `messages`
 
 En la misma pantalla, en **Webhook fields**, suscribí **`messages`**. Sin esto
@@ -491,7 +506,9 @@ Monolito modular en NestJS: `whatsapp`, `conversations`, `queue`, `bot`, `ai`,
 `leads`, `demos`, `content`, `admin`, `health`.
 
 ```text
-Meta ──POST──▶ /webhooks/whatsapp ──▶ valida firma ──▶ guarda mensaje + trabajo ──▶ 200
+Meta ──POST──▶ /webhooks/whatsapp[/<webhookKey>] ──▶ valida firma de la línea ──▶ guarda evento crudo ──▶ 200
+                                                  └─▶ procesa: contacto + conversación por línea + mensaje + trabajo
+                                                      (si falla, queda pendiente y se reintenta)
                                                               │
                          (cola en PostgreSQL, en orden por conversación)
                                                               ▼
