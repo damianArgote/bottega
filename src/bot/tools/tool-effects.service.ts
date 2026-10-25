@@ -53,6 +53,12 @@ export class ToolEffectsService {
         case 'request_handoff':
           handoff = effect;
           break;
+        case 'out_of_hours_notice':
+          await tx.conversation.update({
+            where: { id: conversationId },
+            data: { outOfHoursNoticeOn: new Date(`${effect.day}T00:00:00Z`) },
+          });
+          break;
       }
     }
     if (Object.keys(lead).length > 0) {

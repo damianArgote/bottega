@@ -26,7 +26,8 @@ const profile: AgentProfileInput = {
     { key: 'phone', label: 'Celular', required: false, kind: 'phone' },
   ],
   handoffRules: 'Si es un reclamo.',
-  outOfHoursMessage: null,
+  outOfHoursMessage: 'Abrimos de martes a sábado.',
+  openingHours: { tue: ['10:00-19:00'], sat: ['10:00-14:00'] },
   model: 'profile-model',
   demoEnabled: false,
 };

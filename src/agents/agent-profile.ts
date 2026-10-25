@@ -1,5 +1,5 @@
-import type {
-  AgentProfile as StoredAgentProfile,
+import {
+  type AgentProfile as StoredAgentProfile,
   Prisma,
 } from '../generated/prisma/client.js';
 import { DEFAULT_BOT_NAME } from '../lines/default-line.seed.js';
@@ -28,6 +28,7 @@ export function fallbackAgentProfile(botName: string): AgentProfile {
     leadFields: [],
     handoffRules: '',
     outOfHoursMessage: null,
+    openingHours: null,
     model: null,
     demoEnabled: false,
     version: null,
@@ -103,6 +104,7 @@ export function toAgentProfile(stored: StoredAgentProfile): AgentProfile {
     leadFields: stored.leadFields,
     handoffRules: stored.handoffRules,
     outOfHoursMessage: stored.outOfHoursMessage,
+    openingHours: stored.openingHours,
     model: stored.model,
     demoEnabled: stored.demoEnabled,
   });
@@ -110,4 +112,9 @@ export function toAgentProfile(stored: StoredAgentProfile): AgentProfile {
     throw new AgentProfileInvalidError(stored.businessId);
   }
   return { ...parsed.data, version: stored.version };
+}
+
+/** A validated profile as Prisma write data (a null jsonb is DbNull). */
+export function toProfileData(input: AgentProfileInput) {
+  return { ...input, openingHours: input.openingHours ?? Prisma.DbNull };
 }

@@ -31,6 +31,8 @@ import type {
   ReplyInput,
 } from './reply-generator.js';
 import { leadValuesOf } from '../leads/lead-values.js';
+import { isOpenAt, localDay } from '../agents/opening-hours.js';
+import type { PlannedEffect } from './tools/tool.js';
 import { isToolName, toolDefinitionsFor } from './tools/registry.js';
 
 const fallback = (): GeneratedReply => ({
@@ -46,6 +48,8 @@ interface Turn {
 }
 
 export interface AiReplyGeneratorDeps {
+  /** Current time (tests); defaults to the system clock. */
+  clock?: () => Date;
   provider: AiProvider;
   usage: AiUsageService;
   prisma: PrismaService;
@@ -154,11 +158,63 @@ export class AiReplyGenerator implements ReplyGenerator {
           demoBusinessName: barbershop.name,
           botName: profile.botName,
         });
-        return reply
-          ? { replies: [reply], effects: outcome.effects }
-          : fallback();
+        if (!reply) {
+          return fallback();
+        }
+        const notice = await this.outOfHoursNotice(input, profile);
+        return notice
+          ? {
+              replies: [`${reply}\n\n${notice.text}`],
+              effects: [...outcome.effects, notice.effect],
+            }
+          : { replies: [reply], effects: outcome.effects };
       }
     }
+  }
+
+  /**
+   * The profile's out-of-hours message, when the business has opening hours,
+   * it is closed now in its timezone and this conversation did not get the
+   * notice today. The effect records the day in the job transaction.
+   */
+  private async outOfHoursNotice(
+    input: ReplyInput,
+    profile: AgentProfile,
+  ): Promise<{ text: string; effect: PlannedEffect } | null> {
+    if (!profile.outOfHoursMessage || !profile.openingHours) {
+      return null;
+    }
+    const conversation = await this.deps.prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      select: {
+        outOfHoursNoticeOn: true,
+        line: { select: { business: { select: { timezone: true } } } },
+      },
+    });
+    if (!conversation) {
+      return null;
+    }
+    const timezone = conversation.line.business.timezone;
+    const now = this.deps.clock?.() ?? new Date();
+    let day: string;
+    try {
+      if (isOpenAt(profile.openingHours, timezone, now)) {
+        return null;
+      }
+      day = localDay(timezone, now);
+    } catch {
+      this.logger.warn(
+        `Unknown business timezone conversation=${input.conversationId}: no out-of-hours notice`,
+      );
+      return null;
+    }
+    if (conversation.outOfHoursNoticeOn?.toISOString().slice(0, 10) === day) {
+      return null;
+    }
+    return {
+      text: profile.outOfHoursMessage,
+      effect: { kind: 'out_of_hours_notice', day },
+    };
   }
 
   /** One model call with its usage row. Null means "use the fallback". */

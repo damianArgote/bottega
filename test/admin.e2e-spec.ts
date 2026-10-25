@@ -187,7 +187,11 @@ describe('Admin API (e2e)', () => {
       await http().put(path).set(auth).send(body).expect(200, { version: 2 });
 
       expect(agents.get).toHaveBeenCalledWith(BUSINESS_ID);
-      expect(agents.put).toHaveBeenCalledWith(BUSINESS_ID, body);
+      // openingHours is optional and defaults to null (no out-of-hours notice).
+      expect(agents.put).toHaveBeenCalledWith(BUSINESS_ID, {
+        ...body,
+        openingHours: null,
+      });
     });
 
     it.each([

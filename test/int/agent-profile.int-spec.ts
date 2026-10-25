@@ -1,4 +1,6 @@
 import {
+  DEFAULT_OPENING_HOURS,
+  DEFAULT_OUT_OF_HOURS_MESSAGE,
   DEFAULT_PERSONA,
   seedDefaultAgentProfile,
 } from '../../src/agents/default-agent-profile.seed.js';
@@ -41,7 +43,8 @@ describe('Agent profiles (integration)', () => {
         persona: DEFAULT_PERSONA,
         businessInfo: commercialInfo,
         faq: [],
-        outOfHoursMessage: null,
+        outOfHoursMessage: DEFAULT_OUT_OF_HOURS_MESSAGE,
+        openingHours: DEFAULT_OPENING_HOURS,
         model: null,
         demoEnabled: true,
         version: 1,

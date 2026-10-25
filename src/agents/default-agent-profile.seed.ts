@@ -4,12 +4,26 @@ import {
   type AgentProfileInput,
   agentProfileSchema,
 } from './agent-profile.schema.js';
+import { toProfileData } from './agent-profile.js';
+import type { OpeningHours } from './opening-hours.js';
 
 export const DEFAULT_PERSONA =
   'Tono cálido y profesional. Atendés por WhatsApp a personas interesadas en un asistente con IA para su negocio.';
 
 export const DEFAULT_HANDOFF_RULES =
   'Si la persona pide hablar con alguien del equipo, o si la consulta te supera.';
+
+/** The team's hours, as content/commercial-info.md states them. */
+export const DEFAULT_OPENING_HOURS: OpeningHours = {
+  mon: ['09:00-18:00'],
+  tue: ['09:00-18:00'],
+  wed: ['09:00-18:00'],
+  thu: ['09:00-18:00'],
+  fri: ['09:00-18:00'],
+};
+
+export const DEFAULT_OUT_OF_HOURS_MESSAGE =
+  'Te escribo fuera del horario del equipo: atiende de lunes a viernes de 9 a 18. Yo te sigo respondiendo, y si necesitás a una persona, te contesta en ese horario.';
 
 /** The lead fields the commercial bot asked for before profiles existed. */
 export const DEFAULT_LEAD_FIELDS: AgentProfileInput['leadFields'] = [
@@ -55,7 +69,8 @@ export async function seedDefaultAgentProfile(
     faq: [],
     leadFields: DEFAULT_LEAD_FIELDS,
     handoffRules: DEFAULT_HANDOFF_RULES,
-    outOfHoursMessage: null,
+    outOfHoursMessage: DEFAULT_OUT_OF_HOURS_MESSAGE,
+    openingHours: DEFAULT_OPENING_HOURS,
     model: null,
     demoEnabled: true,
   } satisfies AgentProfileInput);
@@ -63,7 +78,7 @@ export async function seedDefaultAgentProfile(
   // Upsert so a concurrent first run cannot fail on the unique business id.
   const { id } = await prisma.agentProfile.upsert({
     where: { businessId: business.id },
-    create: { businessId: business.id, ...profile },
+    create: { businessId: business.id, ...toProfileData(profile) },
     update: {},
   });
   return { outcome: 'seeded', profileId: id };

@@ -13,7 +13,9 @@ import type { ToolName } from '../mode-profiles.js';
 export type PlannedEffect =
   | { kind: 'save_lead'; values: LeadValues }
   | { kind: 'register_demo_request'; request: DemoRequestInput }
-  | { kind: 'request_handoff'; reason: string | null };
+  | { kind: 'request_handoff'; reason: string | null }
+  /** Not a tool: the generator added the out-of-hours notice on `day`. */
+  | { kind: 'out_of_hours_notice'; day: string };
 
 /** What a tool may read while planning. */
 export interface ToolContext {
