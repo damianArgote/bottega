@@ -237,8 +237,9 @@ es PostgreSQL en **Neon**. La configuración está en `render.yaml` (Blueprint).
    variables](#4-configurar-el-env).
    - Usá un token de **System User** para `WHATSAPP_ACCESS_TOKEN`: el temporal
      de API Setup vence en horas.
-   - El Blueprint arranca con `BOT_REPLY_MODE=echo`. Cambialo a `ai` desde
-     **Environment** cuando el echo funcione.
+   - El Blueprint usa `BOT_REPLY_MODE=ai`, así que `OPENAI_API_KEY` y
+     `OPENAI_MODEL` son obligatorias. Para probar solo la conexión con Meta,
+     poné `echo` en **Environment**.
 3. **Primer deploy:** Render instala y compila (`npm ci --include=dev && npm
    run build`), aplica las migraciones (`npm run prisma:deploy`, con la URL
    directa), crea el negocio y la línea por defecto (`npm run
