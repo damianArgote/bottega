@@ -294,7 +294,12 @@ describe('Admin operations (integration)', () => {
       },
     });
     await prisma.lead.create({
-      data: { conversationId: b, name: 'Beto', status: 'QUALIFIED' },
+      data: {
+        conversationId: b,
+        name: 'Beto',
+        data: { name: 'Beto', phone: '+5491100000002' },
+        status: 'QUALIFIED',
+      },
     });
     await admin.pause(a);
     await admin.pause(b);
@@ -306,6 +311,10 @@ describe('Admin operations (integration)', () => {
     const limited = await admin.listHandoffs({ limit: 1 });
 
     expect(qualified.map((l) => l.name)).toEqual(['Beto']);
+    expect(qualified[0]?.data).toEqual({
+      name: 'Beto',
+      phone: '+5491100000002',
+    });
     expect(qualified[0]?.conversation.waId).toBe('5491100000002');
     expect(allLeads.map((l) => l.name)).toEqual(['Beto', 'Ana']);
     expect(open.map((h) => h.conversationId)).toEqual([b]);

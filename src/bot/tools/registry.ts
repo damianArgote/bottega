@@ -3,27 +3,51 @@ import type { ConversationMode } from '../../generated/prisma/client.js';
 import { MODE_PROFILES, type ToolName } from '../mode-profiles.js';
 import { registerDemoRequestTool } from './register-demo-request.tool.js';
 import { requestHandoffTool } from './request-handoff.tool.js';
-import { saveLeadTool } from './save-lead.tool.js';
+import type { LeadField } from '../../agents/agent-profile.schema.js';
+import { saveLeadToolFor } from './save-lead.tool.js';
 import type { PlannedEffect, ToolContext, ToolHandler } from './tool.js';
 
-export const TOOL_HANDLERS: Readonly<Record<ToolName, ToolHandler>> = {
-  save_lead: saveLeadTool,
+const STATIC_HANDLERS = {
   register_demo_request: registerDemoRequestTool,
   request_handoff: requestHandoffTool,
-};
+} satisfies Partial<Record<ToolName, ToolHandler>>;
+
+const TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
+  'save_lead',
+  'register_demo_request',
+  'request_handoff',
+]);
+
+/** True for the name of a tool the bot has (any mode or business). */
+export function isToolName(name: string): name is ToolName {
+  return TOOL_NAMES.has(name);
+}
 
 /** What the business's agent profile changes in the offered tools. */
 export interface ToolOptions {
   demoEnabled: boolean;
+  leadFields: readonly LeadField[];
+}
+
+/** The handler of `name` for this business (save_lead is generated). */
+export function toolHandlerFor(
+  name: ToolName,
+  { leadFields }: ToolOptions,
+): ToolHandler {
+  return name === 'save_lead'
+    ? saveLeadToolFor(leadFields)
+    : STATIC_HANDLERS[name];
 }
 
 /** Tools allowed in `mode` for this business. */
 function offeredTools(
   mode: ConversationMode,
-  { demoEnabled }: ToolOptions,
+  { demoEnabled, leadFields }: ToolOptions,
 ): readonly ToolName[] {
   return MODE_PROFILES[mode].allowedTools.filter(
-    (name) => demoEnabled || name !== 'register_demo_request',
+    (name) =>
+      (demoEnabled || name !== 'register_demo_request') &&
+      (leadFields.length > 0 || name !== 'save_lead'),
   );
 }
 
@@ -33,7 +57,7 @@ export function toolDefinitionsFor(
   options: ToolOptions,
 ): AiToolDefinition[] {
   return offeredTools(mode, options).map((name) => {
-    const tool = TOOL_HANDLERS[name];
+    const tool = toolHandlerFor(name, options);
     return {
       name: tool.name,
       description: tool.description,
@@ -68,11 +92,11 @@ export function planToolCall(
   call: AiToolCall,
   ctx: ToolContext,
 ): ToolCallResult {
-  const name = call.name as ToolName;
-  const tool = Object.hasOwn(TOOL_HANDLERS, name) ? TOOL_HANDLERS[name] : null;
-  if (!tool) {
+  if (!isToolName(call.name)) {
     return reject('unknown_tool', 'Herramienta desconocida.');
   }
+  const name = call.name;
+  const tool = toolHandlerFor(name, ctx);
   if (
     !tool.allowedModes.includes(ctx.mode) ||
     !offeredTools(ctx.mode, ctx).includes(name)

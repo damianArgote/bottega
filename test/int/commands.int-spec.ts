@@ -320,7 +320,7 @@ describe('Deterministic commands and contexts (integration)', () => {
       await leads.upsertFromConversation(id, {
         name: '',
         industry: '  ',
-        businessName: 'Consultorio Sur',
+        business_name: 'Consultorio Sur',
       });
 
       expect(await prisma.lead.findMany()).toEqual([

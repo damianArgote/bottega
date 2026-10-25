@@ -166,7 +166,8 @@ número de `WHATSAPP_PHONE_NUMBER_ID`). El script es idempotente: se puede
 correr las veces que quieras. La primera vez también crea el perfil del agente
 de BotSuite46 a partir de `content/commercial-info.md` (nombre del bot,
 información del negocio, datos a pedir y demo activa); si el perfil ya existe
-no lo toca, así no pisa lo que se edite después.
+no lo toca, así no pisa lo que se edite después. También copia a `Lead.data`
+las columnas fijas de los leads que todavía no estén ahí.
 
 ```bash
 npm run build
@@ -295,8 +296,8 @@ Antes de mergear a `main`:
 - Cargá en Render las variables obligatorias nuevas: si falta una, la
   versión nueva no arranca pero las migraciones ya corrieron.
 - Revisá que el servicio y el Blueprint usen la rama `main`.
-- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`
-  y `seed:default-line agent profile ready`.
+- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`,
+  `seed:default-line agent profile ready` y `seed:default-line leads backfilled`.
 
 Así se hizo el paso a negocios y líneas (prompt 02):
 
@@ -420,7 +421,9 @@ ni signos alrededor).
 
 - **Comercial:** atiende como el agente del negocio, con su perfil
   (`AgentProfile`: nombre, tono, información, preguntas frecuentes, datos a
-  pedir y cuándo derivar), y puede guardar datos del prospecto (lead). Si el
+  pedir y cuándo derivar), y puede guardar datos del prospecto (lead) con
+  `save_lead`, que se arma con los datos a pedir del perfil: solo acepta esas
+  claves y valida teléfono y email. Los datos quedan en `Lead.data` por clave. Si el
   perfil está apagado (`enabled = false`) o el negocio todavía no tiene uno, la
   IA no contesta; los comandos siguen funcionando.
 - **Demo:** atiende como la barbería ficticia. Lo que se registra ahí es
@@ -454,7 +457,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 
 | Método y ruta | Qué hace |
 | ------------- | -------- |
-| `GET /admin/leads?status=&limit=` | Leads, más nuevos primero. `status`: `NEW`, `CONTACTED`, `QUALIFIED`, `DISCARDED`. |
+| `GET /admin/leads?status=&limit=` | Leads, más nuevos primero. `status`: `NEW`, `CONTACTED`, `QUALIFIED`, `DISCARDED`. Cada lead trae `businessId` y `data` (los datos por clave de lead); las columnas fijas (`name`, `businessName`, ...) siguen hasta que se borren. |
 | `GET /admin/handoffs?status=&limit=` | Pedidos de atención. `status`: `OPEN` o `RESOLVED`. |
 | `GET /admin/conversations/<id>?limit=` | Conversación, ventana de 24 h, lead, handoffs abiertos y últimos mensajes. |
 | `GET /admin/conversations/by-wa/<wa-id>?limit=` | Lo mismo, buscando por número (solo dígitos, ej. `5491112345678`). |

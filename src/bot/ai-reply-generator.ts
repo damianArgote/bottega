@@ -34,9 +34,10 @@ import type {
   ReplyGenerator,
   ReplyInput,
 } from './reply-generator.js';
+import { leadValuesOf } from '../leads/lead-values.js';
 import {
+  isToolName,
   planToolCall,
-  TOOL_HANDLERS,
   toolDefinitionsFor,
 } from './tools/registry.js';
 import type { PlannedEffect } from './tools/tool.js';
@@ -124,11 +125,14 @@ export class AiReplyGenerator implements ReplyGenerator {
       ...(await this.history(input)),
       { kind: 'message', role: 'user', content: input.message.content },
     ];
-    const { demoEnabled } = profile;
+    const toolOptions = {
+      demoEnabled: profile.demoEnabled,
+      leadFields: profile.leadFields,
+    };
     const request = {
       model: turn.model,
       instructions: await this.instructions(input, profile),
-      tools: toolDefinitionsFor(input.mode, { demoEnabled }),
+      tools: toolDefinitionsFor(input.mode, toolOptions),
       maxOutputTokens: config.get('OPENAI_MAX_OUTPUT_TOKENS'),
     };
     const barbershop = this.deps.content.getBarbershop();
@@ -150,7 +154,7 @@ export class AiReplyGenerator implements ReplyGenerator {
           mode: input.mode,
           barbershop,
           planned: effects,
-          demoEnabled,
+          ...toolOptions,
         });
         items.push(
           { kind: 'tool_call', ...call },
@@ -159,9 +163,7 @@ export class AiReplyGenerator implements ReplyGenerator {
         if (result.ok) {
           effects.push(result.effect);
         } else {
-          const tool = Object.hasOwn(TOOL_HANDLERS, call.name)
-            ? call.name
-            : 'unknown';
+          const tool = isToolName(call.name) ? call.name : 'unknown';
           this.logger.warn(
             `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${result.reason}`,
           );
@@ -261,14 +263,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     const lead = await prisma.lead.findUnique({
       where: { conversationId: input.conversationId },
     });
-    return buildCommercialInstructions(profile, {
-      // Until Lead.data exists (02b T3), the known values come from the
-      // fixed lead columns.
-      name: lead?.name,
-      business_name: lead?.businessName,
-      industry: lead?.industry,
-      need: lead?.need,
-    });
+    return buildCommercialInstructions(profile, leadValuesOf(lead));
   }
 
   /** Last AI_HISTORY_LIMIT messages of the active context, oldest first. */
