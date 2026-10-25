@@ -105,6 +105,14 @@ describe('Agent profiles (integration)', () => {
       ).rejects.toThrow(/businessInfo/);
       expect(await prisma.agentProfile.count()).toBe(0);
     });
+
+    it('does not validate the content again once the profile exists', async () => {
+      const first = await seedDefaultAgentProfile(prisma, commercialInfo);
+
+      await expect(
+        seedDefaultAgentProfile(prisma, 'a'.repeat(8_001)),
+      ).resolves.toEqual(first);
+    });
   });
 
   it('records the profile version on AI usage rows', async () => {

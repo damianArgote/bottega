@@ -38,6 +38,15 @@ export async function seedDefaultAgentProfile(
   if (!business) {
     return { outcome: 'skipped' };
   }
+  const existing = await prisma.agentProfile.findUnique({
+    where: { businessId: business.id },
+    select: { id: true },
+  });
+  if (existing) {
+    // Never re-validated or rewritten: content edits after the first run
+    // cannot fail a deploy.
+    return { outcome: 'seeded', profileId: existing.id };
+  }
   const profile = agentProfileSchema.parse({
     enabled: true,
     botName: business.botName,
@@ -51,6 +60,7 @@ export async function seedDefaultAgentProfile(
     demoEnabled: true,
   } satisfies AgentProfileInput);
 
+  // Upsert so a concurrent first run cannot fail on the unique business id.
   const { id } = await prisma.agentProfile.upsert({
     where: { businessId: business.id },
     create: { businessId: business.id, ...profile },
