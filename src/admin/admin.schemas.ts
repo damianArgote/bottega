@@ -42,6 +42,24 @@ export const createBusinessBodySchema = z
   })
   .strict();
 
+export const MIN_PASSWORD_LENGTH = 10;
+
+/** POST /admin/businesses/:id/users. */
+export const addUserBodySchema = z
+  .object({
+    email: z.string().trim().pipe(z.email()),
+    name: z.string().trim().min(1).max(100),
+    password: z
+      .string()
+      .min(
+        MIN_PASSWORD_LENGTH,
+        `must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      )
+      .max(200),
+    role: z.enum(['OWNER', 'AGENT']),
+  })
+  .strict();
+
 export const createLineBodySchema = z
   .object({
     phoneNumberId: digits('phoneNumberId'),
