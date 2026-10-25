@@ -1,3 +1,4 @@
+import { metaErrorKind } from './meta-errors.js';
 import { Logger } from '@nestjs/common';
 import { maskPhone, type SendOutcome } from './whatsapp.client.js';
 
@@ -27,13 +28,6 @@ const PRE_SEND_NETWORK_CODES = new Set([
   'EHOSTUNREACH',
   'UND_ERR_CONNECT_TIMEOUT',
 ]);
-
-/**
- * Meta error codes meaning "not accepted now, try later":
- * 4 app rate limit, 80007 WABA rate limit, 130429 throughput limit,
- * 131056 too many messages to the same recipient.
- */
-const RETRYABLE_META_CODES = new Set([4, 80007, 130429, 131056]);
 
 const MAX_ERROR_MESSAGE_LENGTH = 200;
 
@@ -72,6 +66,41 @@ export class GraphWhatsAppClient {
     const outcome = await this.send(line, to, body);
     this.logOutcome(to, outcome);
     return outcome;
+  }
+
+  /**
+   * Marks an inbound message as read in WhatsApp (blue ticks). Best effort:
+   * returns false on any failure and never throws.
+   */
+  async markRead(
+    line: LineSendCredentials,
+    waMessageId: string,
+  ): Promise<boolean> {
+    try {
+      const response = await this.fetchImpl(
+        `${this.baseUrl}/${line.phoneNumberId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${line.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            status: 'read',
+            message_id: waMessageId,
+          }),
+          signal: AbortSignal.timeout(this.options.timeoutMs),
+        },
+      );
+      if (!response.ok) {
+        this.logger.warn(`Mark as read rejected: http ${response.status}`);
+      }
+      return response.ok;
+    } catch {
+      this.logger.warn('Mark as read failed: network error or timeout');
+      return false;
+    }
   }
 
   private async send(
@@ -201,8 +230,7 @@ function classifyErrorResponse(
       ? error.message.slice(0, MAX_ERROR_MESSAGE_LENGTH)
       : `http ${httpStatus}`;
   const retryable =
-    httpStatus === 429 ||
-    (typeof code === 'number' && RETRYABLE_META_CODES.has(code));
+    httpStatus === 429 || metaErrorKind(code) === 'rate_limited';
   return { kind: 'rejected', code, httpStatus, message, retryable };
 }
 

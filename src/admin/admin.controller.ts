@@ -35,16 +35,12 @@ import {
   resumeBodySchema,
   waIdSchema,
 } from './admin.schemas.js';
-import { AdminService, type HumanReplyResult } from './admin.service.js';
+import {
+  type HumanReplyResult,
+  REPLY_STATUS,
+} from '../inbox/human-replies.service.js';
+import { AdminService } from './admin.service.js';
 import { BusinessesService } from './businesses.service.js';
-
-/** HTTP status per human reply outcome, so `curl -f` fails on a rejection. */
-const REPLY_STATUS: Record<HumanReplyResult['outcome'], number> = {
-  sent: HttpStatus.OK,
-  replayed: HttpStatus.OK,
-  uncertain: HttpStatus.ACCEPTED,
-  rejected: HttpStatus.BAD_GATEWAY,
-};
 
 /** Team operations. Every route requires the admin API key. */
 @Controller('admin')

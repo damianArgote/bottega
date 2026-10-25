@@ -1,3 +1,4 @@
+import { metaErrorKind } from '../whatsapp/meta-errors.js';
 import { botMayReply } from '../inbox/conversation-state.js';
 import {
   recordOutboundActivity,
@@ -274,7 +275,12 @@ export class BotService {
           await this.setStatus(row, MessageStatus.QUEUED, {});
           throw new JobError(`send_rejected_${errorCode}`, true);
         }
-        await this.setStatus(row, MessageStatus.FAILED, { errorCode });
+        await this.setStatus(
+          row,
+          MessageStatus.FAILED,
+          { errorCode },
+          metaErrorKind(outcome.code) === 'window_closed',
+        );
         result.failed += 1;
         if (outcome.retryable) {
           // Out of attempts: the reply is lost; fail the job visibly.
@@ -286,17 +292,29 @@ export class BotService {
   }
 
   /** The send's result, and the conversation joins the inbox changes. */
+  /**
+   * The send's result, and the conversation joins the inbox changes. Meta
+   * saying the window is closed (131047) moves windowExpiresAt to now.
+   */
   private async setStatus(
     row: Message,
     status: MessageStatus,
     extra: { waMessageId?: string; errorCode?: string },
+    windowClosed = false,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.message.update({
         where: { id: row.id },
         data: { status, ...extra },
       });
-      await touchConversations(tx, { id: row.conversationId });
+      if (windowClosed) {
+        await tx.conversation.update({
+          where: { id: row.conversationId },
+          data: { windowExpiresAt: new Date() },
+        });
+      } else {
+        await touchConversations(tx, { id: row.conversationId });
+      }
     });
   }
 }

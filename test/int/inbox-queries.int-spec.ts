@@ -190,6 +190,27 @@ describe('Inbox reads (integration)', () => {
       expect(times).toEqual([...times].sort((x, y) => y - x));
     });
 
+    it('lists conversations without lastMessageAt (written by the previous release) last', async () => {
+      await bulk(31);
+      await inbound('5491100000001');
+      await prisma.conversation.updateMany({
+        where: { contact: { waId: '5491100000001' } },
+        data: { lastMessageAt: null },
+      });
+
+      const first = await queries.list(access, ana, { view: 'unassigned' });
+      const second = await queries.list(access, ana, {
+        view: 'unassigned',
+        cursor: first.nextCursor!,
+      });
+
+      const all = [...first.conversations, ...second.conversations];
+      expect(all).toHaveLength(32);
+      expect(new Set(all.map((c) => c.id)).size).toBe(32);
+      expect(all.at(-1)?.contact.waId).toBe('5491100000001');
+      expect(second.nextCursor).toBeNull();
+    });
+
     it('filters by contact name or number, and by line of the business only', async () => {
       await inbound('5491100000001', 'hola', 'Ana Cliente');
       await inbound('5491177770002', 'hola', 'Beto');

@@ -101,3 +101,23 @@ export function handBack(): AttendanceChange {
 export function resolve(): AttendanceChange {
   return { status: 'RESOLVED', assignedToId: null, paused: false };
 }
+
+/**
+ * When the 24 h window closes. Normally windowExpiresAt; but when it is
+ * missing or older than the last inbound message (rows the previous release
+ * wrote during a deploy only have lastInboundAt), 24 h after that message.
+ * A window Meta closed (131047 sets windowExpiresAt to now) stays closed:
+ * "now" is never before the last inbound message.
+ */
+export function windowClosesAt(state: {
+  windowExpiresAt: Date | null;
+  lastInboundAt: Date | null;
+}): Date | null {
+  const { windowExpiresAt, lastInboundAt } = state;
+  if (!lastInboundAt) {
+    return windowExpiresAt;
+  }
+  return windowExpiresAt && windowExpiresAt >= lastInboundAt
+    ? windowExpiresAt
+    : new Date(lastInboundAt.getTime() + SERVICE_WINDOW_MS);
+}
