@@ -4,7 +4,7 @@ import type { BarbershopDemo } from '../content/content.schema.js';
 import { ConversationMode } from '../generated/prisma/client.js';
 import type { LeadValues } from '../leads/lead-values.js';
 import { AI_FALLBACK_REPLY } from './ai-replies.js';
-import { finalReply, runAgentTurn } from './agent-turn.js';
+import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
 import { buildCommercialInstructions } from './prompts.js';
 import { renderReply } from './replies.js';
 import { toolDefinitionsFor } from './tools/registry.js';
@@ -29,6 +29,8 @@ export interface CommercialTurnResult {
   toolCalls: TurnToolCall[];
   /** Accepted effects, planned but not applied. */
   effects: PlannedEffect[];
+  /** Reply buttons under the reply (offer_options). */
+  buttons: { id: string; title: string }[];
   model: string;
   usage: { calls: number; inputTokens: number; outputTokens: number };
 }
@@ -112,6 +114,8 @@ export async function runCommercialTurn(input: {
       outcome.kind === 'text' || outcome.kind === 'handoff'
         ? outcome.effects
         : [],
+    buttons:
+      outcome.kind === 'text' ? (offeredButtons(outcome.effects) ?? []) : [],
     model,
     usage,
   };

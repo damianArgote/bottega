@@ -1,4 +1,5 @@
 import { metaErrorKind } from './meta-errors.js';
+import type { ReplyButton, SendOptions } from './whatsapp.client.js';
 import { Logger } from '@nestjs/common';
 import { maskPhone, type SendOutcome } from './whatsapp.client.js';
 
@@ -62,8 +63,9 @@ export class GraphWhatsAppClient {
     line: LineSendCredentials,
     to: string,
     body: string,
+    options: SendOptions = {},
   ): Promise<SendOutcome> {
-    const outcome = await this.send(line, to, body);
+    const outcome = await this.send(line, to, body, options.buttons ?? []);
     this.logOutcome(to, outcome);
     return outcome;
   }
@@ -107,6 +109,7 @@ export class GraphWhatsAppClient {
     line: LineSendCredentials,
     to: string,
     body: string,
+    buttons: readonly ReplyButton[],
   ): Promise<SendOutcome> {
     let response: Response;
     try {
@@ -118,13 +121,7 @@ export class GraphWhatsAppClient {
             Authorization: `Bearer ${line.accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to,
-            type: 'text',
-            text: { preview_url: false, body },
-          }),
+          body: JSON.stringify(messagePayload(to, body, buttons)),
           signal: AbortSignal.timeout(this.options.timeoutMs),
         },
       );
@@ -217,6 +214,42 @@ export class GraphWhatsAppClient {
         return;
     }
   }
+}
+
+/** WhatsApp's limit for the text of an interactive message. */
+const MAX_INTERACTIVE_BODY = 1024;
+
+/**
+ * A text message, or an interactive one with reply buttons (up to 3). A body
+ * too long for an interactive message is sent as plain text, without buttons.
+ */
+function messagePayload(
+  to: string,
+  body: string,
+  buttons: readonly ReplyButton[],
+): Record<string, unknown> {
+  const base = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+  };
+  if (buttons.length === 0 || body.length > MAX_INTERACTIVE_BODY) {
+    return { ...base, type: 'text', text: { preview_url: false, body } };
+  }
+  return {
+    ...base,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: body },
+      action: {
+        buttons: buttons.slice(0, 3).map((b) => ({
+          type: 'reply',
+          reply: { id: b.id, title: b.title },
+        })),
+      },
+    },
+  };
 }
 
 function classifyErrorResponse(

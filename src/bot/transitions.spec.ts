@@ -120,7 +120,8 @@ describe('renderReply', () => {
     expect(text).toContain('DEMO');
     expect(text).toContain('ficticios');
     expect(text).toContain('no se hacen reservas ni pagos reales');
-    expect(text).toContain('"salir"');
+    expect(text).toContain('tocá el botón');
+    expect(text).not.toContain('"salir"');
     expect(text).toContain('Barbería X');
   });
 });

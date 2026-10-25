@@ -161,6 +161,7 @@ describe('Admin agent profile and preview (integration)', () => {
 
       expect(result).toEqual({
         reply: '¡Gracias, Ana!',
+        buttons: [],
         toolCalls: [
           {
             name: 'save_lead',
@@ -181,6 +182,7 @@ describe('Admin agent profile and preview (integration)', () => {
       expect(request?.tools.map((t) => t.name)).toEqual([
         'save_lead',
         'request_handoff',
+        'offer_options',
       ]);
       expect(request?.input).toEqual([
         {

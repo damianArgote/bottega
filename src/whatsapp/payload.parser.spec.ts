@@ -266,4 +266,47 @@ describe('parseWebhookPayload', () => {
     });
     expect(events[1]).not.toHaveProperty('profileName');
   });
+
+  it('reads a tapped reply button or list option as the text of its title', () => {
+    const events = parse(
+      payload({
+        messages: [
+          {
+            from: '1',
+            id: 'wamid.b',
+            timestamp: '1',
+            type: 'interactive',
+            interactive: {
+              type: 'button_reply',
+              button_reply: { id: 'demo', title: 'Probar la demo' },
+            },
+          },
+          {
+            from: '1',
+            id: 'wamid.l',
+            timestamp: '1',
+            type: 'interactive',
+            interactive: {
+              type: 'list_reply',
+              list_reply: { id: 'pro', title: 'Plan Pro', description: 'x' },
+            },
+          },
+          {
+            from: '1',
+            id: 'wamid.x',
+            timestamp: '1',
+            type: 'interactive',
+            interactive: { type: 'nfm_reply' },
+          },
+        ],
+      }),
+    );
+
+    expect(events[0]).toMatchObject({ kind: 'text', text: 'Probar la demo' });
+    expect(events[1]).toMatchObject({ kind: 'text', text: 'Plan Pro' });
+    expect(events[2]).toMatchObject({
+      kind: 'unsupported',
+      messageType: 'interactive',
+    });
+  });
 });

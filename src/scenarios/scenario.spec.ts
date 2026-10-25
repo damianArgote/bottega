@@ -52,6 +52,8 @@ describe('scenario files', () => {
       'fuera-de-tema',
       'no-repite-datos',
       'opina-demo',
+      'planes-en-botones',
+      'invita-demo',
     ]);
     const tools = (name: string) =>
       file.scenarios.find((s) => s.name === name)?.turns.at(-1);
@@ -80,6 +82,28 @@ describe('checkTurn', () => {
         ]),
       ),
     ).toEqual([]);
+  });
+
+  it('mustNotOffer fails when offer_options includes one of those options', () => {
+    const offered = (options: string[]) => ({
+      reply: 'x',
+      toolCalls: [
+        { name: 'offer_options', accepted: true, arguments: { options } },
+      ],
+    });
+
+    expect(
+      checkTurn(
+        { user: 'Pro', mustNotOffer: ['Pro'] },
+        offered(['Inicial', 'Ventas']),
+      ),
+    ).toEqual([]);
+    expect(
+      checkTurn(
+        { user: 'Pro', mustNotOffer: ['pro'] },
+        offered(['Inicial', 'Plan Pro']),
+      ),
+    ).toEqual(['mustNotOffer "pro"']);
   });
 
   it('matches text ignoring case and accents', () => {

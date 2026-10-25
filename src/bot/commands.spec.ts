@@ -9,6 +9,9 @@ describe('matchCommand', () => {
     ['salir', CommandId.EXIT_DEMO],
     ['Salir de la demo.', CommandId.EXIT_DEMO],
     ['👋 salir 👋', CommandId.EXIT_DEMO],
+    // The titles of the reply buttons (reply-buttons.ts).
+    ['🧪 Probar la demo', CommandId.ENTER_DEMO],
+    ['👋 Salir de la demo', CommandId.EXIT_DEMO],
     ['Reiniciar', CommandId.RESET],
     ['reinicíar', CommandId.RESET],
     ['HUMANO?', CommandId.REQUEST_HUMAN],

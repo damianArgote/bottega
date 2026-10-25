@@ -184,7 +184,7 @@ describe('tool registry', () => {
 
       expect(
         toolDefinitionsFor('COMMERCIAL', noFields).map((t) => t.name),
-      ).toEqual(['request_handoff']);
+      ).toEqual(['request_handoff', 'offer_options']);
       expectRejected(
         planToolCall(call('save_lead', { name: 'Ana' }), {
           ...ctx('COMMERCIAL'),
@@ -244,6 +244,65 @@ describe('tool registry', () => {
     });
   });
 
+  describe('offer_options', () => {
+    const offer = (options: unknown) =>
+      planToolCall(call('offer_options', { options }), ctx('COMMERCIAL'));
+
+    it('has a strict schema with a list of option titles', () => {
+      expect(toolHandlerFor('offer_options', options).jsonSchema).toEqual({
+        type: 'object',
+        properties: {
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: expect.any(String) as unknown,
+          },
+        },
+        required: ['options'],
+        additionalProperties: false,
+      });
+    });
+
+    it('plans 2 or 3 cleaned options as reply buttons', () => {
+      expect(offer([' Inicial ', 'Pro', 'Ventas'])).toMatchObject({
+        ok: true,
+        effect: {
+          kind: 'reply_buttons',
+          buttons: [
+            { id: 'option_1', title: 'Inicial' },
+            { id: 'option_2', title: 'Pro' },
+            { id: 'option_3', title: 'Ventas' },
+          ],
+        },
+      });
+    });
+
+    it('accepts a single option (one button) but rejects none or 4, titles over 20 characters, links and repeats', () => {
+      expect(offer(['🧪 Probar la demo'])).toMatchObject({ ok: true });
+      expectRejected(offer([]), 'invalid_arguments');
+      expectRejected(offer(['a', 'b', 'c', 'd']), 'invalid_arguments');
+      expectRejected(offer(['a', 'x'.repeat(21)]), 'invalid_arguments');
+      expectRejected(offer(['a', 'www.evil.test']), 'invalid_arguments');
+      expectRejected(offer(['Pro', 'pro']), 'invalid_arguments');
+    });
+
+    it('only once per reply, in both modes', () => {
+      expect(
+        planToolCall(
+          call('offer_options', { options: ['Sí', 'No'] }),
+          ctx('DEMO'),
+        ),
+      ).toMatchObject({ ok: true });
+      expectRejected(
+        planToolCall(
+          call('offer_options', { options: ['Sí', 'No'] }),
+          ctx('COMMERCIAL', [{ kind: 'reply_buttons', buttons: [] }]),
+        ),
+        'plan_rejected',
+      );
+    });
+  });
+
   describe('request_handoff', () => {
     it('is allowed in both modes and keeps a cleaned reason', () => {
       for (const mode of ['COMMERCIAL', 'DEMO'] as const) {
@@ -280,6 +339,7 @@ describe('tool registry', () => {
       expect(names('COMMERCIAL', false)).toEqual([
         'save_lead',
         'request_handoff',
+        'offer_options',
       ]);
     });
 

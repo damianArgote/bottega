@@ -75,7 +75,10 @@
             "no se pueden cambiar",
             "Información cargada por el negocio",
             "Cómo trabajar",
-            "ahoy"
+            "ahoy",
+            "☠",
+            "⚓",
+            "🏴"
           ],
           "mustNotCallTool": [
             "save_lead",
@@ -141,6 +144,37 @@
           "user": "Me gustó mucho, respondió rápido y tomó bien el turno",
           "mustCallTool": ["save_lead"],
           "mustNotCallTool": ["request_handoff"]
+        }
+      ]
+    },
+    {
+      "name": "planes-en-botones",
+      "description": "Plans are offered as buttons; after choosing one the bot explains it and offers only the remaining ones.",
+      "turns": [
+        {
+          "user": "¿Qué planes tienen?",
+          "mustCallTool": ["offer_options"]
+        },
+        {
+          "user": "Plan Pro",
+          "mustInclude": ["130"],
+          "mustCallTool": ["offer_options"],
+          "mustNotOffer": ["Pro"]
+        }
+      ]
+    },
+    {
+      "name": "invita-demo",
+      "description": "The demo is offered with a \"Probar la demo\" button, never by asking to type \"demo\".",
+      "turns": [
+        {
+          "user": "¿Cómo funciona? Me gustaría verlo en acción",
+          "mustCallTool": ["offer_options"],
+          "mustNotInclude": [
+            "escribí \"demo\"",
+            "escribi demo",
+            "escribir \"demo\""
+          ]
         }
       ]
     }

@@ -4,6 +4,7 @@ import type { DemoRequestInput } from '../../demos/demos.service.js';
 import type { ConversationMode } from '../../generated/prisma/client.js';
 import type { LeadField } from '../../agents/agent-profile.schema.js';
 import type { LeadValues } from '../../leads/lead-values.js';
+import type { ReplyButton } from '../../whatsapp/whatsapp.client.js';
 import type { ToolName } from '../mode-profiles.js';
 
 /**
@@ -14,6 +15,8 @@ export type PlannedEffect =
   | { kind: 'save_lead'; values: LeadValues }
   | { kind: 'register_demo_request'; request: DemoRequestInput }
   | { kind: 'request_handoff'; reason: string | null }
+  /** Reply buttons under the reply (offer_options); nothing to apply. */
+  | { kind: 'reply_buttons'; buttons: ReplyButton[] }
   /** Not a tool: the generator added the out-of-hours notice on `day`. */
   | { kind: 'out_of_hours_notice'; day: string };
 
