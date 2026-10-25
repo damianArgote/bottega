@@ -94,10 +94,11 @@ describe('renderReply', () => {
     },
   );
 
-  it('EXIT_DEMO says the user is back with the business bot', () => {
-    expect(renderReply('EXIT_DEMO', vars)).toContain(
-      'Volviste a hablar con Lola, IA de Lola',
-    );
+  it('EXIT_DEMO says the user is back with the business bot and asks what they thought of the demo', () => {
+    const text = renderReply('EXIT_DEMO', vars);
+
+    expect(text).toContain('Volviste a hablar con Lola, IA de Lola');
+    expect(text).toContain('¿Qué te pareció la demo?');
   });
 
   it('DEMO_UNAVAILABLE does not invite to a demo', () => {

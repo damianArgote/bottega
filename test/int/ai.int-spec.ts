@@ -57,6 +57,7 @@ const lead = (fields: Record<string, string>) => ({
   business_name: null,
   industry: null,
   need: null,
+  demo_feedback: null,
   ...fields,
 });
 

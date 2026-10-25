@@ -48,6 +48,7 @@ const lead = (overrides: Record<string, unknown> = {}) => ({
   business_name: null,
   industry: null,
   need: null,
+  demo_feedback: null,
   ...overrides,
 });
 

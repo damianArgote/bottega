@@ -19,7 +19,7 @@ const REPLIES = {
   ALREADY_IN_DEMO: () =>
     'Ya estás en la demo 😉 Seguí escribiendo como si fueras cliente, o escribí "salir" para volver.',
   EXIT_DEMO: ({ botName }: ReplyVars) =>
-    `Saliste de la demo. Volviste a hablar con ${botName} 👋 ¿Querés contarme qué necesitás para tu negocio?`,
+    `Saliste de la demo. Volviste a hablar con ${botName} 👋 ¿Qué te pareció la demo?`,
   DEMO_UNAVAILABLE: () =>
     'Por acá no hay una demo para probar. ¿En qué te puedo ayudar?',
   NOT_IN_DEMO: () =>
