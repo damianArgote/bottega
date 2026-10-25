@@ -165,10 +165,13 @@ export const envSchema = z
     ),
 
     // The only origin allowed by CORS (with credentials): the inbox web app.
-    INBOX_ORIGIN: requiredString('INBOX_ORIGIN').regex(
-      ORIGIN_PATTERN,
-      'INBOX_ORIGIN must be an origin like https://inbox.example.com (scheme, host and optional port, no path)',
-    ),
+    // Lowercased: browsers send the Origin header in lowercase.
+    INBOX_ORIGIN: requiredString('INBOX_ORIGIN')
+      .regex(
+        ORIGIN_PATTERN,
+        'INBOX_ORIGIN must be an origin like https://inbox.example.com (scheme, host and optional port, no path)',
+      )
+      .transform((value) => value.toLowerCase()),
   })
   .superRefine(
     (env, ctx) => {
