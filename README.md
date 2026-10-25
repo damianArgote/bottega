@@ -315,7 +315,7 @@ Y el paso de los datos del lead a `Lead.data` (prompt 02b):
 | ------ | --------- | -------- |
 | 1 | `20261025060000_lead_business_data` | `lead.business_id` (nullable) y `lead.data`; copia las columnas fijas a `data`. El código escribe las dos cosas. |
 | 2 | `20261025080000_lead_business_required` | Última copia y `business_id` obligatorio. El modelo deja de leer y escribir las columnas fijas, que quedan en la base sin uso. |
-| 3 | (T7b) | Borra `name`, `business_name`, `industry`, `need` y `contact_notes` de `lead`. |
+| 3 | `20261025090000_drop_lead_fixed_columns` | Completa en `data` las claves que falten y borra `name`, `business_name`, `industry`, `need` y `contact_notes` de `lead`. |
 
 **Volver atrás después del deploy 2 (antes del 3):** la versión anterior lee
 las columnas fijas por encima de `data`, y desde el deploy 2 nadie las
