@@ -106,6 +106,7 @@ export class ConversationActionsService {
     return this.act(access, conversationId, () => ({
       change: handBack(),
       note: `${user.name} se la devolvió al bot`,
+      closesHandoffs: true,
     }));
   }
 
@@ -117,6 +118,7 @@ export class ConversationActionsService {
     return this.act(access, conversationId, () => ({
       change: resolve(),
       note: `${user.name} resolvió la conversación`,
+      closesHandoffs: true,
     }));
   }
 
@@ -128,9 +130,12 @@ export class ConversationActionsService {
   private async act(
     access: BusinessAccess,
     conversationId: string,
-    decide: (
-      row: LockedRow,
-    ) => { change: AttendanceChange; note: string } | null,
+    decide: (row: LockedRow) => {
+      change: AttendanceChange;
+      note: string;
+      /** The bot attends again: open handoff requests are done. */
+      closesHandoffs?: boolean;
+    } | null,
   ): Promise<AttendanceView> {
     return this.prisma.$transaction(async (tx) => {
       const [row] = await tx.$queryRaw<LockedRow[]>`
@@ -149,8 +154,17 @@ export class ConversationActionsService {
       if (decision) {
         await tx.conversation.update({
           where: { id: row.id },
-          data: decision.change,
+          data: {
+            ...decision.change,
+            ...(decision.closesHandoffs ? { pausedAt: null } : {}),
+          },
         });
+        if (decision.closesHandoffs) {
+          await tx.handoffRequest.updateMany({
+            where: { conversationId: row.id, status: 'OPEN' },
+            data: { status: 'RESOLVED', resolvedAt: new Date() },
+          });
+        }
         await addSystemMessage(tx, {
           conversationId: row.id,
           contextId: row.activeContextId,
