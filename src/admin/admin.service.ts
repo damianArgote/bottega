@@ -22,9 +22,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { isUniqueViolation } from '../prisma/sql.js';
 import {
   maskPhone,
-  WHATSAPP_CLIENT,
+  WHATSAPP_CLIENT_FACTORY,
   type SendOutcome,
   type WhatsAppClient,
+  type WhatsAppClientFactory,
 } from '../whatsapp/whatsapp.client.js';
 import { ATTENTION_STATUSES } from './admin.schemas.js';
 
@@ -97,7 +98,8 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contexts: ContextService,
-    @Inject(WHATSAPP_CLIENT) private readonly client: WhatsAppClient,
+    @Inject(WHATSAPP_CLIENT_FACTORY)
+    private readonly clients: WhatsAppClientFactory,
   ) {}
 
   listLeads(query: { status?: LeadStatus; limit: number }) {
@@ -214,14 +216,32 @@ export class AdminService {
       throw error;
     }
 
-    const result = await this.deliver(row, conversation.waId);
+    const recipient = await this.recipientOf(conversation);
+    const client = await this.clients.forLine(conversation.lineId);
+    const result = await this.deliver(row, client, recipient);
     this.logger.log(
-      `Human reply ${row.id} to ${maskPhone(conversation.waId)}: ${result.outcome}`,
+      `Human reply ${row.id} to ${maskPhone(recipient)}: ${result.outcome}`,
     );
     return result;
   }
 
-  private async deliver(row: Message, waId: string): Promise<HumanReplyResult> {
+  /** The contact's wa_id (conversation.waId until every row is backfilled). */
+  private async recipientOf(conversation: Conversation): Promise<string> {
+    if (!conversation.contactId) {
+      return conversation.waId;
+    }
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: conversation.contactId },
+      select: { waId: true },
+    });
+    return contact?.waId ?? conversation.waId;
+  }
+
+  private async deliver(
+    row: Message,
+    client: WhatsAppClient,
+    waId: string,
+  ): Promise<HumanReplyResult> {
     const { count } = await this.prisma.message.updateMany({
       where: { id: row.id, status: MessageStatus.QUEUED },
       data: { status: MessageStatus.SENDING },
@@ -232,7 +252,7 @@ export class AdminService {
 
     let outcome: SendOutcome;
     try {
-      outcome = await this.client.sendText(waId, row.content);
+      outcome = await client.sendText(waId, row.content);
     } catch {
       // The port should never throw; if it does, the request may have left.
       outcome = { kind: 'uncertain', reason: 'client threw' };

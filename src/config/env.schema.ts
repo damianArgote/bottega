@@ -17,6 +17,14 @@ const requiredString = (name: string) =>
     .trim()
     .min(1, `${name} is required`);
 
+/** Optional string; blank counts as not set. */
+const optionalString = () =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value ? value : undefined));
+
 const positiveInt = (name: string, defaultValue: number) =>
   z.coerce
     .number({ error: `${name} must be a number` })
@@ -60,10 +68,14 @@ export const envSchema = z
         'DATABASE_URL_UNPOOLED must be a postgresql:// connection string',
       ),
 
-    META_APP_SECRET: requiredString('META_APP_SECRET'),
-    WHATSAPP_VERIFY_TOKEN: requiredString('WHATSAPP_VERIFY_TOKEN'),
-    WHATSAPP_ACCESS_TOKEN: requiredString('WHATSAPP_ACCESS_TOKEN'),
-    WHATSAPP_PHONE_NUMBER_ID: requiredString('WHATSAPP_PHONE_NUMBER_ID'),
+    // The default line (BotSuite46), served by the keyless webhook route and
+    // created by `npm run seed:default-line`. All optional: without them the
+    // app starts and the keyless route answers 404. Other lines keep their
+    // own credentials in the database.
+    META_APP_SECRET: optionalString(),
+    WHATSAPP_VERIFY_TOKEN: optionalString(),
+    WHATSAPP_ACCESS_TOKEN: optionalString(),
+    WHATSAPP_PHONE_NUMBER_ID: optionalString(),
     WHATSAPP_GRAPH_API_VERSION: requiredString(
       'WHATSAPP_GRAPH_API_VERSION',
     ).regex(

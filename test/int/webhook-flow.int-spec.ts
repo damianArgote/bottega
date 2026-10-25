@@ -3,12 +3,13 @@ import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { type App } from 'supertest/types.js';
+import { fixedClientFactory } from '../fixtures/client-factory.js';
 import { AppModule } from '../../src/app.module.js';
 import { BotWorker } from '../../src/bot/worker.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import {
   type SendOutcome,
-  WHATSAPP_CLIENT,
+  WHATSAPP_CLIENT_FACTORY,
 } from '../../src/whatsapp/whatsapp.client.js';
 import { resetDb } from './helpers.js';
 
@@ -60,8 +61,8 @@ describe('Webhook → queue → worker flow (integration)', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(WHATSAPP_CLIENT)
-      .useValue({ sendText })
+      .overrideProvider(WHATSAPP_CLIENT_FACTORY)
+      .useValue(fixedClientFactory({ sendText }))
       .compile();
     app = moduleRef.createNestApplication({ rawBody: true, logger: false });
     await app.init();

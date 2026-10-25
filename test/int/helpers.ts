@@ -11,7 +11,11 @@ import { ToolEffectsService } from '../../src/bot/tools/tool-effects.service.js'
 import { type Env, parseEnv } from '../../src/config/env.schema.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import type { InboundText } from '../../src/whatsapp/inbound-event.js';
-import type { WhatsAppClient } from '../../src/whatsapp/whatsapp.client.js';
+import type {
+  WhatsAppClient,
+  WhatsAppClientFactory,
+} from '../../src/whatsapp/whatsapp.client.js';
+import { fixedClientFactory } from '../fixtures/client-factory.js';
 
 /** AppConfigService over the validated test env, with optional overrides. */
 export function testConfig(overrides: Partial<Env> = {}): AppConfigService {
@@ -102,10 +106,13 @@ export function textEvent(
   };
 }
 
-/** BotService wired with the real context/command/effect services. */
+/**
+ * BotService wired with the real context/command/effect services. A plain
+ * client is used for every line; pass a factory to see which line sends.
+ */
 export function buildBotService(
   prisma: PrismaService,
-  client: WhatsAppClient,
+  client: WhatsAppClient | WhatsAppClientFactory,
   generator: ReplyGenerator,
 ): BotService {
   const content = new ContentService();
@@ -116,5 +123,12 @@ export function buildBotService(
     new DemosService(prisma, content),
     commands,
   );
-  return new BotService(prisma, client, generator, contexts, commands, effects);
+  return new BotService(
+    prisma,
+    'forLine' in client ? client : fixedClientFactory(client),
+    generator,
+    contexts,
+    commands,
+    effects,
+  );
 }

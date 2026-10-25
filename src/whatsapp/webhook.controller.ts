@@ -50,12 +50,11 @@ export class WhatsAppWebhookController {
     @Query('hub.verify_token') token: unknown,
     @Query('hub.challenge') challenge: unknown,
   ): string {
-    return this.handshake(
-      mode,
-      token,
-      challenge,
-      this.config.get('WHATSAPP_VERIFY_TOKEN'),
-    );
+    const verifyToken = this.config.get('WHATSAPP_VERIFY_TOKEN');
+    if (!verifyToken) {
+      throw new NotFoundException();
+    }
+    return this.handshake(mode, token, challenge, verifyToken);
   }
 
   @Post()

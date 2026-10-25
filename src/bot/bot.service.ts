@@ -12,9 +12,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { ClaimedJob } from '../queue/queue.service.js';
 import {
   maskPhone,
-  WHATSAPP_CLIENT,
+  WHATSAPP_CLIENT_FACTORY,
   type SendOutcome,
   type WhatsAppClient,
+  type WhatsAppClientFactory,
 } from '../whatsapp/whatsapp.client.js';
 import { CommandService } from './command.service.js';
 import { matchCommand } from './commands.js';
@@ -63,7 +64,8 @@ export class BotService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(WHATSAPP_CLIENT) private readonly client: WhatsAppClient,
+    @Inject(WHATSAPP_CLIENT_FACTORY)
+    private readonly clients: WhatsAppClientFactory,
     @Inject(REPLY_GENERATOR) private readonly generator: ReplyGenerator,
     private readonly contexts: ContextService,
     private readonly commands: CommandService,
@@ -73,13 +75,18 @@ export class BotService {
   async process(job: ClaimedJob): Promise<ProcessResult> {
     const inbound = await this.prisma.message.findUnique({
       where: { id: job.messageId },
-      include: { conversation: true },
+      include: {
+        conversation: { include: { contact: { select: { waId: true } } } },
+      },
     });
     if (!inbound) {
       throw new JobError('inbound_message_missing', false);
     }
     const { conversation } = inbound;
-    const to = maskPhone(conversation.waId);
+    // The contact is the recipient; conversation.waId only until every row
+    // is backfilled (it is dropped by a later migration).
+    const recipient = conversation.contact?.waId ?? conversation.waId;
+    const to = maskPhone(recipient);
 
     // The PROCESSED status is the phase marker: once set, a retried job only
     // sends what was persisted, never re-generating or re-applying a command.
@@ -100,8 +107,9 @@ export class BotService {
       uncertain: 0,
       failed: 0,
     };
+    const client = await this.clients.forLine(conversation.lineId);
     for (const row of outbound) {
-      await this.sendRow(job, row, conversation.waId, result);
+      await this.sendRow(job, row, client, recipient, result);
     }
     this.logger.log(
       `Job ${job.id} for ${to}: sent=${result.sent} uncertain=${result.uncertain} failed=${result.failed}`,
@@ -201,6 +209,7 @@ export class BotService {
   private async sendRow(
     job: ClaimedJob,
     row: Message,
+    client: WhatsAppClient,
     waId: string,
     result: ProcessResult,
   ): Promise<void> {
@@ -227,7 +236,7 @@ export class BotService {
 
     let outcome: SendOutcome;
     try {
-      outcome = await this.client.sendText(waId, row.content);
+      outcome = await client.sendText(waId, row.content);
     } catch {
       // The port should never throw; if it does, the request may have left.
       outcome = { kind: 'uncertain', reason: 'client threw' };

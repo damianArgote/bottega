@@ -1,11 +1,18 @@
-/**
- * Port for sending WhatsApp messages. Inject with {@link WHATSAPP_CLIENT}.
- */
+/** Sends WhatsApp messages from one line. Never throws. */
 export interface WhatsAppClient {
   sendText(to: string, body: string): Promise<SendOutcome>;
 }
 
-export const WHATSAPP_CLIENT = Symbol('WHATSAPP_CLIENT');
+/**
+ * Port that builds the client of a conversation's line, with that line's own
+ * credentials. Inject with {@link WHATSAPP_CLIENT_FACTORY}.
+ */
+export interface WhatsAppClientFactory {
+  /** Never throws: a line that cannot send gets a client that rejects. */
+  forLine(lineId: string | null): Promise<WhatsAppClient>;
+}
+
+export const WHATSAPP_CLIENT_FACTORY = Symbol('WHATSAPP_CLIENT_FACTORY');
 
 /**
  * - `sent`: Meta accepted the message (accepted, not necessarily delivered).

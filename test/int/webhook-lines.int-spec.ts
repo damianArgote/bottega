@@ -3,12 +3,13 @@ import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { type App } from 'supertest/types.js';
+import { fixedClientFactory } from '../fixtures/client-factory.js';
 import { AppModule } from '../../src/app.module.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { WebhookReprocessor } from '../../src/whatsapp/webhook-reprocessor.js';
 import {
   type SendOutcome,
-  WHATSAPP_CLIENT,
+  WHATSAPP_CLIENT_FACTORY,
 } from '../../src/whatsapp/whatsapp.client.js';
 import { DEFAULT_PHONE_NUMBER_ID, createLine, resetDb } from './helpers.js';
 
@@ -60,8 +61,8 @@ describe('Per-line webhooks and webhook events (integration)', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(WHATSAPP_CLIENT)
-      .useValue({ sendText })
+      .overrideProvider(WHATSAPP_CLIENT_FACTORY)
+      .useValue(fixedClientFactory({ sendText }))
       .compile();
     app = moduleRef.createNestApplication({ rawBody: true, logger: false });
     await app.init();

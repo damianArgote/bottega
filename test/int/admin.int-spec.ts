@@ -1,4 +1,5 @@
 import { QueueSignal } from '../../src/queue/queue-signal.js';
+import { fixedClientFactory } from '../fixtures/client-factory.js';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { AdminService } from '../../src/admin/admin.service.js';
 import { EchoReplyGenerator } from '../../src/bot/reply-generator.js';
@@ -50,7 +51,11 @@ describe('Admin operations (integration)', () => {
       bot,
       new QueueSignal(),
     );
-    admin = new AdminService(prisma, new ContextService(prisma), { sendText });
+    admin = new AdminService(
+      prisma,
+      new ContextService(prisma),
+      fixedClientFactory({ sendText }),
+    );
   });
 
   /** Records one user text and processes it. Returns the conversation id. */

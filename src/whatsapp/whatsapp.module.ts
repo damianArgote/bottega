@@ -9,7 +9,8 @@ import { WebhookEventProcessor } from './webhook-event-processor.js';
 import { WebhookEventsService } from './webhook-events.service.js';
 import { WebhookReprocessor } from './webhook-reprocessor.js';
 import { WhatsAppWebhookController } from './webhook.controller.js';
-import { WHATSAPP_CLIENT, type WhatsAppClient } from './whatsapp.client.js';
+import { LineWhatsAppClientFactory } from './line-client.factory.js';
+import { WHATSAPP_CLIENT_FACTORY } from './whatsapp.client.js';
 
 @Module({
   imports: [ConversationsModule, LinesModule],
@@ -21,17 +22,16 @@ import { WHATSAPP_CLIENT, type WhatsAppClient } from './whatsapp.client.js';
     WebhookReprocessor,
     WebhookEventsService,
     {
-      provide: WHATSAPP_CLIENT,
+      provide: GraphWhatsAppClient,
       inject: [AppConfigService],
-      useFactory: (config: AppConfigService): WhatsAppClient =>
+      useFactory: (config: AppConfigService) =>
         new GraphWhatsAppClient({
-          accessToken: config.get('WHATSAPP_ACCESS_TOKEN'),
-          phoneNumberId: config.get('WHATSAPP_PHONE_NUMBER_ID'),
           apiVersion: config.get('WHATSAPP_GRAPH_API_VERSION'),
           timeoutMs: config.get('WHATSAPP_HTTP_TIMEOUT_MS'),
         }),
     },
+    { provide: WHATSAPP_CLIENT_FACTORY, useClass: LineWhatsAppClientFactory },
   ],
-  exports: [WHATSAPP_CLIENT],
+  exports: [WHATSAPP_CLIENT_FACTORY],
 })
 export class WhatsAppModule {}
