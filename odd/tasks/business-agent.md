@@ -28,8 +28,8 @@ Quoted verbatim from the prompt (Spanish). Assumptions and decisions are marked.
 ## Tasks
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
-| T1 | S1, S2, S4 (column), S5, S10 (timezone column), D1 | inline | done (RED→GREEN schema spec + agent-profile int spec) | |
-| T2 | S6, A2, S9, A3, S12 (prompt, demo) | inline | pending | |
+| T1 | S1, S2, S4 (column), S5, S10 (timezone column), D1 | inline | done (RED→GREEN schema spec + agent-profile int spec) | PR #24 (35d9d21, d19e083) |
+| T2 | S6, A2, S9, A3, S12 (prompt, demo) | inline | done (RED→GREEN prompts, transitions, registry, provider specs + ai int spec) | |
 | T3 | S3 (expand), S7, S12 (save_lead) | inline | pending | |
 | T4 | S8, S11 | inline | pending | |
 | T5 | S10 | inline | pending | |
@@ -43,4 +43,5 @@ Route evidence: each task builds on the previous one (profile → prompt → lea
 - L2 (2026-10-25): explorer map. The provider fixes the model in its constructor and `AiRequest` has no model; the demo is a conversation mode (the "demo" command), not a per-business tool; `Lead` is unique per conversation and the admin API returns the raw row; the generator writes `AiUsage` with a required `conversationId`, so the preview needs a pure turn loop; `Business.botName` already exists and would duplicate `AgentProfile.botName`.
 - L3 (2026-10-25, user): "mientras vamos con el 02b el perfil manda". Decision D1: `AgentProfile.botName` is the bot's name; `Business.botName` is only the initial value when a profile is created and stops being read.
 - L4 (2026-10-25): T1 committed (35d9d21) plus fix: the seed no longer validates the content once the profile exists, so a later content edit over 8.000 characters cannot fail a deploy. Independent verifier: no blockers, S1/S2/S4-column/S5/S10-column/D1 met. Advisory: `bot.int-spec.ts` happy path failed 2 of 3 full int runs on the verifier, then passed 7 runs there and 3 here; not reproduced, watch CI. T3 must map `business_name` to the lead and decide what `required` means for save_lead.
-- Next: T2.
+- L5 (2026-10-25): T2. The commercial prompt is built from the profile (fixed rules first, then a "Información cargada por el negocio" block marked as data, not instructions); the model goes in each AiRequest (profile model or OPENAI_MODEL) and AiUsage records agentProfileVersion; with demoEnabled false the "demo"/"salir" commands answer DEMO_UNAVAILABLE and register_demo_request is neither offered nor accepted. A business without a stored profile answers with its Business.botName, no lead fields and no demo. Until T3 the known lead values come from the fixed Lead columns (name, business_name, industry, need) and save_lead keeps its fixed schema. Left for T4: the fixed replies HUMAN_REQUESTED, EXIT_DEMO and the demo summary still say "BotSuite46"; `enabled` is stored but not read yet (its meaning, e.g. no AI replies until the agent is switched on, is undecided).
+- Next: T3.

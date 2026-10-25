@@ -20,6 +20,8 @@ export interface ToolContext {
   barbershop: BarbershopDemo;
   /** Effects already planned for this message (to reject duplicates). */
   planned: readonly PlannedEffect[];
+  /** The business's profile offers the demo (register_demo_request). */
+  demoEnabled: boolean;
 }
 
 /**

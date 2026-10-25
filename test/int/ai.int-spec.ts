@@ -145,18 +145,77 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   const usageOutcomes = async () =>
     (await prisma.aiUsage.findMany()).map((u) => u.outcome).sort();
 
-  it("introduces the bot with its business's botName", async () => {
-    await prisma.business.updateMany({
-      data: { botName: 'BotSuite, IA de BotSuite46' },
+  const profile = () => prisma.agentProfile.findFirstOrThrow();
+
+  it("answers with the business's agent profile: name, information and model", async () => {
+    await prisma.agentProfile.updateMany({
+      data: {
+        botName: 'Sofi, IA de BotSuite46',
+        persona: 'Tono de prueba.',
+        businessInfo: 'Plan único: USD 1.',
+        model: 'profile-model',
+        version: 3,
+      },
     });
     respond.mockResolvedValueOnce(text('¡Hola!'));
 
     await say('hola');
 
-    expect(request(0)?.instructions).toContain(
-      'Sos BotSuite, IA de BotSuite46.',
-    );
-    expect(request(0)?.instructions).not.toContain('asistente virtual');
+    const instructions = request(0)?.instructions;
+    expect(instructions).toContain('Sos Sofi, IA de BotSuite46.');
+    expect(instructions).toContain('Tono de prueba.');
+    expect(instructions).toContain('Plan único: USD 1.');
+    // The profile's name wins over Business.botName (its initial value).
+    expect(instructions).not.toContain('Bot de botsuite46');
+    expect(instructions).not.toContain('asistente virtual');
+    expect(request(0)?.model).toBe('profile-model');
+    const [usage] = await prisma.aiUsage.findMany();
+    expect(usage).toMatchObject({ outcome: 'OK', agentProfileVersion: 3 });
+  });
+
+  it('uses OPENAI_MODEL when the profile has no model', async () => {
+    respond.mockResolvedValueOnce(text('¡Hola!'));
+
+    await say('hola');
+
+    expect(request(0)?.model).toBe(MODEL);
+    expect((await profile()).model).toBeNull();
+    const [usage] = await prisma.aiUsage.findMany();
+    expect(usage?.agentProfileVersion).toBe((await profile()).version);
+  });
+
+  it('without a stored profile, uses the business name, OPENAI_MODEL and no demo', async () => {
+    await prisma.agentProfile.deleteMany();
+    respond.mockResolvedValueOnce(text('¡Hola!'));
+
+    await say('hola');
+
+    expect(request(0)?.instructions).toContain('Sos Bot de botsuite46.');
+    expect(request(0)?.instructions).not.toContain('"demo"');
+    expect(request(0)?.model).toBe(MODEL);
+    const [usage] = await prisma.aiUsage.findMany();
+    expect(usage?.agentProfileVersion).toBeNull();
+  });
+
+  it('with demoEnabled false, "demo" answers that there is no demo', async () => {
+    await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
+
+    await say('demo');
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(lastSent()).toBe(renderReply('DEMO_UNAVAILABLE', vars));
+    expect((await conversation()).mode).toBe('COMMERCIAL');
+  });
+
+  it('does not offer register_demo_request once the demo is disabled', async () => {
+    await say('demo');
+    await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
+    respond.mockResolvedValueOnce(text('Hola'));
+
+    await say('quiero un turno');
+
+    expect((await conversation()).mode).toBe('DEMO');
+    expect(request(0)?.tools.map((t) => t.name)).toEqual(['request_handoff']);
   });
 
   it('save_lead in commercial mode merges the lead and sends the model reply', async () => {

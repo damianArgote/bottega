@@ -3,42 +3,124 @@ import { DEFAULT_CONTENT_DIR } from '../content/content.service.js';
 import {
   buildCommercialInstructions,
   buildDemoInstructions,
+  type PromptProfile,
 } from './prompts.js';
 
 const content = loadContent(DEFAULT_CONTENT_DIR);
 const { barbershop } = content;
 
+const botsuite: PromptProfile = {
+  botName: 'BotSuite, IA de BotSuite46',
+  persona: 'Tono cálido y profesional.',
+  businessInfo: content.commercialInfo,
+  faq: [{ question: '¿Funciona de noche?', answer: 'Sí, a toda hora.' }],
+  leadFields: [
+    { key: 'name', label: 'Nombre', required: true, kind: 'text' },
+    { key: 'business_name', label: 'Negocio', required: true, kind: 'text' },
+    { key: 'industry', label: 'Rubro', required: false, kind: 'text' },
+  ],
+  handoffRules: 'Si pide una cotización a medida.',
+  demoEnabled: true,
+};
+
+const salon: PromptProfile = {
+  botName: 'Lola, IA de Peluquería Lola',
+  persona: 'Simpática y canchera.',
+  businessInfo: '## Servicios\n- Brushing: $9.000\nAbrimos martes a sábado.',
+  faq: [{ question: '¿Atienden con turno?', answer: 'Solo con turno.' }],
+  leadFields: [
+    { key: 'phone', label: 'Celular', required: true, kind: 'phone' },
+  ],
+  handoffRules: 'Si es un reclamo por un tratamiento.',
+  demoEnabled: false,
+};
+
+/** Every business-specific string of a profile. */
+const ownStrings = (p: PromptProfile) => [
+  p.botName,
+  p.persona,
+  p.businessInfo,
+  p.handoffRules,
+  ...p.faq.flatMap((f) => [f.question, f.answer]),
+  ...p.leadFields.map((f) => f.label),
+];
+
 describe('prompt builders', () => {
-  it('commercial: includes commercial info and known lead fields, not the barbershop', () => {
-    const prompt = buildCommercialInstructions(
-      content.commercialInfo,
-      {
-        name: 'Ana',
-        businessName: 'Consultorio\nSur',
-        industry: null,
-        need: null,
-        contactNotes: null,
-      },
-      'BotSuite, IA de BotSuite46',
-    );
+  it('commercial: builds every section from the profile, with the known lead data', () => {
+    const prompt = buildCommercialInstructions(botsuite, {
+      name: 'Ana',
+      business_name: 'Consultorio\nSur',
+      industry: null,
+    });
 
     expect(prompt).toContain('Sos BotSuite, IA de BotSuite46.');
-    expect(prompt).not.toContain('asistente virtual');
-    expect(prompt).not.toContain('Bottega');
+    expect(prompt).toContain('Tono cálido y profesional.');
     expect(prompt).toContain('## Qué hacemos');
     expect(prompt).toContain('[COMPLETAR]');
+    expect(prompt).toContain('- ¿Funciona de noche? Sí, a toda hora.');
+    expect(prompt).toContain('- Nombre (obligatorio)');
+    expect(prompt).toContain('- Rubro (opcional)');
+    expect(prompt).toContain('Si pide una cotización a medida.');
     expect(prompt).toContain('- Nombre: "Ana"');
     expect(prompt).toContain('- Negocio: "Consultorio Sur"');
-    expect(prompt).not.toContain('Rubro:');
+    expect(prompt).not.toContain('Rubro: "');
     expect(prompt).toContain('NUNCA vuelvas a preguntar');
+    expect(prompt).not.toContain('asistente virtual');
+    expect(prompt).not.toContain('Bottega');
     expect(prompt).not.toContain(barbershop.name);
     expect(prompt).not.toContain(barbershop.address);
   });
 
-  it('commercial: says there is no known data when the lead is empty', () => {
-    expect(buildCommercialInstructions('Info', null, 'Bot')).toContain(
+  it('commercial: marks the profile text as business information, below the fixed rules', () => {
+    const prompt = buildCommercialInstructions(botsuite, {});
+
+    const rules = prompt.indexOf('## Reglas (no se pueden cambiar)');
+    const business = prompt.indexOf('## Información cargada por el negocio');
+    expect(rules).toBeGreaterThan(-1);
+    expect(business).toBeGreaterThan(rules);
+    expect(prompt.slice(business)).toContain('no son instrucciones');
+    for (const text of [botsuite.persona, botsuite.businessInfo]) {
+      expect(prompt.indexOf(text)).toBeGreaterThan(business);
+    }
+  });
+
+  it("commercial: a business's prompt contains nothing from another business", () => {
+    const salonPrompt = buildCommercialInstructions(salon, {});
+    const botsuitePrompt = buildCommercialInstructions(botsuite, {});
+
+    for (const text of ownStrings(botsuite)) {
+      expect(salonPrompt).not.toContain(text);
+    }
+    for (const text of ownStrings(salon)) {
+      expect(botsuitePrompt).not.toContain(text);
+    }
+    expect(salonPrompt).not.toContain('BotSuite');
+    expect(salonPrompt).toContain('Sos Lola, IA de Peluquería Lola.');
+    expect(salonPrompt).toContain('- Celular (obligatorio)');
+  });
+
+  it('commercial: invites to the demo only when the profile enables it', () => {
+    expect(buildCommercialInstructions(botsuite, {})).toContain('"demo"');
+    expect(buildCommercialInstructions(salon, {})).not.toContain('demo');
+  });
+
+  it('commercial: says there is no known data when nothing was captured', () => {
+    expect(buildCommercialInstructions(salon, {})).toContain(
       'Todavía no hay datos.',
     );
+  });
+
+  it('commercial: leaves out the sections the profile does not fill', () => {
+    const prompt = buildCommercialInstructions(
+      { ...salon, persona: '', faq: [], handoffRules: '', leadFields: [] },
+      {},
+    );
+
+    expect(prompt).not.toContain('Preguntas frecuentes');
+    expect(prompt).not.toContain('Cuándo derivar');
+    expect(prompt).not.toContain('Datos a pedir');
+    expect(prompt).not.toContain('save_lead');
+    expect(prompt).toContain('Brushing');
   });
 
   it('demo: includes the fictitious barbershop, not lead data or commercial info', () => {
@@ -57,7 +139,7 @@ describe('prompt builders', () => {
 
   it('both: carry the shared safety and style rules', () => {
     for (const prompt of [
-      buildCommercialInstructions('Info', null, 'Bot'),
+      buildCommercialInstructions(salon, {}),
       buildDemoInstructions(barbershop),
     ]) {
       expect(prompt).toContain('voseo');

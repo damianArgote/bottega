@@ -19,6 +19,8 @@ export interface AiToolDefinition {
 }
 
 export interface AiRequest {
+  /** Model id: the business's profile model, or OPENAI_MODEL. */
+  model: string;
   instructions: string;
   input: readonly AiInputItem[];
   tools: readonly AiToolDefinition[];
