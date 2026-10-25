@@ -58,6 +58,11 @@ const SETTLED: ReadonlySet<MessageStatus> = new Set([
  *    the start of a run (crash mid-send) or with an uncertain outcome is
  *    marked UNCERTAIN and never resent.
  */
+/** Never used to send: only QUEUED rows are sent, and there are none. */
+const NO_SEND_CLIENT: WhatsAppClient = {
+  sendText: () => Promise.reject(new Error('no QUEUED row to send')),
+};
+
 @Injectable()
 export class BotService {
   private readonly logger = new Logger(BotService.name);
@@ -107,7 +112,11 @@ export class BotService {
       uncertain: 0,
       failed: 0,
     };
-    const client = await this.clients.forLine(conversation.lineId);
+    // Built only when something is still to be sent (a retried job may have
+    // sent everything already).
+    const client = outbound.some((row) => row.status === MessageStatus.QUEUED)
+      ? await this.clients.forLine(conversation.lineId)
+      : NO_SEND_CLIENT;
     for (const row of outbound) {
       await this.sendRow(job, row, client, recipient, result);
     }

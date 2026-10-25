@@ -132,4 +132,49 @@ describe('Sending from the conversation line (integration)', () => {
     });
     expect(after.status).toBe('SENT');
   });
+
+  it('a human reply leaves no stuck QUEUED row when the line client cannot be built', async () => {
+    const b = await createLine(prisma, { slug: 'b', phoneNumberId: '222' });
+    const result = await conversations.recordInbound(
+      { ...textEvent('wamid.b', USER), timestamp: new Date() },
+      b,
+    );
+    if (result.outcome !== 'created') {
+      throw new Error('inbound not stored');
+    }
+    const failing: WhatsAppClientFactory = {
+      forLine: () => Promise.reject(new Error('database unavailable')),
+    };
+    const admin = new AdminService(prisma, new ContextService(prisma), failing);
+
+    await expect(
+      admin.sendHumanReply(result.conversationId, 'Hola!', 'key-1'),
+    ).rejects.toThrow('database unavailable');
+
+    expect(
+      await prisma.message.count({ where: { direction: 'OUTBOUND' } }),
+    ).toBe(0);
+  });
+
+  it('a retried job with nothing left to send does not build a client', async () => {
+    const b = await createLine(prisma, { slug: 'b', phoneNumberId: '222' });
+    const forLine = vi.fn((lineId: string | null) => factory.forLine(lineId));
+    const worker = new BotWorker(
+      config,
+      new QueueService(prisma, config),
+      buildBotService(prisma, { forLine }, new EchoReplyGenerator()),
+      new QueueSignal(),
+    );
+    await conversations.recordInbound(textEvent('wamid.b', USER), b);
+    await worker.drain();
+    expect(forLine).toHaveBeenCalledTimes(1);
+
+    // The same job runs again (e.g. after a lost lease): every reply is sent.
+    await prisma.$executeRaw`
+      UPDATE processing_job SET status = 'PENDING', run_after = (now() AT TIME ZONE 'UTC')`;
+    await worker.drain();
+
+    expect(forLine).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(1);
+  });
 });

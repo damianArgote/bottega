@@ -190,6 +190,10 @@ export class AdminService {
     if (!conversation.activeContextId) {
       throw new ConflictException('Conversation has no active context');
     }
+    // Resolved before the row exists: a failure here must not leave a
+    // QUEUED row that an Idempotency-Key retry would only replay.
+    const recipient = await this.recipientOf(conversation);
+    const client = await this.clients.forLine(conversation.lineId);
 
     let row: Message;
     try {
@@ -216,8 +220,6 @@ export class AdminService {
       throw error;
     }
 
-    const recipient = await this.recipientOf(conversation);
-    const client = await this.clients.forLine(conversation.lineId);
     const result = await this.deliver(row, client, recipient);
     this.logger.log(
       `Human reply ${row.id} to ${maskPhone(recipient)}: ${result.outcome}`,
