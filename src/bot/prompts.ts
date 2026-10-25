@@ -117,8 +117,9 @@ export function buildCommercialInstructions(
     ...section('Quién sos y cómo hablás', profile.persona),
     ...section('Datos a pedir', fieldsBlock(profile.leadFields)),
     ...section('Cuándo derivar a una persona', profile.handoffRules),
-    ...section('Información del negocio', profile.businessInfo),
     ...section('Preguntas frecuentes', faq),
+    // Last: its own Markdown headings would otherwise swallow what follows.
+    ...section('Información del negocio', profile.businessInfo),
   ]
     .join('\n')
     .trim();

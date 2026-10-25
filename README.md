@@ -418,8 +418,11 @@ ni signos alrededor).
 
 ### Modos y contextos
 
-- **Comercial:** habla de Bottega usando `content/commercial-info.md` y puede
-  guardar datos del prospecto (lead).
+- **Comercial:** atiende como el agente del negocio, con su perfil
+  (`AgentProfile`: nombre, tono, información, preguntas frecuentes, datos a
+  pedir y cuándo derivar), y puede guardar datos del prospecto (lead). Si el
+  perfil está apagado (`enabled = false`) o el negocio todavía no tiene uno, la
+  IA no contesta; los comandos siguen funcionando.
 - **Demo:** atiende como la barbería ficticia. Lo que se registra ahí es
   ficticio y nunca se mezcla con el lead.
 - Cada modo tiene su propio historial: lo dicho en la demo no aparece en el
@@ -543,7 +546,7 @@ Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404
 
 | Archivo | Para qué |
 | ------- | -------- |
-| `content/commercial-info.md` | Lo que el bot sabe de Bottega (modo comercial). Donde dice `[COMPLETAR]`, el bot responde que el equipo lo confirma. |
+| `content/commercial-info.md` | Texto inicial de la información del negocio de BotSuite46. Solo se usa la primera vez, cuando `seed:default-line` crea el perfil del agente; después el bot lee el perfil de la base y editar este archivo no lo cambia. Donde dice `[COMPLETAR]`, el bot responde que el equipo lo confirma. |
 | `content/demos/barbershop.json` | Datos de la barbería ficticia: servicios, precios, horarios, preguntas frecuentes. |
 
 - Después de editar, **reiniciá la app**.

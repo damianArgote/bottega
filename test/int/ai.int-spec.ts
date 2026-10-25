@@ -184,17 +184,42 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(usage?.agentProfileVersion).toBe((await profile()).version);
   });
 
-  it('without a stored profile, uses the business name, OPENAI_MODEL and no demo', async () => {
-    await prisma.agentProfile.deleteMany();
-    respond.mockResolvedValueOnce(text('¡Hola!'));
+  it('with the agent switched off, the AI does not answer', async () => {
+    await prisma.agentProfile.updateMany({ data: { enabled: false } });
 
     await say('hola');
 
-    expect(request(0)?.instructions).toContain('Sos Bot de botsuite46.');
-    expect(request(0)?.instructions).not.toContain('"demo"');
-    expect(request(0)?.model).toBe(MODEL);
-    const [usage] = await prisma.aiUsage.findMany();
-    expect(usage?.agentProfileVersion).toBeNull();
+    expect(respond).not.toHaveBeenCalled();
+    expect(sendText).not.toHaveBeenCalled();
+    expect(await prisma.aiUsage.count()).toBe(0);
+    // The inbound message is kept for the team.
+    expect(
+      await prisma.message.findMany({
+        select: { direction: true, content: true },
+      }),
+    ).toEqual([{ direction: 'INBOUND', content: 'hola' }]);
+    const job = await prisma.processingJob.findFirstOrThrow();
+    expect(job.status).toBe('COMPLETED');
+  });
+
+  it('with the agent switched off, commands still answer', async () => {
+    await prisma.agentProfile.updateMany({ data: { enabled: false } });
+
+    await say('humano');
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
+  });
+
+  it('a business without a stored profile counts as switched off, without demo', async () => {
+    await prisma.agentProfile.deleteMany();
+
+    await say('hola');
+    await say('demo');
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(sendText).toHaveBeenCalledTimes(1);
+    expect(lastSent()).toBe(renderReply('DEMO_UNAVAILABLE', vars));
   });
 
   it('with demoEnabled false, "demo" answers that there is no demo', async () => {
@@ -365,6 +390,13 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(respond).toHaveBeenCalledTimes(2);
     expect(lastSent()).toBe(AI_LIMIT_REPLY);
     expect(await usageOutcomes()).toEqual(['LIMITED', 'OK', 'OK']);
+    const limited = await prisma.aiUsage.findFirstOrThrow({
+      where: { outcome: 'LIMITED' },
+    });
+    expect(limited).toMatchObject({
+      model: MODEL,
+      agentProfileVersion: (await profile()).version,
+    });
   });
 
   it('retries a retryable AI error and regenerates without duplicating effects', async () => {

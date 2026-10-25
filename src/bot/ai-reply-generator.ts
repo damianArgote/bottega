@@ -67,6 +67,8 @@ export interface AiReplyGeneratorDeps {
 /**
  * BOT_REPLY_MODE=ai. For one inbound text:
  *
+ * 0. Agent switched off (AgentProfile.enabled false, or no stored profile):
+ *    no model call and no reply; the inbound message is already stored.
  * 1. Daily cap: when the conversation already made
  *    AI_MAX_INTERACTIONS_PER_USER_PER_DAY model calls today (OK or ERROR,
  *    day in America/Argentina/Buenos_Aires), no call is made: a LIMITED usage
@@ -87,14 +89,18 @@ export class AiReplyGenerator implements ReplyGenerator {
   constructor(private readonly deps: AiReplyGeneratorDeps) {}
 
   async generate(input: ReplyInput): Promise<GeneratedReply> {
-    if (input.message.type !== 'TEXT') {
-      return { replies: [UNSUPPORTED_REPLY], effects: [] };
-    }
-    const { config, usage } = this.deps;
     const profile = await loadAgentProfile(
       this.deps.prisma,
       input.conversationId,
     );
+    if (!profile.enabled) {
+      // Switched off: the AI does not answer until the agent is turned on.
+      return { replies: [], effects: [] };
+    }
+    if (input.message.type !== 'TEXT') {
+      return { replies: [UNSUPPORTED_REPLY], effects: [] };
+    }
+    const { config, usage } = this.deps;
     const turn: Turn = {
       input,
       model: profile.model ?? config.get('OPENAI_MODEL') ?? '',

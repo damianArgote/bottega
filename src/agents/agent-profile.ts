@@ -13,11 +13,11 @@ export interface AgentProfile extends AgentProfileInput {
 
 /**
  * Agent of a business with no stored profile yet (created through the admin
- * API before its agent was configured): its name only, no demo.
+ * API before its agent was configured): switched off, no demo.
  */
 export function fallbackAgentProfile(botName: string): AgentProfile {
   return {
-    enabled: true,
+    enabled: false,
     botName,
     persona: '',
     businessInfo: '',
