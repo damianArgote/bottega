@@ -184,10 +184,6 @@ model Conversation {
   id              String           @id @default(uuid()) @db.Uuid
   lineId          String           @map("line_id") @db.Uuid
   contactId       String           @map("contact_id") @db.Uuid
-  /// Deprecated: no longer written (the recipient is contact.waId). Kept,
-  /// nullable, only while the previous app version may still be running
-  /// during a deploy; the next migration drops it.
-  waId            String?          @map("wa_id")
   mode            ConversationMode @default(COMMERCIAL)
   paused          Boolean          @default(false)
   pausedAt        DateTime?        @map("paused_at")

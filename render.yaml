@@ -31,8 +31,10 @@ services:
         value: production
       - key: WHATSAPP_GRAPH_API_VERSION
         value: v26.0
+      # ai needs OPENAI_API_KEY and OPENAI_MODEL (the app does not boot
+      # without them); echo only repeats the message, to test the wiring.
       - key: BOT_REPLY_MODE
-        value: echo
+        value: ai
       # Secrets and per-environment values: asked once when the Blueprint is
       # created, never stored in this file.
       - key: DATABASE_URL
