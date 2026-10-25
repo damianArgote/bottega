@@ -1,6 +1,7 @@
 import { QueueSignal } from '../../src/queue/queue-signal.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
+import { enqueuePushJob } from '../../src/queue/push-jobs.js';
 import { QueueService } from '../../src/queue/queue.service.js';
 import { connectPrisma, resetDb, testConfig, textEvent } from './helpers.js';
 
@@ -32,8 +33,21 @@ describe('QueueService (integration)', () => {
 
   const jobFor = (waMessageId: string) =>
     prisma.processingJob.findFirstOrThrow({
-      where: { message: { waMessageId } },
+      where: { type: 'INBOUND_MESSAGE', message: { waMessageId } },
     });
+
+  /** A push job for the conversation of `waMessageId` (as T2 enqueues it). */
+  const enqueuePush = async (waMessageId: string) => {
+    const message = await prisma.message.findUniqueOrThrow({
+      where: { waMessageId },
+    });
+    return enqueuePushJob(prisma, {
+      conversationId: message.conversationId,
+      reason: 'INBOUND',
+      messageId: message.id,
+      maxAttempts: 3,
+    });
+  };
 
   /** Moves a job's timers into the past instead of sleeping. */
   const expire = (jobId: string) => prisma.$executeRaw`
@@ -91,6 +105,91 @@ describe('QueueService (integration)', () => {
 
     await expire(first!.id);
     expect((await queue.claimNext('w1'))?.id).toBe(first!.id);
+  });
+
+  describe('push jobs', () => {
+    it('run beside the conversation: a bot job in progress does not hold them', async () => {
+      await enqueue('wamid.1');
+      const pushId = await enqueuePush('wamid.1');
+      const bot = await queue.claimNext('w1');
+      expect(bot?.id).toBe((await jobFor('wamid.1')).id);
+
+      const push = await queue.claimNext('w2');
+
+      expect(push).toMatchObject({
+        id: pushId,
+        type: 'PUSH_NOTIFICATION',
+        pushReason: 'INBOUND',
+        messageId: bot!.messageId,
+        conversationId: bot!.conversationId,
+      });
+      expect(push!.createdAt).toBeInstanceOf(Date);
+    });
+
+    it('never hold back the bot: a push in progress or waiting for its retry', async () => {
+      await enqueue('wamid.1');
+      await enqueuePush('wamid.1');
+      await enqueue('wamid.2');
+      const bot1 = await queue.claimNext('w1');
+      const push = await queue.claimNext('w2');
+      expect(push?.type).toBe('PUSH_NOTIFICATION');
+      await queue.complete(bot1!);
+
+      // The push is still PROCESSING: the next bot job goes anyway.
+      const bot2 = await queue.claimNext('w1');
+      expect(bot2?.id).toBe((await jobFor('wamid.2')).id);
+      await queue.complete(bot2!);
+
+      // A push waiting for its retry blocks nothing either.
+      await queue.fail(push!, new Error('push down'), { retryable: true });
+      await enqueue('wamid.3');
+      expect((await queue.claimNext('w1'))?.id).toBe(
+        (await jobFor('wamid.3')).id,
+      );
+    });
+
+    it('several pushes of one conversation can run at once', async () => {
+      await enqueue('wamid.1');
+      await queue.complete((await queue.claimNext('w1'))!);
+      const a = await enqueuePush('wamid.1');
+      const b = await enqueuePush('wamid.1');
+
+      const claimed = [
+        await queue.claimNext('w1'),
+        await queue.claimNext('w2'),
+      ];
+
+      expect(claimed.map((j) => j?.id).sort()).toEqual([a, b].sort());
+    });
+
+    it('a handoff push has no message', async () => {
+      await enqueue('wamid.1');
+      await queue.complete((await queue.claimNext('w1'))!);
+      const { conversationId } = await jobFor('wamid.1');
+      await enqueuePushJob(prisma, {
+        conversationId,
+        reason: 'HANDOFF',
+        messageId: null,
+        maxAttempts: 3,
+      });
+
+      expect(await queue.claimNext('w1')).toMatchObject({
+        type: 'PUSH_NOTIFICATION',
+        pushReason: 'HANDOFF',
+        messageId: null,
+      });
+    });
+
+    it('an inbound job is still one per message', async () => {
+      await enqueue('wamid.1');
+      const { messageId, conversationId } = await jobFor('wamid.1');
+
+      await expect(prisma.$executeRaw`
+        INSERT INTO processing_job (id, type, conversation_id, message_id,
+          status, attempts, max_attempts, run_after, created_at, updated_at)
+        VALUES (gen_random_uuid(), 'INBOUND_MESSAGE', ${conversationId}::uuid,
+          ${messageId}::uuid, 'PENDING', 0, 3, now(), now(), now())`).rejects.toThrow();
+    });
   });
 
   it('never hands two jobs of one conversation to concurrent claims', async () => {

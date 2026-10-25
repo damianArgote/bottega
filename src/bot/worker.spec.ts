@@ -2,7 +2,12 @@ import { Logger } from '@nestjs/common';
 import type { AppConfigService } from '../config/app-config.service.js';
 import type { Env } from '../config/env.schema.js';
 import { QueueSignal } from '../queue/queue-signal.js';
-import type { ClaimedJob, QueueService } from '../queue/queue.service.js';
+import type { PushJobProcessor } from '../queue/push-jobs.js';
+import type {
+  ClaimedJob,
+  PushJob,
+  QueueService,
+} from '../queue/queue.service.js';
 import { type BotService, JobError } from './bot.service.js';
 import { BotWorker } from './worker.js';
 
@@ -14,9 +19,26 @@ const job = (id: string): ClaimedJob => ({
   attempts: 1,
   maxAttempts: 3,
   lockedBy: 'w',
+  createdAt: new Date(0),
+  pushReason: null,
 });
 
-function setup(overrides: Partial<Env> = {}) {
+const pushJob: PushJob = {
+  id: 'p1',
+  type: 'PUSH_NOTIFICATION',
+  conversationId: 'c1',
+  messageId: null,
+  pushReason: 'HANDOFF',
+  attempts: 1,
+  maxAttempts: 3,
+  lockedBy: 'w',
+  createdAt: new Date(0),
+};
+
+function setup(
+  overrides: Partial<Env> = {},
+  push: PushJobProcessor | undefined = undefined,
+) {
   const env: Partial<Env> = {
     WORKER_ENABLED: true,
     QUEUE_POLL_INTERVAL_MS: 10_000,
@@ -30,6 +52,7 @@ function setup(overrides: Partial<Env> = {}) {
   const queue = {
     claimNext: vi.fn<QueueService['claimNext']>().mockResolvedValue(null),
     complete: vi.fn<QueueService['complete']>().mockResolvedValue(true),
+    skip: vi.fn<QueueService['skip']>().mockResolvedValue(true),
     fail: vi.fn<QueueService['fail']>().mockResolvedValue('retry_scheduled'),
     nextRunnableAt: vi
       .fn<QueueService['nextRunnableAt']>()
@@ -42,6 +65,7 @@ function setup(overrides: Partial<Env> = {}) {
     queue as unknown as QueueService,
     bot as unknown as BotService,
     signal,
+    push,
   );
   return { worker, queue, bot, signal };
 }
@@ -69,6 +93,52 @@ describe('BotWorker', () => {
 
     expect(await worker.drain()).toBe(1);
     expect(queue.complete).toHaveBeenCalledWith(job('j1'));
+  });
+
+  describe('push jobs', () => {
+    it('go to the push processor, never to the bot', async () => {
+      const process = vi
+        .fn<PushJobProcessor['process']>()
+        .mockResolvedValue('done');
+      const { worker, queue, bot } = setup({}, { process });
+      queue.claimNext.mockResolvedValueOnce(pushJob);
+
+      await worker.processNext();
+
+      expect(process).toHaveBeenCalledWith(pushJob);
+      expect(bot.process).not.toHaveBeenCalled();
+      expect(queue.complete).toHaveBeenCalledWith(pushJob);
+    });
+
+    it('end SKIPPED when the processor skips them or there is none', async () => {
+      const process = vi
+        .fn<PushJobProcessor['process']>()
+        .mockResolvedValue('skipped');
+      for (const push of [{ process }, undefined]) {
+        const { worker, queue } = setup({}, push);
+        queue.claimNext.mockResolvedValueOnce(pushJob);
+
+        await worker.processNext();
+
+        expect(queue.skip).toHaveBeenCalledWith(pushJob);
+        expect(queue.complete).not.toHaveBeenCalled();
+      }
+    });
+
+    it('a failure is recorded like any job', async () => {
+      const error = new JobError('push_failed', true);
+      const process = vi
+        .fn<PushJobProcessor['process']>()
+        .mockRejectedValue(error);
+      const { worker, queue } = setup({}, { process });
+      queue.claimNext.mockResolvedValueOnce(pushJob);
+
+      await worker.processNext();
+
+      expect(queue.fail).toHaveBeenCalledWith(pushJob, error, {
+        retryable: true,
+      });
+    });
   });
 
   it.each([

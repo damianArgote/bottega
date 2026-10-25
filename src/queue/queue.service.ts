@@ -3,16 +3,32 @@ import { AppConfigService } from '../config/app-config.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { isUniqueViolation, millis, UTC_NOW } from '../prisma/sql.js';
 
-/** A job owned by a worker until it completes, fails, or its lease expires. */
-export interface ClaimedJob {
+interface ClaimedJobBase {
   id: string;
-  type: 'INBOUND_MESSAGE';
   conversationId: string;
-  messageId: string;
   attempts: number;
   maxAttempts: number;
   lockedBy: string;
+  createdAt: Date;
 }
+
+/** A job owned by a worker until it completes, fails, or its lease expires. */
+export type ClaimedJob =
+  | (ClaimedJobBase & {
+      type: 'INBOUND_MESSAGE';
+      messageId: string;
+      pushReason: null;
+    })
+  | (ClaimedJobBase & {
+      type: 'PUSH_NOTIFICATION';
+      /** Null for a handoff. */
+      messageId: string | null;
+      pushReason: 'INBOUND' | 'HANDOFF';
+    });
+
+/** The bot's job: answers an inbound message. */
+export type InboundJob = Extract<ClaimedJob, { type: 'INBOUND_MESSAGE' }>;
+export type PushJob = Extract<ClaimedJob, { type: 'PUSH_NOTIFICATION' }>;
 
 export interface FailOptions {
   retryable: boolean;
@@ -29,10 +45,14 @@ const MAX_ERROR_LENGTH = 120;
  *
  * Guarantees:
  * - A job is owned by at most one worker at a time (row lock + lease).
- * - Jobs of one conversation run one at a time and in enqueue order (`seq`):
- *   only the oldest unfinished job of a conversation is claimable, and the
- *   partial unique index `(conversation_id) WHERE status = 'PROCESSING'` is
- *   the last line of defense.
+ * - The bot's jobs (INBOUND_MESSAGE) of one conversation run one at a time
+ *   and in enqueue order (`seq`): only the oldest unfinished one of a
+ *   conversation is claimable, and the partial unique index
+ *   `(conversation_id) WHERE status = 'PROCESSING' AND type =
+ *   'INBOUND_MESSAGE'` is the last line of defense.
+ * - PUSH_NOTIFICATION jobs run outside that order: they neither wait for
+ *   the bot's jobs nor hold them back (a push retrying must not delay a
+ *   reply).
  * - A crashed worker's job is reclaimed once its lease expires.
  */
 @Injectable()
@@ -54,12 +74,13 @@ export class QueueService {
           FROM processing_job j
           WHERE ((j.status = 'PENDING' AND j.run_after <= ${UTC_NOW})
               OR (j.status = 'PROCESSING' AND j.lease_expires_at < ${UTC_NOW}))
-            AND NOT EXISTS (
+            AND (j.type = 'PUSH_NOTIFICATION' OR NOT EXISTS (
               SELECT 1 FROM processing_job older
               WHERE older.conversation_id = j.conversation_id
+                AND older.type = 'INBOUND_MESSAGE'
                 AND older.status IN ('PENDING', 'PROCESSING')
                 AND older.seq < j.seq
-            )
+            ))
           ORDER BY j.seq
           LIMIT 1
           FOR UPDATE SKIP LOCKED
@@ -74,7 +95,9 @@ export class QueueService {
         WHERE j.id = candidate.id
         RETURNING j.id, j.type::text AS type,
           j.conversation_id AS "conversationId", j.message_id AS "messageId",
-          j.attempts, j.max_attempts AS "maxAttempts", j.locked_by AS "lockedBy"`;
+          j.push_reason::text AS "pushReason", j.attempts,
+          j.max_attempts AS "maxAttempts", j.locked_by AS "lockedBy",
+          j.created_at AS "createdAt"`;
       return rows[0] ?? null;
     } catch (error) {
       // Another worker already holds a PROCESSING job of this conversation

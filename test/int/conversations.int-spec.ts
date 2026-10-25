@@ -50,7 +50,7 @@ describe('ConversationsService (integration)', () => {
 
       const message = await prisma.message.findUniqueOrThrow({
         where: { waMessageId: 'wamid.1' },
-        include: { processingJob: true },
+        include: { processingJobs: true },
       });
       expect(message).toMatchObject({
         conversationId: conversation.id,
@@ -61,7 +61,8 @@ describe('ConversationsService (integration)', () => {
         status: 'RECEIVED',
         author: 'USER',
       });
-      expect(message.processingJob).toMatchObject({
+      expect(message.processingJobs).toHaveLength(1);
+      expect(message.processingJobs[0]).toMatchObject({
         type: 'INBOUND_MESSAGE',
         status: 'PENDING',
         attempts: 0,
