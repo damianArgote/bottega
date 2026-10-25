@@ -14,7 +14,20 @@ import { maskPhone } from '../whatsapp/whatsapp.client.js';
 
 export type RecordInboundResult =
   | { outcome: 'created'; conversationId: string; messageId: string }
-  | { outcome: 'duplicate'; conversationId: string };
+  | { outcome: 'duplicate'; conversationId: string }
+  /** No line to attach the message to: nothing was stored. */
+  | { outcome: 'unrouted' };
+
+/** The line an inbound message arrived on, and the business that owns it. */
+export interface LineRef {
+  lineId: string;
+  businessId: string;
+}
+
+/** A line with the phone number id its events must carry. */
+export interface RoutedLine extends LineRef {
+  phoneNumberId: string;
+}
 
 export type ApplyStatusResult = 'updated' | 'ignored';
 
@@ -62,52 +75,101 @@ export class ConversationsService {
   ) {}
 
   /**
-   * Persists every parsed webhook event, in order. Throws when the database
-   * fails, so the webhook answers 5xx and Meta redelivers (dedupe makes
-   * redelivery safe).
+   * Persists every parsed webhook event, in order, on `line` (the default
+   * line when omitted). With a line, events of any other phone_number_id are
+   * discarded with a warning. Throws when the database fails, so the stored
+   * webhook event stays pending for the reprocessor (dedupe makes
+   * reprocessing safe).
    */
-  async ingest(events: readonly InboundEvent[]): Promise<void> {
+  async ingest(
+    events: readonly InboundEvent[],
+    line?: RoutedLine,
+  ): Promise<void> {
     for (const event of events) {
-      switch (event.kind) {
-        case 'ignored':
-          this.logger.debug(`Ignored webhook item: ${event.reason}`);
-          break;
-        case 'status':
-          await this.applyStatus(event);
-          break;
-        case 'text':
-        case 'unsupported':
-          await this.recordInbound(event);
-          break;
+      if (event.kind === 'ignored') {
+        this.logger.debug(`Ignored webhook item: ${event.reason}`);
+        continue;
+      }
+      if (line && event.phoneNumberId !== line.phoneNumberId) {
+        await this.warnOffRoute(event.phoneNumberId);
+        continue;
+      }
+      if (event.kind === 'status') {
+        await this.applyStatus(event);
+      } else {
+        await this.recordInbound(event, line);
       }
     }
   }
 
   /**
+   * An event whose phone_number_id is not the line of the route it came
+   * through: either another line's (signed by the wrong app) or unknown.
+   * Discarded; nothing is created.
+   */
+  private async warnOffRoute(phoneNumberId: string): Promise<void> {
+    const known = await this.prisma.line.findUnique({
+      where: { phoneNumberId },
+      select: { id: true },
+    });
+    this.logger.warn(
+      known
+        ? `Discarded webhook event for line ${known.id}: it arrived through another line's route`
+        : 'Discarded webhook event for an unknown phone_number_id',
+    );
+  }
+
+  /**
    * Stores an inbound message and enqueues its processing job in a single
-   * transaction. A message id seen before is a no-op (no message, no job),
-   * also under concurrent duplicate deliveries: the insert uses
+   * transaction, on the given line (the default line when omitted). The
+   * contact is per business and the conversation per (line, contact): it is
+   * reopened, never split. A message id seen before is a no-op (no message,
+   * no job), also under concurrent duplicate deliveries: the insert uses
    * `ON CONFLICT (wa_message_id) DO NOTHING`.
    */
   async recordInbound(
     event: InboundText | InboundUnsupported,
+    line?: LineRef,
   ): Promise<RecordInboundResult> {
+    const target = line ?? (await this.defaultLine());
+    if (!target) {
+      this.logger.warn(
+        `Inbound message from ${maskPhone(event.from)} dropped: no line to route it to`,
+      );
+      return { outcome: 'unrouted' };
+    }
     const maxAttempts = this.config.get('JOB_MAX_ATTEMPTS');
     const type = event.kind === 'text' ? 'TEXT' : 'UNSUPPORTED';
     const content =
       event.kind === 'text' ? event.text : `[${event.messageType}]`;
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // Upsert locks the conversation row until commit, which serializes
-      // concurrent inbound transactions of the same conversation.
+      // Both upserts lock their row until commit (contact first, then
+      // conversation, always in this order), which serializes concurrent
+      // inbound transactions of the same conversation.
+      const profileName = event.kind === 'text' ? event.profileName : undefined;
+      const [contact] = await tx.$queryRaw<Array<{ id: string }>>`
+        INSERT INTO contact
+          (id, business_id, wa_id, profile_name, created_at, updated_at)
+        VALUES (gen_random_uuid(), ${target.businessId}::uuid, ${event.from},
+          ${profileName ?? null}::text, ${UTC_NOW}, ${UTC_NOW})
+        ON CONFLICT (business_id, wa_id) DO UPDATE SET
+          profile_name = COALESCE(EXCLUDED.profile_name, contact.profile_name),
+          updated_at = EXCLUDED.updated_at
+        RETURNING id`;
+      if (!contact) {
+        throw new Error('contact upsert returned no row');
+      }
       const [conversation] = await tx.$queryRaw<
         Array<{ id: string; activeContextId: string | null }>
       >`
         INSERT INTO conversation
-          (id, wa_id, mode, paused, last_inbound_at, created_at, updated_at)
-        VALUES (gen_random_uuid(), ${event.from}, 'COMMERCIAL', false,
+          (id, line_id, contact_id, wa_id, mode, paused, last_inbound_at,
+           created_at, updated_at)
+        VALUES (gen_random_uuid(), ${target.lineId}::uuid, ${contact.id}::uuid,
+          ${event.from}, 'COMMERCIAL', false,
           ${event.timestamp.toISOString()}::timestamp, ${UTC_NOW}, ${UTC_NOW})
-        ON CONFLICT (wa_id) DO UPDATE SET
+        ON CONFLICT (line_id, contact_id) DO UPDATE SET
           last_inbound_at = GREATEST(conversation.last_inbound_at, EXCLUDED.last_inbound_at),
           updated_at = EXCLUDED.updated_at
         RETURNING id, active_context_id AS "activeContextId"`;
@@ -168,6 +230,24 @@ export class ConversationsService {
         : `Duplicate delivery skipped for message from ${maskPhone(event.from)}`,
     );
     return result;
+  }
+
+  /**
+   * The line of WHATSAPP_PHONE_NUMBER_ID (created by `npm run
+   * seed:default-line`), or null when it is not configured or not seeded.
+   */
+  async defaultLine(): Promise<RoutedLine | null> {
+    const phoneNumberId = this.config.get('WHATSAPP_PHONE_NUMBER_ID');
+    if (!phoneNumberId) {
+      return null;
+    }
+    const line = await this.prisma.line.findUnique({
+      where: { phoneNumberId },
+      select: { id: true, businessId: true },
+    });
+    return line
+      ? { lineId: line.id, businessId: line.businessId, phoneNumberId }
+      : null;
   }
 
   /**

@@ -154,6 +154,18 @@ npm run prisma:deploy         # producción: solo aplica, nunca crea
 npx prisma migrate status     # estado (lee DATABASE_URL del .env)
 ```
 
+Después de migrar, creá el negocio y la línea por defecto (BotSuite46, con el
+número de `WHATSAPP_PHONE_NUMBER_ID`). El script es idempotente: se puede
+correr las veces que quieras, y también asigna a esa línea las conversaciones
+que todavía no tienen una.
+
+```bash
+npm run build
+npm run seed:default-line
+```
+
+En Render corre solo en cada deploy, después de las migraciones.
+
 ### 6. Arrancar
 
 ```bash
@@ -222,7 +234,8 @@ es PostgreSQL en **Neon**. La configuración está en `render.yaml` (Blueprint).
      **Environment** cuando el echo funcione.
 3. **Primer deploy:** Render instala y compila (`npm ci --include=dev && npm
    run build`), aplica las migraciones (`npm run prisma:deploy`, con la URL
-   directa) y arranca (`npm run start:prod`). El health check es
+   directa), crea el negocio y la línea por defecto (`npm run
+   seed:default-line`) y arranca (`npm run start:prod`). El health check es
    `/health/live`.
 4. Probá: `curl https://<servicio>.onrender.com/health` →
    `{"status":"ok","db":"up"}`.
@@ -267,6 +280,21 @@ En Meta for Developers → app **BotSuite** → **WhatsApp → Configuration**:
 Tocá **Verify and save**. La app tiene que estar corriendo (en Render, o local
 con ngrok activo).
 En los logs vas a ver `Webhook verification accepted`.
+
+**Una URL por línea.** Cada línea (un número de un negocio, con su propia app
+de Meta) tiene su ruta: `https://<servicio>/webhooks/whatsapp/<webhookKey>`,
+con su propio *verify token*. Bottega valida la firma con el *app secret* de
+esa línea antes de guardar nada: una firma de otra app da `401` y una clave
+desconocida da `404`. La ruta sin clave (`/webhooks/whatsapp`) queda para la
+línea por defecto, con las variables de entorno de arriba. Un evento de otro
+número que llega por la ruta de una línea se descarta con un aviso en los logs.
+
+**Nada se pierde si falla el procesamiento.** Cada entrega firmada se guarda
+tal cual llegó (`webhook_event`) antes de responder `200`, y se procesa en el
+momento. Si el procesamiento falla (por ejemplo, la base no responde a mitad
+de camino), el evento queda pendiente y se reintenta solo cada 30 s, hasta 10
+intentos. Solo si no se puede guardar el evento se responde `5xx` y Meta lo
+reenvía.
 
 ### 9. Suscribir el campo `messages`
 
@@ -478,7 +506,9 @@ Monolito modular en NestJS: `whatsapp`, `conversations`, `queue`, `bot`, `ai`,
 `leads`, `demos`, `content`, `admin`, `health`.
 
 ```text
-Meta ──POST──▶ /webhooks/whatsapp ──▶ valida firma ──▶ guarda mensaje + trabajo ──▶ 200
+Meta ──POST──▶ /webhooks/whatsapp[/<webhookKey>] ──▶ valida firma de la línea ──▶ guarda evento crudo ──▶ 200
+                                                  └─▶ procesa: contacto + conversación por línea + mensaje + trabajo
+                                                      (si falla, queda pendiente y se reintenta)
                                                               │
                          (cola en PostgreSQL, en orden por conversación)
                                                               ▼

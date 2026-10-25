@@ -6,11 +6,6 @@ import type {
   StatusUpdate,
 } from './inbound-event.js';
 
-export interface ParserOptions {
-  /** Only events addressed to this phone number id are processed. */
-  phoneNumberId: string;
-}
-
 /**
  * Message types that never get a reply:
  * - `reaction`: answering an emoji reaction with "text only" would be noise.
@@ -71,16 +66,15 @@ const toDate = (seconds: string): Date => new Date(Number(seconds) * 1000);
 const digitsOnly = (value: string): string => value.replace(/\D/g, '');
 
 /**
- * Turns a raw webhook payload into normalized events.
+ * Turns a raw webhook payload into normalized events. Message and status
+ * events carry the `phone_number_id` of their change; routing them to a
+ * line (and rejecting other lines) is the caller's job.
  *
  * Pure and total: it never throws. Every malformed or out-of-scope item is
  * reported as `Ignored` (with a static reason) and the rest of the batch is
  * still processed.
  */
-export function parseWebhookPayload(
-  payload: unknown,
-  options: ParserOptions,
-): InboundEvent[] {
+export function parseWebhookPayload(payload: unknown): InboundEvent[] {
   const root = z
     .object({ object: z.string(), entry: z.array(z.unknown()) })
     .safeParse(payload);
@@ -99,16 +93,13 @@ export function parseWebhookPayload(
       continue;
     }
     for (const rawChange of entry.data.changes) {
-      events.push(...parseChange(rawChange, options));
+      events.push(...parseChange(rawChange));
     }
   }
   return events;
 }
 
-function parseChange(
-  rawChange: unknown,
-  options: ParserOptions,
-): InboundEvent[] {
+function parseChange(rawChange: unknown): InboundEvent[] {
   const change = changeSchema.safeParse(rawChange);
   if (!change.success) {
     return [ignored('malformed change')];
@@ -121,9 +112,7 @@ function parseChange(
     return [ignored('malformed change value')];
   }
   const { metadata, contacts = [], messages = [], statuses = [] } = value.data;
-  if (metadata.phone_number_id !== options.phoneNumberId) {
-    return [ignored('event for another phone number id')];
-  }
+  const phoneNumberId = metadata.phone_number_id;
 
   const profileNames = new Map<string, string>();
   for (const rawContact of contacts) {
@@ -136,16 +125,19 @@ function parseChange(
   const businessNumber = digitsOnly(metadata.display_phone_number);
   const events: InboundEvent[] = [];
   for (const rawMessage of messages) {
-    events.push(parseMessage(rawMessage, businessNumber, profileNames));
+    events.push(
+      parseMessage(rawMessage, phoneNumberId, businessNumber, profileNames),
+    );
   }
   for (const rawStatus of statuses) {
-    events.push(parseStatus(rawStatus));
+    events.push(parseStatus(rawStatus, phoneNumberId));
   }
   return events;
 }
 
 function parseMessage(
   rawMessage: unknown,
+  phoneNumberId: string,
   businessNumber: string,
   profileNames: Map<string, string>,
 ): InboundEvent {
@@ -162,6 +154,7 @@ function parseMessage(
   }
 
   const base = {
+    phoneNumberId,
     waMessageId: message.id,
     from: message.from,
     timestamp: toDate(message.timestamp),
@@ -181,7 +174,7 @@ function parseMessage(
   };
 }
 
-function parseStatus(rawStatus: unknown): InboundEvent {
+function parseStatus(rawStatus: unknown, phoneNumberId: string): InboundEvent {
   const parsed = statusSchema.safeParse(rawStatus);
   if (!parsed.success) {
     return ignored('malformed status');
@@ -189,6 +182,7 @@ function parseStatus(rawStatus: unknown): InboundEvent {
   const status = parsed.data;
   const event: StatusUpdate = {
     kind: 'status',
+    phoneNumberId,
     waMessageId: status.id,
     status: status.status,
     recipientId: status.recipient_id,

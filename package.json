@@ -23,6 +23,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
+    "seed:default-line": "node dist/scripts/seed-default-line.js",
     "db:up": "docker compose up -d --wait db",
     "db:down": "docker compose down",
     "postinstall": "prisma generate",
