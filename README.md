@@ -553,6 +553,14 @@ del negocio: un `AGENT` recibe `403`.
 Cada cambio del perfil (backoffice, API de admin, restaurar o el seed) guarda
 una copia en `agent_profile_version`.
 
+Los leads del negocio, también solo para sus `OWNER`, bajo
+`/inbox/businesses/<businessId>/leads`:
+
+| Ruta | Qué hace |
+| ---- | -------- |
+| `GET /leads?from=&to=&q=&cursor=` | 50 por página, del más nuevo al más viejo, con el contacto y la conversación; `nextCursor` (o `null`) trae la página siguiente. `from` y `to` son días (`AAAA-MM-DD`) en la zona horaria del negocio, `to` incluido. `q` busca en el nombre o el número del contacto y en cualquier dato del lead. |
+| `GET /leads/export.csv?from=&to=` | Todos los leads del rango en CSV (UTF-8 con BOM, para que Excel lea los acentos): una columna por cada campo de `leadFields` del agente, después `Fecha` (hora del negocio), `Nombre de perfil` y `Teléfono`. Una celda que empieza con `=`, `+`, `-`, `@`, tab o retorno lleva un `'` adelante, para que la planilla no la ejecute como fórmula. |
+
 ### Pendiente
 
 - Recuperar la contraseña por email (cambiarla con sesión ya se puede).

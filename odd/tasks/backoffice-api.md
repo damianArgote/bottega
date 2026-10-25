@@ -17,6 +17,7 @@ Quoted verbatim from the prompt (Spanish). Assumptions are marked.
   - Assumption A9: restoring a version keeps the current `model` and `demoEnabled` (S2: not editable from here).
 - **S5 Leads.** "`GET /leads?from=&to=&q=&cursor=`: paginado por `(createdAt, id)` descendente, 50 por página, con el contacto y la conversación." and "`GET /leads/export.csv?from=&to=`: CSV con las columnas de `leadFields` del negocio más fecha, nombre de perfil y teléfono. Escapá comillas y celdas que empiezan con `=`, `+`, `-` o `@` (inyección de fórmulas en Excel)."
   - Assumption A7: `from`/`to` are dates (YYYY-MM-DD, `to` inclusive) in the business timezone; `q` matches the contact's name or number or any lead value.
+  - Assumption A10: the CSV quotes every cell, is UTF-8 with a BOM and CRLF, and also neutralizes cells starting with tab or carriage return (OWASP list).
 - **S6 Users.** "`GET /settings/users`, `POST /settings/users` (`email`, `name`, `role`): crea el usuario con una contraseña temporal aleatoria que se muestra **una sola vez** en la respuesta, y lo marca `mustChangePassword`." and "`PATCH /settings/users/:userId` (`role`, `active`). Un negocio nunca se queda sin al menos un `OWNER` activo (409)."
   - Assumption A6: `active` is per business (new `Membership.active`, checked by BusinessAccessGuard), so deactivating someone in one business does not lock them out of another; an existing email only gets the membership (no temporary password).
 - **S7 Change password.** "`POST /auth/change-password` para cualquier usuario logueado; si `mustChangePassword`, la web lo obliga antes de entrar a la bandeja."
@@ -28,8 +29,8 @@ Quoted verbatim from the prompt (Spanish). Assumptions are marked.
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
 | T1 | S1 (RoleGuard), S7, A8 | inline | done (RED→GREEN role guard spec + auth HTTP int) | dcd303e, PR #49 |
-| T2 | S2, S3, S4, A1-A4, A9 | inline | done (RED→GREEN diff spec + settings HTTP int) | |
-| T3 | S5, A5, A7 | inline | pending | |
+| T2 | S2, S3, S4, A1-A4, A9 | inline | done (RED→GREEN diff spec + settings HTTP int) | 6d131e8, PR #50 |
+| T3 | S5, A5, A7, A10 | inline | done (RED→GREEN CSV spec + leads HTTP int, timezone mutation caught) | |
 | T4 | S6, A6, S8 | inline | pending | |
 
 Route evidence: the tasks share the guards and the settings module, one after the other; no parallel writer reason. High-risk items: T1 credentials and sessions (2); T2 migration with a backfill (1); T3 data export (2: another business's data, formula injection); T4 permissions and the access guard (2).
@@ -39,4 +40,5 @@ Route evidence: the tasks share the guards and the settings module, one after th
 - L2 (2026-10-25): context. The 05 web is live at https://bottega-inbox.onrender.com, proxying `/auth/*` and `/inbox/*` to the API (same origin, until the botsuite46.com subdomains exist). Partners Emmanuel and Tomas exist as OWNER (created through the admin API); there is no way to change a password yet, which S7 solves.
 - L3 (2026-10-25): T1. `RoleGuard(role)` (Nest mixin, after BusinessAccessGuard, 403 for another role). Migration 20261025160000_user_must_change_password (expand). `mustChangePassword` in the session user (login, refresh, me) and in the admin user view. POST /auth/change-password (SessionGuard): 401 for a wrong current password, 400 for a short or unchanged new one; saves the argon2id hash, clears the flag, revokes every refresh token of the user and sets new cookies. The flag is enforced by the web (S7), not by the API.
 - L4 (2026-10-25): T2 on feat/backoffice-api-2-agent-settings (stacked on T1). Migration 20261025170000_agent_profile_versions (expand): agent_profile.updated_by_id and agent_profile_version (business_id, version unique, snapshot jsonb, created_by_id), backfilled with each current profile (probe: the SQL snapshot equals the code's `toSnapshot` for a seeded and an edited profile). AgentsService writes the profile and its snapshot in one transaction for the admin PUT, the settings PUT and restore; the seed stores its v1 (skipDuplicates). Diff is pure (`diffProfiles`). New SettingsModule/SettingsController with SessionGuard + BusinessAccessGuard + RoleGuard('OWNER'); preview limit reuses InMemoryLoginRateLimiter under PREVIEW_RATE_LIMITER (20/h per business, counted after the body validates). While the previous release serves during the deploy, its admin PUTs leave no snapshot (a gap in the history, no error).
-- Next: T3.
+- L5 (2026-10-25): T3 on feat/backoffice-api-3-leads (stacked on T2). LeadsController (settings module) at /inbox/businesses/:businessId/leads, OWNER only. LeadsQueryService: one raw query for the ids (business filter, days converted with `b.timezone` in SQL, q over contact profile name/name/number or any lead value with ILIKE escaped, cursor on (created_at, id)), then Prisma for the rows; the export reads batches of 500 with the same query. Pure `leadsCsv`/`csvCell`. No migration. The CLAUDE.md debt item (admin without a business filter) closes in T4, when users stop needing the admin API too.
+- Next: T4.

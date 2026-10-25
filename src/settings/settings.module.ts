@@ -6,18 +6,21 @@ import { BusinessAccessGuard } from '../auth/business-access.guard.js';
 import { InMemoryLoginRateLimiter } from '../auth/login-rate-limiter.js';
 import { AgentPreviewService } from '../bot/agent-preview.service.js';
 import { ContentModule } from '../content/content.module.js';
+import { LeadsQueryService } from '../leads/leads-query.service.js';
+import { LeadsController } from './leads.controller.js';
 import {
   PREVIEW_RATE_LIMITER,
   SettingsController,
 } from './settings.controller.js';
 
-/** The backoffice API (business OWNERs). */
+/** The backoffice API (business OWNERs): agent settings and leads. */
 @Module({
   imports: [AiModule, AuthModule, ContentModule],
-  controllers: [SettingsController],
+  controllers: [SettingsController, LeadsController],
   providers: [
     AgentsService,
     AgentPreviewService,
+    LeadsQueryService,
     BusinessAccessGuard,
     {
       provide: PREVIEW_RATE_LIMITER,
