@@ -501,6 +501,10 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | Método y ruta | Qué hace |
 | ------------- | -------- |
 | `GET /inbox/businesses/<businessId>` | El negocio (`id`, `name`, `slug`) y el rol del usuario en él. |
+| `GET .../conversations?view=&lineId=&q=&cursor=` | Lista de 30 por página, la más reciente primero (por `lastMessageAt` e `id`). `view`: `mine` (asignadas a mí y no resueltas), `unassigned` (abiertas y sin asignar), `pending` (esperan a una persona) o `resolved`. `q` busca por nombre o número del contacto; `lineId`, una línea del negocio (`404` si no es suya). Devuelve `{ conversations, nextCursor }`. |
+| `GET .../changes?cursor=` | Las conversaciones que cambiaron desde el cursor (hasta 200), el cursor nuevo y `hasMore` (si es `true`, pedí de nuevo enseguida). El cursor es opaco y lo da el servidor; la primera vez se pide sin cursor. Puede repetir conversaciones: quedate con la `version` más alta de cada `id`. |
+| `GET .../conversations/<id>/messages?before=&after=` | Mensajes de a 50, del más viejo al más nuevo, paginados por `seq` (orden de inserción, viene como texto). Sin parámetros, los últimos; `before=<seq>`, los anteriores; `after=<seq>`, los nuevos. Incluye los mensajes de sistema (`type: "SYSTEM"`). |
+| `GET .../lines` | Las líneas del negocio (`id`, `phoneNumberId`, `displayPhone`, `active`), nunca sus credenciales. |
 | `POST .../conversations/<id>/take` | Body `{ "force"?: true }`. La toma quien la pide (pasa a `OPEN`). `409` con `code: "ALREADY_TAKEN"` si la tiene otra persona, salvo `force`, que solo puede usar un `OWNER` (si no, `403`). |
 | `POST .../conversations/<id>/release` | La suelta: queda sin asignar y el bot sigue callado. Solo quien la tiene o un `OWNER` (si no, `409`). |
 | `POST .../conversations/<id>/handback` | "Devolver al bot": sin asignar, el bot vuelve a responder y pasa a `OPEN`. |
