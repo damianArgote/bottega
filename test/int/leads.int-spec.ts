@@ -1,5 +1,4 @@
 import { ZodError } from 'zod';
-import { backfillLeads } from '../../src/leads/lead-backfill.js';
 import { LeadsService } from '../../src/leads/leads.service.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import { QueueSignal } from '../../src/queue/queue-signal.js';
@@ -39,7 +38,7 @@ describe('Leads (integration)', () => {
   });
 
   describe('upsertFromConversation', () => {
-    it('stores the values in data with the business, and the old columns too', async () => {
+    it('stores the values in data with the business', async () => {
       await leads.upsertFromConversation(conversationId, {
         name: ' Ana ',
         business_name: 'Consultorio Sur',
@@ -54,8 +53,6 @@ describe('Leads (integration)', () => {
           business_name: 'Consultorio Sur',
           phone: '+5491100000000',
         },
-        name: 'Ana',
-        businessName: 'Consultorio Sur',
         status: 'NEW',
       });
     });
@@ -74,9 +71,6 @@ describe('Leads (integration)', () => {
       const [lead] = await prisma.lead.findMany();
       expect(lead).toMatchObject({
         data: { name: 'Ana', industry: 'salud', need: 'turnos' },
-        name: 'Ana',
-        industry: 'salud',
-        need: 'turnos',
       });
     });
 
@@ -91,47 +85,11 @@ describe('Leads (integration)', () => {
     });
   });
 
-  describe('backfillLeads', () => {
-    /** A lead as the previous release writes it: fixed columns only. */
-    const legacyLead = () => prisma.$executeRaw`
-      INSERT INTO lead (id, conversation_id, name, business_name, industry,
-        need, contact_notes, status, created_at, updated_at)
-      VALUES (gen_random_uuid(), ${conversationId}::uuid, 'Ana',
-        'Consultorio Sur', NULL, 'turnos', 'por la tarde', 'NEW', now(), now())`;
-
-    it('copies the fixed columns into data and sets the business', async () => {
-      await legacyLead();
-
-      expect(await backfillLeads(prisma)).toBe(1);
-
-      expect(await prisma.lead.findFirstOrThrow()).toMatchObject({
-        businessId,
-        data: {
-          name: 'Ana',
-          business_name: 'Consultorio Sur',
-          need: 'turnos',
-          contact_notes: 'por la tarde',
-        },
-      });
-    });
-
-    it('is idempotent, keeps keys only in data and takes corrected columns', async () => {
-      await legacyLead();
-      await prisma.lead.updateMany({
-        data: { data: { name: 'Ana (old)', phone: '+5491100000000' } },
-      });
-
-      await backfillLeads(prisma);
-      const first = await prisma.lead.findFirstOrThrow();
-
-      expect(await backfillLeads(prisma)).toBe(0);
-      const second = await prisma.lead.findFirstOrThrow();
-      expect(second.data).toEqual(first.data);
-      expect(second.data).toMatchObject({
-        name: 'Ana',
-        business_name: 'Consultorio Sur',
-        phone: '+5491100000000',
-      });
-    });
+  it('a lead cannot exist without a business', async () => {
+    await expect(prisma.$executeRaw`
+      INSERT INTO lead (id, conversation_id, status, created_at, updated_at)
+      VALUES (gen_random_uuid(), ${conversationId}::uuid, 'NEW', now(), now())`).rejects.toThrow(
+      /business_id.*not-null constraint/,
+    );
   });
 });

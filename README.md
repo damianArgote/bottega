@@ -166,8 +166,7 @@ número de `WHATSAPP_PHONE_NUMBER_ID`). El script es idempotente: se puede
 correr las veces que quieras. La primera vez también crea el perfil del agente
 de BotSuite46 a partir de `content/commercial-info.md` (nombre del bot,
 información del negocio, datos a pedir y demo activa); si el perfil ya existe
-no lo toca, así no pisa lo que se edite después. También copia a `Lead.data`
-las columnas fijas de los leads que todavía no estén ahí.
+no lo toca, así no pisa lo que se edite después.
 
 ```bash
 npm run build
@@ -296,8 +295,10 @@ Antes de mergear a `main`:
 - Cargá en Render las variables obligatorias nuevas: si falta una, la
   versión nueva no arranca pero las migraciones ya corrieron.
 - Revisá que el servicio y el Blueprint usen la rama `main`.
-- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`,
-  `seed:default-line agent profile ready` y `seed:default-line leads backfilled`.
+- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`
+  y `seed:default-line agent profile ready`. Si no aparecen, el Pre-Deploy
+  Command del servicio en Render no corre el seed: tiene que ser
+  `npm run prisma:deploy && npm run seed:default-line`.
 
 Así se hizo el paso a negocios y líneas (prompt 02):
 
@@ -307,6 +308,27 @@ Así se hizo el paso a negocios y líneas (prompt 02):
 | 2 | `20261025030000_conversation_line_required` | `line_id`/`contact_id` obligatorios (falla con un mensaje claro si queda alguna sin asignar); `wa_id` deja de usarse y pasa a nullable. |
 | 3 | (ninguna) | Saca `waId` del modelo `Conversation`: la columna queda en la base, sin uso. |
 | 4 | `20261025040000_drop_conversation_wa_id` | Borra la columna `conversation.wa_id`. |
+
+Y el paso de los datos del lead a `Lead.data` (prompt 02b):
+
+| Deploy | Migración | Qué hace |
+| ------ | --------- | -------- |
+| 1 | `20261025060000_lead_business_data` | `lead.business_id` (nullable) y `lead.data`; copia las columnas fijas a `data`. El código escribe las dos cosas. |
+| 2 | `20261025080000_lead_business_required` | Última copia y `business_id` obligatorio. El modelo deja de leer y escribir las columnas fijas, que quedan en la base sin uso. |
+| 3 | (T7b) | Borra `name`, `business_name`, `industry`, `need` y `contact_notes` de `lead`. |
+
+**Volver atrás después del deploy 2 (antes del 3):** la versión anterior lee
+las columnas fijas por encima de `data`, y desde el deploy 2 nadie las
+actualiza. Antes de redesplegarla, copiá `data` a las columnas (en Neon):
+
+```sql
+UPDATE lead SET name = data->>'name', business_name = data->>'business_name',
+  industry = data->>'industry', need = data->>'need',
+  contact_notes = data->>'contact_notes';
+```
+
+Después del deploy 3 las columnas ya no existen y la versión anterior no
+arranca contra esa base: no se vuelve atrás de ese deploy.
 
 **Si el deploy 2 frena por conversaciones sin asignar:** el seed de esta
 versión ya no las asigna. Corré el de la versión anterior (desde `main` antes
@@ -460,7 +482,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 
 | Método y ruta | Qué hace |
 | ------------- | -------- |
-| `GET /admin/leads?status=&limit=` | Leads, más nuevos primero. `status`: `NEW`, `CONTACTED`, `QUALIFIED`, `DISCARDED`. Cada lead trae `businessId` y `data` (los datos por clave de lead); las columnas fijas (`name`, `businessName`, ...) siguen hasta que se borren. |
+| `GET /admin/leads?status=&limit=` | Leads, más nuevos primero. `status`: `NEW`, `CONTACTED`, `QUALIFIED`, `DISCARDED`. Cada lead trae `businessId` y `data` (los datos por clave de lead, por ejemplo `{ "name": "Ana", "business_name": "Consultorio Sur" }`). |
 | `GET /admin/handoffs?status=&limit=` | Pedidos de atención. `status`: `OPEN` o `RESOLVED`. |
 | `GET /admin/conversations/<id>?limit=` | Conversación, ventana de 24 h, lead, handoffs abiertos y últimos mensajes. |
 | `GET /admin/conversations/by-wa/<wa-id>?limit=` | Lo mismo, buscando por número (solo dígitos, ej. `5491112345678`). |

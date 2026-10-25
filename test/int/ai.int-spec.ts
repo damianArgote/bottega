@@ -260,9 +260,9 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await say('hola');
     respond.mockClear();
     const { id } = await conversation();
-    // Written by the previous release: fixed column only, no data.
+    const { id: businessId } = await prisma.business.findFirstOrThrow();
     await prisma.lead.create({
-      data: { conversationId: id, industry: 'salud' },
+      data: { conversationId: id, businessId, data: { industry: 'salud' } },
     });
 
     respond
@@ -278,15 +278,12 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(await prisma.lead.findMany()).toEqual([
       expect.objectContaining({
         conversationId: id,
-        businessId: (await prisma.business.findFirstOrThrow()).id,
+        businessId,
         data: {
           name: 'Ana',
           business_name: 'Consultorio Sur',
           industry: 'salud',
         },
-        name: 'Ana',
-        businessName: 'Consultorio Sur',
-        industry: 'salud',
       }),
     ]);
     expect(lastSent()).toBe('¡Gracias, Ana! ¿Qué te gustaría resolver?');
