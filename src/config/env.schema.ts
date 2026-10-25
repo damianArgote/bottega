@@ -3,6 +3,9 @@ import { worstCaseAiJobMs } from '../ai/ai-limits.js';
 
 const GRAPH_API_VERSION_PATTERN = /^v\d+\.\d+$/;
 const ADMIN_API_KEY_MIN_LENGTH = 32;
+const JWT_SECRET_MIN_LENGTH = 32;
+/** Scheme, host and optional port: what a browser sends in Origin. */
+const ORIGIN_PATTERN = /^https?:\/\/[^\s/:]+(:\d{1,5})?$/;
 const ENCRYPTION_KEY_BYTES = 32;
 
 /** True when `value` is canonical base64 for exactly `bytes` bytes. */
@@ -154,6 +157,21 @@ export const envSchema = z
       ADMIN_API_KEY_MIN_LENGTH,
       `ADMIN_API_KEY must be at least ${ADMIN_API_KEY_MIN_LENGTH} characters`,
     ),
+
+    // Signs the inbox session JWTs (HS256). Changing it ends every session.
+    JWT_SECRET: requiredString('JWT_SECRET').min(
+      JWT_SECRET_MIN_LENGTH,
+      `JWT_SECRET must be at least ${JWT_SECRET_MIN_LENGTH} characters`,
+    ),
+
+    // The only origin allowed by CORS (with credentials): the inbox web app.
+    // Lowercased: browsers send the Origin header in lowercase.
+    INBOX_ORIGIN: requiredString('INBOX_ORIGIN')
+      .regex(
+        ORIGIN_PATTERN,
+        'INBOX_ORIGIN must be an origin like https://inbox.example.com (scheme, host and optional port, no path)',
+      )
+      .transform((value) => value.toLowerCase()),
   })
   .superRefine(
     (env, ctx) => {

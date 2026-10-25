@@ -151,6 +151,8 @@ el token de la línea de cada conversación, no con el del entorno.
 | -------- | ----------- | ------- | ------ |
 | `ADMIN_API_KEY` | Sí | — | Clave de la [API de administración](#api-de-administración). Mínimo 32 caracteres. Generala con `openssl rand -hex 32`. |
 | `PUBLIC_BASE_URL` | No | — | URL pública de esta API (por ejemplo `https://bottega-api.onrender.com`). Con ella el alta de una línea devuelve la URL completa del webhook. En Render no hace falta: se usa `RENDER_EXTERNAL_URL`, que Render define solo. |
+| `JWT_SECRET` | Sí | — | Firma las sesiones de la bandeja (JWT). Mínimo 32 caracteres: generala con `openssl rand -base64 48`. Usá una distinta por entorno; si la cambiás, todas las sesiones se cierran. |
+| `INBOX_ORIGIN` | Sí | — | Origen de la bandeja web, el único que acepta CORS (con cookies). Solo esquema, dominio y puerto, sin barra final: `http://localhost:4200` en local, la URL publicada de la bandeja en Render. |
 | `TOKEN_ENCRYPTION_KEY` | Sí | — | Cifra las credenciales de Meta de cada línea guardadas en la base (AES-256-GCM). 32 bytes en base64: generala con `openssl rand -base64 32`. Usá una distinta por entorno y guardala bien: si se pierde o se cambia, las credenciales guardadas no se pueden leer. |
 
 ### 5. Migraciones
@@ -467,6 +469,50 @@ Mientras una conversación está pausada (por `humano` o por un admin):
 
 ---
 
+## Sesiones de la bandeja
+
+Las personas de cada negocio entran con su email y contraseña (se dan de alta
+con `POST /admin/businesses/<id>/users`; no hay registro público). La sesión
+vive en dos cookies `httpOnly`, `Secure` y `SameSite=Lax`:
+
+- `bottega_session`: un JWT que dura 15 minutos.
+- `bottega_refresh`: un token de 14 días que solo viaja a `/auth`. En la base
+  se guarda solo su hash; cada refresh lo cambia por uno nuevo (el anterior
+  deja de servir) y el logout lo revoca.
+
+| Método y ruta | Qué hace |
+| ------------- | -------- |
+| `POST /auth/login` | Body `{ "email", "password" }`. Setea las dos cookies y devuelve el usuario. `401` con el mismo mensaje para email desconocido, contraseña incorrecta o usuario inactivo. Hasta 5 intentos por minuto por IP y por email; después, `429`. |
+| `POST /auth/refresh` | Con la cookie de refresh: cookies nuevas. `401` si el token no existe, ya se usó, se revocó o venció. |
+| `POST /auth/logout` | Revoca el refresh y borra las cookies (`204`). |
+| `GET /auth/me` | El usuario, sus negocios y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. |
+
+El límite de intentos es en memoria (sirve con una sola instancia); está
+detrás de la interfaz `LoginRateLimiter` para pasarlo a un almacén compartido.
+
+### Rutas de la bandeja
+
+Todas van bajo `/inbox/businesses/<businessId>/...` y piden sesión y
+pertenencia a ese negocio (`SessionGuard` + `BusinessAccessGuard`): sin sesión
+`401`; con sesión pero sin pertenencia, o con un negocio que no existe, `403`;
+un `businessId` que no es UUID, `400`. La pertenencia se revisa en cada pedido:
+si se la sacan a alguien, pierde el acceso enseguida.
+
+| Método y ruta | Qué hace |
+| ------------- | -------- |
+| `GET /inbox/businesses/<businessId>` | El negocio (`id`, `name`, `slug`) y el rol del usuario en él. |
+
+Las conversaciones y los mensajes llegan con el prompt 04.
+
+### Pendiente
+
+- Recuperar la contraseña por email.
+- Segundo factor (2FA).
+- Entrar con una cuenta de otro servicio (SSO).
+
+Hasta entonces, una contraseña nueva se carga a mano y no hay forma de
+cambiarla por la API.
+
 ## API de administración
 
 Todas las rutas requieren la clave en `X-Admin-Api-Key: <clave>` o
@@ -490,6 +536,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/conversations/<id>/pause` | Pausa el bot. Abre un handoff (motivo `admin`) solo si no hay uno abierto. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/resume` | Reanuda el bot. Por defecto resuelve los handoffs abiertos. Repetirlo no cambia nada. |
 | `POST /admin/conversations/<id>/messages` | Envía una respuesta escrita por una persona. |
+| `POST /admin/businesses/<id>/users` | Body `{ "email", "name", "password", "role" }` (`role`: `OWNER` o `AGENT`; contraseña de 10 caracteres o más). Da de alta a una persona del negocio: si el email es nuevo crea el usuario (email en minúsculas, contraseña con argon2id); si ya existe, solo le suma el negocio y no cambia su contraseña ni su nombre. `409` si ya pertenece al negocio. No hay registro público. |
 | `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
 | `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version`. Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |

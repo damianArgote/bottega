@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
+import { configureHttp } from './app.setup.js';
 import { AppConfigService } from './config/app-config.service.js';
 
 async function bootstrap(): Promise<void> {
@@ -10,8 +11,10 @@ async function bootstrap(): Promise<void> {
   // rawBody is required to verify the WhatsApp webhook signature (Stage 2).
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableShutdownHooks();
+  const config = app.get(AppConfigService);
+  configureHttp(app, config);
 
-  const port = app.get(AppConfigService).get('PORT');
+  const port = config.get('PORT');
   await app.listen(port);
   Logger.log(`bottega-api listening on port ${port}`, 'Bootstrap');
 }

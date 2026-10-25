@@ -31,5 +31,5 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 ## Deuda conocida
 Lo que el código actual contradice o complica del plan, y qué prompt lo resuelve. Al cerrar un punto, sacalo de esta lista en el mismo PR.
 
-1. **Admin sin usuarios** → 03 (usuarios, login, `BusinessAccessGuard`) y 04 (tomar y devolver, integrando la pausa actual). Hoy hay una sola `ADMIN_API_KEY`.
+1. **Tomar y devolver desde la bandeja** → 04. Desde el 03 hay usuarios, login y `BusinessAccessGuard`, pero pausar, reanudar y responder como persona siguen solo en la API de admin, con la única `ADMIN_API_KEY`. Además, `GET /admin/leads` y `GET /admin/handoffs` listan los de todos los negocios.
 2. **Sin cursor seguro para el polling** → 04. `Message` solo se ordena por `createdAt` (resolución de ms). El cursor va sobre `Conversation`, con `pg_current_xact_id()` por trigger y `pg_snapshot_xmin` como cursor; los mensajes se paginan por `id`.

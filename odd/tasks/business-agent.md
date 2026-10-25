@@ -35,7 +35,7 @@ Quoted verbatim from the prompt (Spanish). Assumptions and decisions are marked.
 | T5 | S10, D3 | inline | done (RED→GREEN opening-hours, schema specs + ai int out-of-hours) | PR #28 |
 | T6 | S13 | inline | done (RED→GREEN scenario specs; real-model run 6/6) | PR #29 |
 | T7a | S3 (contract, release 1: model without the fixed columns, business_id required) | inline | done (RED→GREEN NOT NULL int test) | PR #31, released #32 |
-| T7b | S3 (contract, release 2: drop the fixed columns) | inline | done (RED→GREEN columns-gone int test) | |
+| T7b | S3 (contract, release 2: drop the fixed columns) | inline | done (RED→GREEN columns-gone int test) | PR #33, released #34 |
 
 Route evidence: each task builds on the previous one (profile → prompt → leads → admin), so there is no parallel writer reason. High-risk items: T1 and T3 data migration (1) and deploy (5); T3 and T7 change the admin API lead output (3); T4 admin preview calls the paid model (6: nothing else catches cost regressions).
 
@@ -60,4 +60,5 @@ Route evidence: each task builds on the previous one (profile → prompt → lea
 - L18 (2026-10-25): T7a verifier on 141a298: no blockers; migration probed on a scratch database built like production (pre-T3 lead, corrected column, synced lead); baseline writes still succeed after it. Advisory handled in the README: rolling back to the release before T7a needs `data` copied back to the fixed columns first (SQL given); after T7b there is no rollback past it. Kept: the admin lead list is not filtered by business (prompt 03); the migration leaves updated_at as it was.
 - L19 (2026-10-25): T7a released (#32); Neon: migration applied, business_id NOT NULL, 2 leads with data, profile present (the new Pre-Deploy Command ran the seed). T7b: migration 20261025090000_drop_lead_fixed_columns fills keys still missing from data (data wins: the columns stopped being updated in T7a) and drops name, business_name, industry, need and contact_notes. Production check before it: 0 leads with values only in the columns and 0 where the columns differ from data. CLAUDE.md "Deuda conocida" item 1 (agent fixed in code and files) removed: the agent is configured from the database. 02b closes with this release.
 - L20 (2026-10-25): T7b verifier on cdc90ea: no blockers; scratch database with 6 realistic leads (synced, key only in a column, stale columns after T7a, empty) gave the right data and no schema drift. Exception to the test-first rule, recorded: the one-shot fill-then-drop SQL has no committed test (it would need the dropped columns back); its evidence is the verifier's probe and the production check in L19.
-- Next: release T7b; then prompt 03.
+- L21 (2026-10-25): T7b released (#34). Neon: last migration 20261025090000_drop_lead_fixed_columns, none unfinished; `lead` columns are id, conversation_id, status, created_at, updated_at, business_id, data; 2 leads, all with business_id and data; BotSuite46's profile enabled. Prompt 02b is complete (S1-S14 met; D1-D3 recorded).
+- Next: prompt 03 (`docs/prompts/03-*`).

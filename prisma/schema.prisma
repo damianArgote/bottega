@@ -129,6 +129,7 @@ model Business {
   contacts     Contact[]
   agentProfile AgentProfile?
   leads        Lead[]
+  memberships  Membership[]
 
   @@map("business")
 }
@@ -416,4 +417,63 @@ model WebhookEvent {
   line Line? @relation(fields: [lineId], references: [id], onDelete: SetNull)
 
   @@map("webhook_event")
+}
+
+enum MembershipRole {
+  OWNER
+  AGENT
+
+  @@map("membership_role")
+}
+
+/// A person who works a business's inbox. No public sign-up: created by
+/// POST /admin/businesses/:id/users. "user" is reserved in Postgres.
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  /// Stored trimmed and in lowercase (normalizeEmail).
+  email        String   @unique
+  /// argon2id; never returned by the API.
+  passwordHash String   @map("password_hash")
+  name         String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  memberships   Membership[]
+  refreshTokens RefreshToken[]
+
+  @@map("app_user")
+}
+
+/// A user's access to one business, with their role there.
+model Membership {
+  id         String         @id @default(uuid()) @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  businessId String         @map("business_id") @db.Uuid
+  role       MembershipRole
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+  @@map("membership")
+}
+
+/// A login's refresh token (14 days). Only its SHA-256 is stored; refresh
+/// rotates it (the old row is revoked) and logout revokes it.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_token")
 }

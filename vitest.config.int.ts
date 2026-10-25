@@ -27,6 +27,8 @@ export default defineConfig({
       ADMIN_API_KEY: 'int-admin-api-key-0123456789abcdef',
       // 32 zero bytes, base64: test-only.
       TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      JWT_SECRET: 'int-jwt-secret-0123456789abcdef0123456789',
+      INBOX_ORIGIN: 'https://inbox.test',
       // Tests drive the worker by hand (BotWorker.processNext / drain).
       WORKER_ENABLED: 'false',
       JOB_MAX_ATTEMPTS: '3',
