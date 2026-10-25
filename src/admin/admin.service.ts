@@ -1,3 +1,7 @@
+import {
+  recordOutboundActivity,
+  touchConversations,
+} from '../inbox/conversation-activity.js';
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
@@ -228,17 +232,21 @@ export class AdminService {
 
     let row: Message;
     try {
-      row = await this.prisma.message.create({
-        data: {
-          conversationId: id,
-          contextId: conversation.activeContextId,
-          direction: MessageDirection.OUTBOUND,
-          type: MessageType.TEXT,
-          content: text,
-          status: MessageStatus.QUEUED,
-          author: MessageAuthor.HUMAN,
-          idempotencyKey: key,
-        },
+      row = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.message.create({
+          data: {
+            conversationId: id,
+            contextId: conversation.activeContextId!,
+            direction: MessageDirection.OUTBOUND,
+            type: MessageType.TEXT,
+            content: text,
+            status: MessageStatus.QUEUED,
+            author: MessageAuthor.HUMAN,
+            idempotencyKey: key,
+          },
+        });
+        await recordOutboundActivity(tx, id, text);
+        return created;
       });
     } catch (error) {
       // A concurrent request with the same Idempotency-Key won the insert.
@@ -281,7 +289,7 @@ export class AdminService {
 
     switch (outcome.kind) {
       case 'sent':
-        await this.setStatus(row.id, MessageStatus.SENT, {
+        await this.setStatus(row, MessageStatus.SENT, {
           waMessageId: outcome.waMessageId,
         });
         return {
@@ -290,7 +298,7 @@ export class AdminService {
           waMessageId: outcome.waMessageId,
         };
       case 'uncertain':
-        await this.setStatus(row.id, MessageStatus.UNCERTAIN, {});
+        await this.setStatus(row, MessageStatus.UNCERTAIN, {});
         return {
           outcome: 'uncertain',
           messageId: row.id,
@@ -299,7 +307,7 @@ export class AdminService {
       case 'rejected': {
         // No automatic retry here: the caller decides whether to send again.
         const code = String(outcome.code);
-        await this.setStatus(row.id, MessageStatus.FAILED, { errorCode: code });
+        await this.setStatus(row, MessageStatus.FAILED, { errorCode: code });
         return {
           outcome: 'rejected',
           messageId: row.id,
@@ -375,14 +383,18 @@ export class AdminService {
     return this.prisma.message.findUnique({ where: { idempotencyKey } });
   }
 
+  /** The send's result, and the conversation joins the inbox changes. */
   private async setStatus(
-    id: string,
+    row: Message,
     status: MessageStatus,
     extra: { waMessageId?: string; errorCode?: string },
   ): Promise<void> {
-    await this.prisma.message.update({
-      where: { id },
-      data: { status, ...extra },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.message.update({
+        where: { id: row.id },
+        data: { status, ...extra },
+      });
+      await touchConversations(tx, { id: row.conversationId });
     });
   }
 }

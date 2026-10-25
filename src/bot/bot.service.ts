@@ -1,3 +1,7 @@
+import {
+  recordOutboundActivity,
+  touchConversations,
+} from '../inbox/conversation-activity.js';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ContextService } from '../conversations/context.service.js';
 import {
@@ -198,6 +202,7 @@ export class BotService {
             idempotencyKey: `${job.id}:${index}`,
           })),
         });
+        await recordOutboundActivity(tx, conversation.id, replies.at(-1)!);
       }
       return 'done';
     });
@@ -223,7 +228,7 @@ export class BotService {
     if (row.status === MessageStatus.SENDING) {
       // A previous run crashed between claiming the send and recording its
       // outcome: Meta may have accepted it, so never resend.
-      await this.setStatus(row.id, MessageStatus.UNCERTAIN, {
+      await this.setStatus(row, MessageStatus.UNCERTAIN, {
         errorCode: 'interrupted_send',
       });
       result.uncertain += 1;
@@ -251,22 +256,22 @@ export class BotService {
 
     switch (outcome.kind) {
       case 'sent':
-        await this.setStatus(row.id, MessageStatus.SENT, {
+        await this.setStatus(row, MessageStatus.SENT, {
           waMessageId: outcome.waMessageId,
         });
         result.sent += 1;
         return;
       case 'uncertain':
-        await this.setStatus(row.id, MessageStatus.UNCERTAIN, {});
+        await this.setStatus(row, MessageStatus.UNCERTAIN, {});
         result.uncertain += 1;
         return;
       case 'rejected': {
         const errorCode = String(outcome.code);
         if (outcome.retryable && job.attempts < job.maxAttempts) {
-          await this.setStatus(row.id, MessageStatus.QUEUED, {});
+          await this.setStatus(row, MessageStatus.QUEUED, {});
           throw new JobError(`send_rejected_${errorCode}`, true);
         }
-        await this.setStatus(row.id, MessageStatus.FAILED, { errorCode });
+        await this.setStatus(row, MessageStatus.FAILED, { errorCode });
         result.failed += 1;
         if (outcome.retryable) {
           // Out of attempts: the reply is lost; fail the job visibly.
@@ -277,14 +282,18 @@ export class BotService {
     }
   }
 
+  /** The send's result, and the conversation joins the inbox changes. */
   private async setStatus(
-    id: string,
+    row: Message,
     status: MessageStatus,
     extra: { waMessageId?: string; errorCode?: string },
   ): Promise<void> {
-    await this.prisma.message.update({
-      where: { id },
-      data: { status, ...extra },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.message.update({
+        where: { id: row.id },
+        data: { status, ...extra },
+      });
+      await touchConversations(tx, { id: row.conversationId });
     });
   }
 }

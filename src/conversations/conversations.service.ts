@@ -1,3 +1,7 @@
+import {
+  recordInboundActivity,
+  touchConversations,
+} from '../inbox/conversation-activity.js';
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service.js';
 import { MessageStatus } from '../generated/prisma/client.js';
@@ -204,6 +208,10 @@ export class ConversationsService {
           conversationId: conversation.id,
         } as const;
       }
+      await recordInboundActivity(tx, conversation.id, {
+        occurredAt: event.timestamp,
+        text: content,
+      });
 
       await tx.$executeRaw`
         INSERT INTO processing_job
@@ -269,16 +277,27 @@ export class ConversationsService {
         ? String(update.errors[0].code)
         : undefined;
 
-    const { count } = await this.prisma.message.updateMany({
-      where: {
-        waMessageId: update.waMessageId,
-        direction: 'OUTBOUND',
-        status: { in: ALLOWED_PREVIOUS[target] ?? [] },
-        // A line may only update its own messages, even with a wamid of
-        // another line's message.
-        ...(line ? { conversation: { lineId: line.lineId } } : {}),
-      },
-      data: { status: target, ...(errorCode ? { errorCode } : {}) },
+    const scope = line ? { conversation: { lineId: line.lineId } } : {};
+    const count = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.message.updateMany({
+        where: {
+          waMessageId: update.waMessageId,
+          direction: 'OUTBOUND',
+          status: { in: ALLOWED_PREVIOUS[target] ?? [] },
+          // A line may only update its own messages, even with a wamid of
+          // another line's message.
+          ...scope,
+        },
+        data: { status: target, ...(errorCode ? { errorCode } : {}) },
+      });
+      if (updated.count > 0) {
+        // The tick shows in the inbox: the conversation joins /changes.
+        await touchConversations(tx, {
+          messages: { some: { waMessageId: update.waMessageId } },
+          ...(line ? { lineId: line.lineId } : {}),
+        });
+      }
+      return updated.count;
     });
 
     this.logger.debug(
