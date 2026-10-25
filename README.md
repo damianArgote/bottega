@@ -296,6 +296,20 @@ Así se hizo el paso a negocios y líneas (prompt 02):
 | 2 | `20261025030000_conversation_line_required` | `line_id`/`contact_id` obligatorios (falla con un mensaje claro si queda alguna sin asignar); `wa_id` deja de usarse y pasa a nullable. |
 | 3 | (siguiente) | Borra `conversation.wa_id`. |
 
+**Si el deploy 2 frena por conversaciones sin asignar:** el seed de esta
+versión ya no las asigna. Corré el de la versión anterior (desde `main` antes
+del deploy 2, `npm run build && npm run seed:default-line`), marcá la
+migración fallida como revertida y volvé a desplegar:
+
+```bash
+npx prisma migrate resolve --rolled-back 20261025030000_conversation_line_required
+```
+
+**Volver a la versión anterior después del deploy 2** funciona para el bot y
+las respuestas humanas, pero en la API de admin las conversaciones creadas por
+la versión nueva aparecen con `"waId": null` y no se encuentran por
+`/conversations/by-wa/:waId`.
+
 ---
 
 ## Conectar con WhatsApp (Meta)
