@@ -4,6 +4,8 @@
  */
 export interface InboundText {
   kind: 'text';
+  /** Meta phone_number_id of the business line the event belongs to. */
+  phoneNumberId: string;
   waMessageId: string;
   /** Sender wa_id (phone number, digits only). Treat as personal data. */
   from: string;
@@ -14,6 +16,7 @@ export interface InboundText {
 
 export interface InboundUnsupported {
   kind: 'unsupported';
+  phoneNumberId: string;
   waMessageId: string;
   from: string;
   timestamp: Date;
@@ -28,6 +31,7 @@ export interface StatusError {
 
 export interface StatusUpdate {
   kind: 'status';
+  phoneNumberId: string;
   /** wamid of the outbound message this status refers to. */
   waMessageId: string;
   status: string;

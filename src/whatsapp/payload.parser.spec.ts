@@ -30,8 +30,16 @@ function payload(
   };
 }
 
+/** Events without their phone_number_id (asserted in its own tests). */
 const parse = (raw: unknown) =>
-  parseWebhookPayload(raw, { phoneNumberId: PHONE_NUMBER_ID });
+  parseWebhookPayload(raw).map((event) => {
+    if (event.kind === 'ignored') {
+      return event;
+    }
+    const rest: Partial<typeof event> = { ...event };
+    delete rest.phoneNumberId;
+    return rest;
+  });
 
 describe('parseWebhookPayload', () => {
   it('normalizes a mixed batch and skips malformed items', () => {
@@ -150,24 +158,69 @@ describe('parseWebhookPayload', () => {
     ]);
   });
 
-  it('ignores events addressed to another phone number id', () => {
-    const events = parseWebhookPayload(
-      payload({
-        messages: [
-          {
-            from: '5491100001234',
-            id: 'wamid.x',
-            timestamp: '1',
-            type: 'text',
-            text: { body: 'x' },
-          },
-        ],
-      }),
-      { phoneNumberId: '999' },
-    );
+  it('returns the phone_number_id of each change on its events', () => {
+    const raw = payload({
+      messages: [
+        {
+          from: '5491100001234',
+          id: 'wamid.x',
+          timestamp: '1',
+          type: 'text',
+          text: { body: 'x' },
+        },
+      ],
+      statuses: [
+        {
+          id: 'wamid.out',
+          status: 'read',
+          timestamp: '2',
+          recipient_id: '5491100001234',
+        },
+      ],
+    });
 
-    expect(events).toEqual([
-      { kind: 'ignored', reason: 'event for another phone number id' },
+    expect(
+      parseWebhookPayload(raw).map((event) =>
+        event.kind === 'ignored' ? event.kind : event.phoneNumberId,
+      ),
+    ).toEqual([PHONE_NUMBER_ID, PHONE_NUMBER_ID]);
+  });
+
+  it('does not filter by phone number id: each change keeps its own', () => {
+    const raw = payload({
+      messages: [
+        {
+          from: '5491100001234',
+          id: 'wamid.a',
+          timestamp: '1',
+          type: 'text',
+          text: { body: 'a' },
+        },
+      ],
+    });
+    const second = structuredClone(raw.entry[0]!.changes[0]!) as {
+      field: string;
+      value: { metadata: { phone_number_id: string }; messages?: unknown[] };
+    };
+    second.value.metadata.phone_number_id = '999';
+    second.value.messages = [
+      {
+        from: '5491100001234',
+        id: 'wamid.b',
+        timestamp: '1',
+        type: 'text',
+        text: { body: 'b' },
+      },
+    ];
+    (raw.entry[0]!.changes as unknown[]).push(second);
+
+    expect(
+      parseWebhookPayload(raw).map((event) =>
+        event.kind === 'text' ? [event.waMessageId, event.phoneNumberId] : null,
+      ),
+    ).toEqual([
+      ['wamid.a', PHONE_NUMBER_ID],
+      ['wamid.b', '999'],
     ]);
   });
 

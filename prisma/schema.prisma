@@ -152,6 +152,7 @@ model Line {
 
   business      Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
   conversations Conversation[]
+  webhookEvents WebhookEvent[]
 
   @@index([businessId])
   @@map("line")
@@ -185,10 +186,10 @@ model Conversation {
   /// a later migration makes it required.
   lineId          String?          @map("line_id") @db.Uuid
   contactId       String?          @map("contact_id") @db.Uuid
-  /// User's WhatsApp id. Still unique (one line per wa_id) so the previous
-  /// app version keeps working during the deploy; the next migration drops
-  /// the constraint. Use contact.waId in new code.
-  waId            String           @unique @map("wa_id")
+  /// User's WhatsApp id. No longer unique (the same user may talk to
+  /// several lines); kept until the contact migration is complete. Use
+  /// contact.waId in new code.
+  waId            String           @map("wa_id")
   mode            ConversationMode @default(COMMERCIAL)
   paused          Boolean          @default(false)
   pausedAt        DateTime?        @map("paused_at")
@@ -359,4 +360,25 @@ model AiUsage {
 
   @@index([conversationId, day])
   @@map("ai_usage")
+}
+
+/// Raw webhook delivery, stored (after the signature check) before it is
+/// processed, so a processing failure can be retried by the reprocessor. A
+/// partial index on received_at WHERE processed_at IS NULL (added by hand in
+/// the migration) keeps the pending scan cheap.
+model WebhookEvent {
+  id          BigInt    @id @default(autoincrement())
+  /// Line whose route received and verified the delivery; null for the
+  /// keyless default route (resolved to the default line when processed).
+  lineId      String?   @map("line_id") @db.Uuid
+  payload     Json
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  processedAt DateTime? @map("processed_at")
+  attempts    Int       @default(0)
+  /// Content-free error label of the last failed attempt.
+  error       String?
+
+  line Line? @relation(fields: [lineId], references: [id], onDelete: SetNull)
+
+  @@map("webhook_event")
 }

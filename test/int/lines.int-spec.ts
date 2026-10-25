@@ -20,7 +20,8 @@ const USER = '5491100001234';
 async function emptyDb(prisma: PrismaService): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE conversation, conversation_context, message, processing_job,
-      lead, demo_request, handoff_request, ai_usage, contact, line, business
+      lead, demo_request, handoff_request, ai_usage, contact, webhook_event,
+      line, business
       RESTART IDENTITY CASCADE`;
 }
 

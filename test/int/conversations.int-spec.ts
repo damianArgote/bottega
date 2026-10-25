@@ -2,7 +2,13 @@ import { QueueSignal } from '../../src/queue/queue-signal.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import type { StatusUpdate } from '../../src/whatsapp/inbound-event.js';
-import { connectPrisma, resetDb, testConfig, textEvent } from './helpers.js';
+import {
+  connectPrisma,
+  resetDb,
+  testConfig,
+  textEvent,
+  DEFAULT_PHONE_NUMBER_ID,
+} from './helpers.js';
 
 describe('ConversationsService (integration)', () => {
   let prisma: PrismaService;
@@ -67,6 +73,7 @@ describe('ConversationsService (integration)', () => {
     it('stores unsupported messages with a type marker', async () => {
       await service.recordInbound({
         kind: 'unsupported',
+        phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
         waMessageId: 'wamid.img',
         from: '5491100001234',
         timestamp: new Date(),
@@ -163,6 +170,7 @@ describe('ConversationsService (integration)', () => {
       errors?: StatusUpdate['errors'],
     ): StatusUpdate => ({
       kind: 'status',
+      phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
       waMessageId: 'wamid.out',
       status,
       recipientId: '5491100001234',

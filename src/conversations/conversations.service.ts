@@ -24,6 +24,11 @@ export interface LineRef {
   businessId: string;
 }
 
+/** A line with the phone number id its events must carry. */
+export interface RoutedLine extends LineRef {
+  phoneNumberId: string;
+}
+
 export type ApplyStatusResult = 'updated' | 'ignored';
 
 /** Meta status → our outbound status. Other values are ignored. */
@@ -70,25 +75,48 @@ export class ConversationsService {
   ) {}
 
   /**
-   * Persists every parsed webhook event, in order. Throws when the database
-   * fails, so the webhook answers 5xx and Meta redelivers (dedupe makes
-   * redelivery safe).
+   * Persists every parsed webhook event, in order, on `line` (the default
+   * line when omitted). With a line, events of any other phone_number_id are
+   * discarded with a warning. Throws when the database fails, so the stored
+   * webhook event stays pending for the reprocessor (dedupe makes
+   * reprocessing safe).
    */
-  async ingest(events: readonly InboundEvent[]): Promise<void> {
+  async ingest(
+    events: readonly InboundEvent[],
+    line?: RoutedLine,
+  ): Promise<void> {
     for (const event of events) {
-      switch (event.kind) {
-        case 'ignored':
-          this.logger.debug(`Ignored webhook item: ${event.reason}`);
-          break;
-        case 'status':
-          await this.applyStatus(event);
-          break;
-        case 'text':
-        case 'unsupported':
-          await this.recordInbound(event);
-          break;
+      if (event.kind === 'ignored') {
+        this.logger.debug(`Ignored webhook item: ${event.reason}`);
+        continue;
+      }
+      if (line && event.phoneNumberId !== line.phoneNumberId) {
+        await this.warnOffRoute(event.phoneNumberId);
+        continue;
+      }
+      if (event.kind === 'status') {
+        await this.applyStatus(event);
+      } else {
+        await this.recordInbound(event, line);
       }
     }
+  }
+
+  /**
+   * An event whose phone_number_id is not the line of the route it came
+   * through: either another line's (signed by the wrong app) or unknown.
+   * Discarded; nothing is created.
+   */
+  private async warnOffRoute(phoneNumberId: string): Promise<void> {
+    const known = await this.prisma.line.findUnique({
+      where: { phoneNumberId },
+      select: { id: true },
+    });
+    this.logger.warn(
+      known
+        ? `Discarded webhook event for line ${known.id}: it arrived through another line's route`
+        : 'Discarded webhook event for an unknown phone_number_id',
+    );
   }
 
   /**
@@ -208,7 +236,7 @@ export class ConversationsService {
    * The line of WHATSAPP_PHONE_NUMBER_ID (created by `npm run
    * seed:default-line`), or null when it is not configured or not seeded.
    */
-  async defaultLine(): Promise<LineRef | null> {
+  async defaultLine(): Promise<RoutedLine | null> {
     const phoneNumberId = this.config.get('WHATSAPP_PHONE_NUMBER_ID');
     if (!phoneNumberId) {
       return null;
@@ -217,7 +245,9 @@ export class ConversationsService {
       where: { phoneNumberId },
       select: { id: true, businessId: true },
     });
-    return line ? { lineId: line.id, businessId: line.businessId } : null;
+    return line
+      ? { lineId: line.id, businessId: line.businessId, phoneNumberId }
+      : null;
   }
 
   /**
