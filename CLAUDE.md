@@ -20,6 +20,7 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 
 ## Cómo trabajar
 - Una tarea = una rama = un PR chico. Commits en inglés, convencionales (`feat:`, `fix:`, `chore:`).
+- Migraciones: tienen que funcionar con el código que está en `main` (Render migra mientras la versión anterior atiende). Cambios que rompen el schema, en dos deploys: expandir y después contraer. Ver "Orden de deploy y migraciones" en el README.
 - Ramas: cada tarea sale de `develop` y su PR va contra `develop` (la rama por defecto). `main` es lo que corre en Render: se actualiza solo con un PR de `develop` a `main` cuando se decide desplegar.
 - Antes de terminar: `npm run lint`, `npm test`, `npm run test:e2e` y, si tocaste SQL o la cola, `npm run test:int` (necesita Postgres: `npm run db:up` y `DATABASE_URL` apuntando a esa base). Si algo falla, decilo; no desactives ni saltees tests.
 - Cada regla nueva lleva su test (unitario si es pura, e2e si es HTTP, int si depende de Postgres).

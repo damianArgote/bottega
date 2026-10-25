@@ -56,7 +56,7 @@ describe('Businesses, lines and contacts (integration)', () => {
     it('creates the default business and line with encrypted env credentials', async () => {
       const result = await seedDefaultLine(prisma, cipher, seedEnv);
 
-      expect(result).toMatchObject({ outcome: 'seeded', backfilled: 0 });
+      expect(result).toMatchObject({ outcome: 'seeded' });
       const business = await prisma.business.findUniqueOrThrow({
         where: { slug: 'botsuite46' },
         include: { lines: true },
@@ -80,48 +80,27 @@ describe('Businesses, lines and contacts (integration)', () => {
       );
     });
 
-    it('backfills contacts and lines of existing conversations', async () => {
-      // Conversations created before the migration have no line or contact.
-      await prisma.conversation.createMany({
-        data: [{ waId: USER }, { waId: '5491100009999' }],
-      });
-
-      const result = await seedDefaultLine(prisma, cipher, seedEnv);
-
-      expect(result).toMatchObject({ outcome: 'seeded', backfilled: 2 });
-      const rows = await prisma.conversation.findMany({
-        include: { contact: true, line: true },
-        orderBy: { waId: 'asc' },
-      });
-      expect(rows.map((row) => row.contact?.waId)).toEqual([
-        USER,
-        '5491100009999',
-      ]);
-      expect(
-        rows.every(
-          (row) => row.line?.phoneNumberId === DEFAULT_PHONE_NUMBER_ID,
-        ),
-      ).toBe(true);
-      expect(await prisma.conversation.count({ where: { lineId: null } })).toBe(
-        0,
+    it('a conversation cannot exist without a line and a contact', async () => {
+      await expect(prisma.$executeRaw`
+        INSERT INTO conversation (id, wa_id, mode, paused, created_at, updated_at)
+        VALUES (gen_random_uuid(), '5491100001234', 'COMMERCIAL', false, now(), now())`).rejects.toThrow(
+        /(line_id|contact_id).*not-null constraint/,
       );
     });
 
     it('is idempotent: a second run keeps ids, keys and counts', async () => {
-      await prisma.conversation.create({ data: { waId: USER } });
       await seedDefaultLine(prisma, cipher, seedEnv);
       const before = await prisma.line.findFirstOrThrow();
 
       const second = await seedDefaultLine(prisma, cipher, seedEnv);
 
-      expect(second).toMatchObject({ outcome: 'seeded', backfilled: 0 });
+      expect(second).toMatchObject({ outcome: 'seeded' });
       const after = await prisma.line.findFirstOrThrow();
       expect(after.id).toBe(before.id);
       expect(after.webhookKey).toBe(before.webhookKey);
       expect(after.verifyToken).toBe(before.verifyToken);
       expect(await prisma.business.count()).toBe(1);
       expect(await prisma.line.count()).toBe(1);
-      expect(await prisma.contact.count()).toBe(1);
     });
 
     it('updates the stored credentials when the env values change', async () => {
@@ -193,6 +172,18 @@ describe('Businesses, lines and contacts (integration)', () => {
       });
       expect(await prisma.conversation.count()).toBe(1);
       expect(await prisma.message.count()).toBe(2);
+    });
+
+    it('stores the wa_id on the contact only, not on the conversation', async () => {
+      const a = await createLine(prisma, { slug: 'a', phoneNumberId: '111' });
+
+      await conversations.recordInbound(textEvent('wamid.1', USER), a);
+
+      const thread = await prisma.conversation.findFirstOrThrow({
+        include: { contact: true },
+      });
+      expect(thread.waId).toBeNull();
+      expect(thread.contact.waId).toBe(USER);
     });
 
     it('stores the profile name Meta sends on the contact', async () => {

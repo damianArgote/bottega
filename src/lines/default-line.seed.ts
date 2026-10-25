@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { UTC_NOW } from '../prisma/sql.js';
 import type { CredentialsCipher } from './credentials-cipher.js';
 
 export const DEFAULT_BUSINESS_SLUG = 'botsuite46';
@@ -15,8 +14,7 @@ export interface DefaultLineEnv {
 }
 
 export type SeedResult =
-  | { outcome: 'skipped' }
-  | { outcome: 'seeded'; lineId: string; backfilled: number };
+  { outcome: 'skipped' } | { outcome: 'seeded'; lineId: string };
 
 /** 24 URL-safe characters (18 random bytes). */
 export function newWebhookKey(): string {
@@ -29,10 +27,11 @@ export function newVerifyToken(): string {
 }
 
 /**
- * Creates (or updates) the default business and line from the env, and
- * assigns every conversation that has no line yet to it, creating the
- * matching contacts. Idempotent: safe to run on every deploy. Generated keys
- * are never regenerated; stored credentials follow the env values.
+ * Creates (or updates) the default business and line from the env.
+ * Idempotent: safe to run on every deploy. Generated keys are never
+ * regenerated; stored credentials follow the env values. (Conversations
+ * from before lines existed were assigned to this line by the previous
+ * release; every conversation now requires a line.)
  */
 export async function seedDefaultLine(
   prisma: PrismaClient,
@@ -75,20 +74,6 @@ export async function seedDefaultLine(
       update: credentials,
     });
 
-    await tx.$executeRaw`
-      INSERT INTO contact (id, business_id, wa_id, created_at, updated_at)
-      SELECT gen_random_uuid(), ${line.businessId}::uuid, c.wa_id,
-        ${UTC_NOW}, ${UTC_NOW}
-      FROM (SELECT DISTINCT wa_id FROM conversation WHERE line_id IS NULL) c
-      ON CONFLICT (business_id, wa_id) DO NOTHING`;
-    const backfilled = await tx.$executeRaw`
-      UPDATE conversation c
-      SET line_id = ${line.id}::uuid, contact_id = ct.id
-      FROM contact ct
-      WHERE c.line_id IS NULL
-        AND ct.business_id = ${line.businessId}::uuid
-        AND ct.wa_id = c.wa_id`;
-
-    return { outcome: 'seeded', lineId: line.id, backfilled } as const;
+    return { outcome: 'seeded', lineId: line.id } as const;
   });
 }

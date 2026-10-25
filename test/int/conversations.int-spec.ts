@@ -33,7 +33,7 @@ describe('ConversationsService (integration)', () => {
 
       expect(result.outcome).toBe('created');
       const conversation = await prisma.conversation.findFirstOrThrow({
-        where: { waId: '5491100001234' },
+        where: { contact: { waId: '5491100001234' } },
         include: { contexts: true },
       });
       expect(conversation).toMatchObject({

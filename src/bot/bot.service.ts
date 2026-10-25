@@ -88,9 +88,7 @@ export class BotService {
       throw new JobError('inbound_message_missing', false);
     }
     const { conversation } = inbound;
-    // The contact is the recipient; conversation.waId only until every row
-    // is backfilled (it is dropped by a later migration).
-    const recipient = conversation.contact?.waId ?? conversation.waId;
+    const recipient = conversation.contact.waId;
     const to = maskPhone(recipient);
 
     // The PROCESSED status is the phase marker: once set, a retried job only

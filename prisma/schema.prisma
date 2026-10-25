@@ -182,14 +182,12 @@ model Contact {
 /// One thread per (line, contact): it is reopened, never split.
 model Conversation {
   id              String           @id @default(uuid()) @db.Uuid
-  /// Nullable until every row is backfilled by `npm run seed:default-line`;
-  /// a later migration makes it required.
-  lineId          String?          @map("line_id") @db.Uuid
-  contactId       String?          @map("contact_id") @db.Uuid
-  /// User's WhatsApp id. No longer unique (the same user may talk to
-  /// several lines); kept until the contact migration is complete. Use
-  /// contact.waId in new code.
-  waId            String           @map("wa_id")
+  lineId          String           @map("line_id") @db.Uuid
+  contactId       String           @map("contact_id") @db.Uuid
+  /// Deprecated: no longer written (the recipient is contact.waId). Kept,
+  /// nullable, only while the previous app version may still be running
+  /// during a deploy; the next migration drops it.
+  waId            String?          @map("wa_id")
   mode            ConversationMode @default(COMMERCIAL)
   paused          Boolean          @default(false)
   pausedAt        DateTime?        @map("paused_at")
@@ -199,8 +197,8 @@ model Conversation {
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
-  line            Line?                 @relation(fields: [lineId], references: [id], onDelete: Restrict)
-  contact         Contact?              @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  line            Line                  @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Restrict)
   activeContext   ConversationContext?  @relation("ActiveContext", fields: [activeContextId], references: [id], onDelete: SetNull)
   contexts        ConversationContext[] @relation("ConversationContexts")
   messages        Message[]

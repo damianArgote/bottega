@@ -268,6 +268,48 @@ En la app de Meta → **WhatsApp → Configuración**, poné como URL
 - **Las migraciones corren antes de arrancar.** Si fallan, el deploy se corta
   y queda andando la versión anterior.
 
+### Orden de deploy y migraciones
+
+Render corre las migraciones (y el seed) **mientras la versión anterior sigue
+atendiendo**, y si el arranque de la nueva falla, la anterior queda andando
+contra el schema ya migrado. Por eso cada migración tiene que funcionar con el
+código que está hoy en `main`, no solo con el del PR. Un cambio que rompe el
+schema se hace en dos deploys:
+
+1. **Expandir:** el código nuevo deja de usar la columna (o empieza a usar la
+   nueva) y la migración solo agrega o afloja (columnas nullable, índices
+   nuevos). La versión anterior sigue funcionando.
+2. **Contraer:** en un deploy posterior, la migración borra lo viejo.
+
+Antes de mergear a `main`:
+
+- Cargá en Render las variables obligatorias nuevas: si falta una, la
+  versión nueva no arranca pero las migraciones ya corrieron.
+- Revisá que el servicio y el Blueprint usen la rama `main`.
+- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`.
+
+Así se hizo el paso a negocios y líneas (prompt 02):
+
+| Deploy | Migración | Qué hace |
+| ------ | --------- | -------- |
+| 1 | `20261025010000_business_lines_contacts`, `20261025020000_webhook_events` | Tablas nuevas, `conversation.line_id`/`contact_id` nullable; el seed crea la línea por defecto y asigna las conversaciones existentes. |
+| 2 | `20261025030000_conversation_line_required` | `line_id`/`contact_id` obligatorios (falla con un mensaje claro si queda alguna sin asignar); `wa_id` deja de usarse y pasa a nullable. |
+| 3 | (siguiente) | Borra `conversation.wa_id`. |
+
+**Si el deploy 2 frena por conversaciones sin asignar:** el seed de esta
+versión ya no las asigna. Corré el de la versión anterior (desde `main` antes
+del deploy 2, `npm run build && npm run seed:default-line`), marcá la
+migración fallida como revertida y volvé a desplegar:
+
+```bash
+npx prisma migrate resolve --rolled-back 20261025030000_conversation_line_required
+```
+
+**Volver a la versión anterior después del deploy 2** funciona para el bot y
+las respuestas humanas, pero en la API de admin las conversaciones creadas por
+la versión nueva aparecen con `"waId": null` y no se encuentran por
+`/conversations/by-wa/:waId`.
+
 ---
 
 ## Conectar con WhatsApp (Meta)
