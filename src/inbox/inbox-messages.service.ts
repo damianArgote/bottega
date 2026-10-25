@@ -41,6 +41,7 @@ export class InboxMessagesService {
         lineId: true,
         activeContextId: true,
         windowExpiresAt: true,
+        lastInboundAt: true,
         contact: { select: { waId: true } },
       },
     });

@@ -71,7 +71,11 @@ function decodeCursor<T>(cursor: string, schema: z.ZodType<T>): T {
   }
 }
 
-const listCursorSchema = z.object({ at: z.iso.datetime(), id: z.uuid() });
+/** `at` null: the page ended among conversations without lastMessageAt. */
+const listCursorSchema = z.object({
+  at: z.iso.datetime().nullable(),
+  id: z.uuid(),
+});
 const txid = z.string().regex(/^\d{1,19}$/);
 const changesCursorSchema = z.object({
   t: txid,
@@ -92,7 +96,8 @@ export class InboxQueriesService {
    * GET /conversations: one view, newest first by (lastMessageAt, id),
    * LIST_PAGE_SIZE per page. `mine`: assigned to the user, not resolved;
    * `unassigned`: nobody attends it and it is open; `pending`: waiting for a
-   * person; `resolved`. Conversations without messages are not listed.
+   * person; `resolved`. Conversations without lastMessageAt (rows the
+   * previous release wrote during a deploy) come last.
    */
   async list(
     access: BusinessAccess,
@@ -117,7 +122,6 @@ export class InboxQueriesService {
         AND: [
           views[query.view],
           { line: { businessId: access.businessId } },
-          { lastMessageAt: { not: null } },
           query.lineId ? { lineId: query.lineId } : {},
           q
             ? {
@@ -129,17 +133,24 @@ export class InboxQueriesService {
                 },
               }
             : {},
-          after
-            ? {
-                OR: [
-                  { lastMessageAt: { lt: new Date(after.at) } },
-                  { lastMessageAt: new Date(after.at), id: { lt: after.id } },
-                ],
-              }
-            : {},
+          after === null
+            ? {}
+            : after.at === null
+              ? { lastMessageAt: null, id: { lt: after.id } }
+              : {
+                  OR: [
+                    { lastMessageAt: { lt: new Date(after.at) } },
+                    { lastMessageAt: new Date(after.at), id: { lt: after.id } },
+                    // Rows without it sort last (nulls last).
+                    { lastMessageAt: null },
+                  ],
+                },
         ],
       },
-      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+      orderBy: [
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { id: 'desc' },
+      ],
       take: LIST_PAGE_SIZE + 1,
       select: conversationItem,
     });
@@ -148,8 +159,11 @@ export class InboxQueriesService {
     return {
       conversations: page.map(toItem),
       nextCursor:
-        rows.length > LIST_PAGE_SIZE && last?.lastMessageAt
-          ? encodeCursor({ at: last.lastMessageAt.toISOString(), id: last.id })
+        rows.length > LIST_PAGE_SIZE && last
+          ? encodeCursor({
+              at: last.lastMessageAt?.toISOString() ?? null,
+              id: last.id,
+            })
           : null,
     };
   }

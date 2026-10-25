@@ -1,3 +1,4 @@
+import { windowClosesAt } from '../inbox/conversation-state.js';
 import {
   type HumanReplyResult,
   HumanRepliesService,
@@ -77,14 +78,14 @@ export interface ServiceWindow {
   closesAt: Date | null;
 }
 
-/** The 24 h window as the admin API shows it (from windowExpiresAt). */
+/** The 24 h window as the admin API shows it (see windowClosesAt). */
 export function serviceWindow(
-  windowExpiresAt: Date | null,
+  conversation: { windowExpiresAt: Date | null; lastInboundAt: Date | null },
   now = new Date(),
 ): ServiceWindow {
   return {
-    open: windowOpen(windowExpiresAt, now),
-    closesAt: windowExpiresAt,
+    open: windowOpen(conversation, now),
+    closesAt: windowClosesAt(conversation),
   };
 }
 
@@ -214,7 +215,7 @@ export class AdminService {
         lastInboundAt: conversation.lastInboundAt,
         createdAt: conversation.createdAt,
       },
-      serviceWindow: serviceWindow(conversation.windowExpiresAt),
+      serviceWindow: serviceWindow(conversation),
       lead,
       openHandoffs,
       // Oldest first, like reading the chat.

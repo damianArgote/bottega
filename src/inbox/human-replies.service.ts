@@ -28,7 +28,7 @@ import {
   recordOutboundActivity,
   touchConversations,
 } from './conversation-activity.js';
-import { take } from './conversation-state.js';
+import { take, windowClosesAt } from './conversation-state.js';
 import { addSystemMessage } from './system-messages.js';
 
 export type HumanReplyResult =
@@ -68,15 +68,17 @@ export interface ReplyConversation {
   lineId: string;
   activeContextId: string | null;
   windowExpiresAt: Date | null;
+  lastInboundAt: Date | null;
   contact: { waId: string };
 }
 
-/** The 24 h window is open until windowExpiresAt (never set: closed). */
+/** The 24 h window is open until windowClosesAt (never written: closed). */
 export function windowOpen(
-  windowExpiresAt: Date | null,
+  conversation: { windowExpiresAt: Date | null; lastInboundAt: Date | null },
   now = new Date(),
 ): boolean {
-  return windowExpiresAt !== null && windowExpiresAt.getTime() > now.getTime();
+  const closesAt = windowClosesAt(conversation);
+  return closesAt !== null && closesAt.getTime() > now.getTime();
 }
 
 /**
@@ -109,7 +111,7 @@ export class HumanRepliesService {
     if (previous) {
       return replayed(previous, conversation.id);
     }
-    if (!windowOpen(conversation.windowExpiresAt)) {
+    if (!windowOpen(conversation)) {
       throw new ConflictException({
         message: WINDOW_CLOSED_MESSAGE,
         code: 'WINDOW_CLOSED',
@@ -127,8 +129,20 @@ export class HumanRepliesService {
     let row: Message;
     try {
       row = await this.prisma.$transaction(async (tx) => {
+        // The conversation row is locked before the message insert, like
+        // every other path that adds messages, so message seqs commit in
+        // order for the inbox's `after=<seq>` polling.
+        const [locked] = await tx.$queryRaw<{ assignedToId: string | null }[]>`
+          SELECT assigned_to_id AS "assignedToId" FROM conversation
+          WHERE id = ${conversation.id}::uuid FOR UPDATE`;
         if (author) {
-          await this.takeIfUnassigned(tx, conversation.id, contextId, author);
+          await this.takeIfUnassigned(
+            tx,
+            conversation.id,
+            contextId,
+            author,
+            locked?.assignedToId ?? null,
+          );
         }
         const created = await tx.message.create({
           data: {
@@ -169,14 +183,12 @@ export class HumanRepliesService {
     conversationId: string,
     contextId: string,
     author: SessionUser,
+    assignedToId: string | null,
   ): Promise<void> {
-    const [row] = await tx.$queryRaw<{ assignedToId: string | null }[]>`
-      SELECT assigned_to_id AS "assignedToId" FROM conversation
-      WHERE id = ${conversationId}::uuid FOR UPDATE`;
-    if (row?.assignedToId === author.id) {
+    if (assignedToId === author.id) {
       return;
     }
-    if (row?.assignedToId) {
+    if (assignedToId) {
       throw new ConflictException({
         message: 'Someone else has this conversation: take it first',
         code: 'ALREADY_TAKEN',

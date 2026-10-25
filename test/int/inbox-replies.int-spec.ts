@@ -152,7 +152,11 @@ describe('Inbox replies and read (integration, HTTP)', () => {
       const id = await conversationId();
       await prisma.conversation.update({
         where: { id },
-        data: { windowExpiresAt: new Date(Date.now() - HOUR) },
+        // The user last wrote 25 h ago.
+        data: {
+          lastInboundAt: new Date(Date.now() - 25 * HOUR),
+          windowExpiresAt: new Date(Date.now() - HOUR),
+        },
       });
       const ana = await sessionOf('ana@example.com');
 
@@ -165,6 +169,22 @@ describe('Inbox replies and read (integration, HTTP)', () => {
           where: { author: 'HUMAN', type: 'TEXT' },
         }),
       ).toBe(0);
+    });
+
+    it('a conversation the previous release wrote (no windowExpiresAt) uses lastInboundAt + 24 h', async () => {
+      const id = await conversationId();
+      await prisma.conversation.update({
+        where: { id },
+        data: {
+          windowExpiresAt: null,
+          lastInboundAt: new Date(Date.now() - HOUR),
+        },
+      });
+      const ana = await sessionOf('ana@example.com');
+
+      await reply(ana, id, { body: 'Hola', clientId }).expect(200);
+
+      expect(sendText).toHaveBeenCalledTimes(1);
     });
 
     it('a conversation someone else has: 409 ALREADY_TAKEN, nothing sent', async () => {

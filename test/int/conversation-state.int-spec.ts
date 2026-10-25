@@ -163,6 +163,24 @@ describe('Conversation inbox state (integration)', () => {
       expect((await tracking()).version).toBeGreaterThan(sentVersion);
     });
 
+    it("Meta's 131047 on a bot reply moves the window to now", async () => {
+      sendText.mockResolvedValue({
+        kind: 'rejected',
+        code: 131047,
+        httpStatus: 400,
+        message: 'Re-engagement message',
+        retryable: false,
+      });
+      await inbound('hola');
+      const before = Date.now();
+
+      await worker.drain();
+
+      const { windowExpiresAt } = await conversation();
+      expect(windowExpiresAt!.getTime()).toBeGreaterThanOrEqual(before - 1_000);
+      expect(windowExpiresAt!.getTime()).toBeLessThanOrEqual(Date.now());
+    });
+
     it('an ignored tick does not touch the conversation', async () => {
       await inbound('hola');
       const before = await tracking();

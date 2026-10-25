@@ -10,6 +10,7 @@ import {
   release,
   resolve,
   take,
+  windowClosesAt,
 } from './conversation-state.js';
 
 const NOW = new Date('2026-10-25T12:00:00Z');
@@ -123,5 +124,45 @@ describe('who attends', () => {
       assignedToId: null,
       paused: false,
     });
+  });
+});
+
+describe('windowClosesAt', () => {
+  const at = (iso: string) => new Date(iso);
+
+  it('is windowExpiresAt when it was set after the last inbound message', () => {
+    expect(
+      windowClosesAt({
+        windowExpiresAt: at('2026-10-26T12:00:00Z'),
+        lastInboundAt: at('2026-10-25T12:00:00Z'),
+      }),
+    ).toEqual(at('2026-10-26T12:00:00Z'));
+  });
+
+  it('keeps a window Meta closed (131047 moved it to now)', () => {
+    expect(
+      windowClosesAt({
+        windowExpiresAt: at('2026-10-25T13:00:00Z'),
+        lastInboundAt: at('2026-10-25T12:00:00Z'),
+      }),
+    ).toEqual(at('2026-10-25T13:00:00Z'));
+  });
+
+  it('falls back to 24 h after the last inbound when the window is missing or older (written by the previous release)', () => {
+    expect(
+      windowClosesAt({
+        windowExpiresAt: null,
+        lastInboundAt: at('2026-10-25T12:00:00Z'),
+      }),
+    ).toEqual(at('2026-10-26T12:00:00Z'));
+    expect(
+      windowClosesAt({
+        windowExpiresAt: at('2026-10-24T09:00:00Z'),
+        lastInboundAt: at('2026-10-25T12:00:00Z'),
+      }),
+    ).toEqual(at('2026-10-26T12:00:00Z'));
+    expect(
+      windowClosesAt({ windowExpiresAt: null, lastInboundAt: null }),
+    ).toBeNull();
   });
 });
