@@ -154,6 +154,18 @@ npm run prisma:deploy         # producción: solo aplica, nunca crea
 npx prisma migrate status     # estado (lee DATABASE_URL del .env)
 ```
 
+Después de migrar, creá el negocio y la línea por defecto (BotSuite46, con el
+número de `WHATSAPP_PHONE_NUMBER_ID`). El script es idempotente: se puede
+correr las veces que quieras, y también asigna a esa línea las conversaciones
+que todavía no tienen una.
+
+```bash
+npm run build
+npm run seed:default-line
+```
+
+En Render corre solo en cada deploy, después de las migraciones.
+
 ### 6. Arrancar
 
 ```bash
@@ -222,7 +234,8 @@ es PostgreSQL en **Neon**. La configuración está en `render.yaml` (Blueprint).
      **Environment** cuando el echo funcione.
 3. **Primer deploy:** Render instala y compila (`npm ci --include=dev && npm
    run build`), aplica las migraciones (`npm run prisma:deploy`, con la URL
-   directa) y arranca (`npm run start:prod`). El health check es
+   directa), crea el negocio y la línea por defecto (`npm run
+   seed:default-line`) y arranca (`npm run start:prod`). El health check es
    `/health/live`.
 4. Probá: `curl https://<servicio>.onrender.com/health` →
    `{"status":"ok","db":"up"}`.

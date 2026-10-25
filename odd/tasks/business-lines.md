@@ -12,7 +12,7 @@ Quoted verbatim from the prompt (Spanish), grouped and numbered. Assumptions are
 - **S5 WebhookEvent.** "`WebhookEvent`: `id` (bigint autoincrement), `payload` jsonb, `receivedAt`, `processedAt` nullable, `attempts`, `error`. Índice parcial sobre `receivedAt` donde `processed_at IS NULL` (a mano en el SQL de la migración)."
 - **S6 Data migration.** "**Migración de datos:** la migración crea un `Business` "BotSuite46" y una `Line` con el `phone_number_id` que hoy está en `WHATSAPP_PHONE_NUMBER_ID`. Como el SQL no lee el `.env`, hacelo con un script idempotente `npm run seed:default-line` que se corre una vez después del deploy; la migración deja `lineId` nullable, el script lo completa, y una segunda migración lo vuelve `NOT NULL`. Documentá el orden en el README."
   - Assumption A1: the seed also creates `Contact` rows for existing conversations and fills `contactId`, since S4 replaces `waId`.
-  - Assumption A2 (deviation, to confirm): Render's `preDeployCommand` runs the idempotent seed after `prisma:deploy`, so no inbound message falls in the gap between deploy and a manual seed. The NOT NULL migration ships in a later deploy.
+  - Decision A2 (user, L4): Render's `preDeployCommand` runs the idempotent seed after `prisma:deploy` on every deploy, so no inbound message falls in the gap between deploy and a manual seed. The NOT NULL migration ships in a later deploy (T7).
 - **S7 Encryption.** "Cifrado AES-256-GCM con `TOKEN_ENCRYPTION_KEY` (32 bytes en base64, obligatoria, validada en `env.schema.ts`). `LineCredentialsService` con `encrypt/decrypt` y tests. Nunca se devuelven los secretos por la API ni se loguean."
 - **S8 Per-line webhook.** "**Webhook por línea:** `GET/POST /webhooks/whatsapp/:webhookKey`. El GET compara contra el `verifyToken` de esa línea; el POST valida la firma con el `appSecret` de esa línea **antes** de guardar nada. Un `webhookKey` desconocido responde 404 sin tocar la base más que para buscarlo." and "La firma se valida con el secreto de la línea que identifica la ruta (`webhookKey`) **antes** de parsear. El guard actual de secreto único queda solo para la ruta sin clave de la línea por defecto."
 - **S9 Default route.** "Mantené `/webhooks/whatsapp` (sin clave) para la línea por defecto que usa las variables de entorno actuales, así lo que ya funciona no se rompe."
@@ -31,7 +31,7 @@ Quoted verbatim from the prompt (Spanish), grouped and numbered. Assumptions are
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
 | T1 | S7, S13 (`TOKEN_ENCRYPTION_KEY` only) | inline | done | see L3 |
-| T2 | S1-S6, S14 (waId review), A1, A2 | inline | pending | |
+| T2 | S1-S4, S6, S14 (waId review), A1, A2 | inline | done | see L5 |
 | T3 | S5, S8-S10, S12, S13, S16 | inline | pending | |
 | T4 | S11 | inline | pending | |
 | T5 | S15 | inline | pending | |
@@ -44,4 +44,6 @@ Route evidence: units depend on each other in order (schema → webhook → clie
 - L1 (2026-10-25, user): "si" to "¿Arranco el prompt 02 (varios negocios y números) desde `develop`?". The authoritative request text is `docs/prompts/02-negocios-lineas-eventos.md`.
 - L2 (2026-10-25): explorer map. Only `ConversationsService.recordInbound` creates conversations (`ON CONFLICT (wa_id)`); only BotService and AdminService send, both to `conversation.waId` through the singleton `WHATSAPP_CLIENT`; the webhook e2e stubs Prisma as `{}`; "Bottega" is hard-coded in prompts.ts, replies.ts, ai-replies.ts and echo-replies.ts; resetDb needs the new tables. Production (Neon) already holds 1 conversation, so the data migration must run on real data.
 - L3 (2026-10-25): T1 done on `feat/business-lines-1-credentials`. `CredentialsCipher` (AES-256-GCM, `v1.<iv>.<tag>.<data>` base64url) + `LineCredentialsService` + `TOKEN_ENCRYPTION_KEY` (required, canonical base64 of 32 bytes). RED observed (cipher module missing; 5 env tests failing), then GREEN. Checks: lint clean, unit 199, e2e 30, int 75. Deploy note: Render and local `.env` need `TOKEN_ENCRYPTION_KEY` before this reaches them, or the app does not boot.
-- Next: T2 (needs A2 confirmed).
+- L4 (2026-10-25, user): "sí, que Render corra el seed".
+- L5 (2026-10-25): T2 done on `feat/business-lines-2-schema`. Migration `20261025010000_business_lines_contacts` (Business, Line, Contact; conversation.line_id/contact_id nullable, unique (line_id, contact_id); conversation_wa_id_key dropped, wa_id kept). `seedDefaultLine` + `npm run seed:default-line` (dist script) in Render preDeploy. `recordInbound(event, line?)` upserts contact (business, wa_id) then conversation (line, contact); without a line it uses the default line, or returns `unrouted` and stores nothing. Admin by-wa scoped to the default business. RED observed (seed module missing), GREEN after. Compiled script probed on a throwaway DB: backfill 1, rerun 0, bad key exits 1 with names only. Checks: lint clean, unit 199, e2e 30, int 85. Deploy note: while Render swaps instances, the old instance's `ON CONFLICT (wa_id)` fails after the index drop; Meta retries the 5xx and the new instance stores it. WebhookEvent (S5) moves to T3.
+- Next: T3.

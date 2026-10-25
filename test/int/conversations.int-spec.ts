@@ -26,7 +26,7 @@ describe('ConversationsService (integration)', () => {
       const result = await service.recordInbound(textEvent('wamid.1'));
 
       expect(result.outcome).toBe('created');
-      const conversation = await prisma.conversation.findUniqueOrThrow({
+      const conversation = await prisma.conversation.findFirstOrThrow({
         where: { waId: '5491100001234' },
         include: { contexts: true },
       });

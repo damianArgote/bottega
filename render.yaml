@@ -11,8 +11,10 @@ services:
     # pre-deploy migration) are devDependencies, and npm skips them when
     # NODE_ENV=production.
     buildCommand: npm ci --include=dev && npm run build
-    # Uses DATABASE_URL_UNPOOLED (direct connection), see prisma.config.ts.
-    preDeployCommand: npm run prisma:deploy
+    # Migrations use DATABASE_URL_UNPOOLED (direct connection, see
+    # prisma.config.ts); then the idempotent seed creates the default business
+    # and line from the env and backfills conversations without a line.
+    preDeployCommand: npm run prisma:deploy && npm run seed:default-line
     startCommand: npm run start:prod
     # Liveness only: answers without touching the database, so Neon can
     # suspend. /health (with the database) stays for monitoring.

@@ -26,10 +26,42 @@ export async function connectPrisma(
   return prisma;
 }
 
+/** Must match WHATSAPP_PHONE_NUMBER_ID in vitest.config.int.ts. */
+export const DEFAULT_PHONE_NUMBER_ID = '000000000000000';
+
+/**
+ * Empties every table and recreates the default business and line (the one
+ * `npm run seed:default-line` creates from WHATSAPP_PHONE_NUMBER_ID), so
+ * inbound messages without an explicit line are routed as in production.
+ */
 export async function resetDb(prisma: PrismaService): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE conversation, conversation_context, message, processing_job,
-      lead, demo_request, handoff_request, ai_usage RESTART IDENTITY CASCADE`;
+      lead, demo_request, handoff_request, ai_usage, contact, line, business
+      RESTART IDENTITY CASCADE`;
+  await createLine(prisma, {
+    slug: 'botsuite46',
+    phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
+  });
+}
+
+/** Creates a business with one line; returns both ids. */
+export async function createLine(
+  prisma: PrismaService,
+  { slug, phoneNumberId }: { slug: string; phoneNumberId: string },
+): Promise<{ businessId: string; lineId: string }> {
+  const business = await prisma.business.create({
+    data: { name: slug, slug, botName: `Bot de ${slug}` },
+  });
+  const line = await prisma.line.create({
+    data: {
+      businessId: business.id,
+      phoneNumberId,
+      verifyToken: `verify-${slug}`,
+      webhookKey: `key-${slug}`.padEnd(24, '0'),
+    },
+  });
+  return { businessId: business.id, lineId: line.id };
 }
 
 export function textEvent(

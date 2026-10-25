@@ -59,6 +59,9 @@ describe('Admin operations (integration)', () => {
       textEvent(`wamid.in.${(seq += 1)}`, from, text),
     );
     await worker.drain();
+    if (result.outcome === 'unrouted') {
+      throw new Error('message was not routed to a line');
+    }
     return result.conversationId;
   };
 
