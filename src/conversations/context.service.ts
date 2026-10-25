@@ -1,3 +1,5 @@
+import { onHandoff } from '../inbox/conversation-state.js';
+import { addSystemMessage } from '../inbox/system-messages.js';
 import { Injectable } from '@nestjs/common';
 import {
   ContextEndReason,
@@ -13,6 +15,7 @@ export interface LockedConversation {
   id: string;
   mode: ConversationMode;
   paused: boolean;
+  assignedToId: string | null;
   activeContextId: string | null;
 }
 
@@ -46,7 +49,8 @@ export class ContextService {
    */
   async lock(tx: Tx, conversationId: string): Promise<LockedConversation> {
     const [row] = await tx.$queryRaw<LockedConversation[]>`
-      SELECT id, mode, paused, active_context_id AS "activeContextId"
+      SELECT id, mode, paused, assigned_to_id AS "assignedToId",
+        active_context_id AS "activeContextId"
       FROM conversation WHERE id = ${conversationId}::uuid FOR UPDATE`;
     if (!row) {
       throw new Error(`conversation ${conversationId} not found`);
@@ -84,23 +88,30 @@ export class ContextService {
     });
   }
 
-  /** Pauses the bot and opens a handoff request. Returns its id. */
+  /**
+   * Pauses the bot, opens a handoff request and leaves the conversation in
+   * the inbox's "Pendientes" (PENDING, unassigned), with a system message.
+   * Returns the handoff request id.
+   */
   requestHuman(
     conversationId: string,
     reason: string,
     tx?: Tx,
   ): Promise<string> {
     return this.inTx(tx, async (t) => {
-      await this.lock(t, conversationId);
+      const locked = await this.lock(t, conversationId);
       await t.conversation.update({
         where: { id: conversationId },
-        data: { paused: true, pausedAt: new Date() },
+        data: { paused: true, pausedAt: new Date(), ...onHandoff() },
       });
-      // TODO(prompt 04): also mark the conversation as pending for the inbox
-      // (taken/returned by a person); until then the open HandoffRequest and
-      // the pause are what the team sees.
       const handoff = await t.handoffRequest.create({
         data: { conversationId, reason, status: HandoffStatus.OPEN },
+      });
+      await addSystemMessage(t, {
+        conversationId,
+        contextId: locked.activeContextId,
+        author: 'BOT',
+        text: 'Pasó a Pendientes: pidió hablar con una persona',
       });
       return handoff.id;
     });

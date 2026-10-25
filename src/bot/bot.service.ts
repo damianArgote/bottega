@@ -1,3 +1,9 @@
+import { metaErrorKind } from '../whatsapp/meta-errors.js';
+import { botMayReply } from '../inbox/conversation-state.js';
+import {
+  recordOutboundActivity,
+  touchConversations,
+} from '../inbox/conversation-activity.js';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ContextService } from '../conversations/context.service.js';
 import {
@@ -29,7 +35,8 @@ import {
 export { JobError };
 
 export interface ProcessResult {
-  outcome: 'paused' | 'done';
+  /** skipped: no reply, a person attends it or the bot is paused. */
+  outcome: 'skipped' | 'done';
   sent: number;
   uncertain: number;
   failed: number;
@@ -95,11 +102,11 @@ export class BotService {
     // sends what was persisted, never re-generating or re-applying a command.
     if (inbound.status === MessageStatus.RECEIVED) {
       const phase = await this.generateReplies(job, inbound, conversation);
-      if (phase === 'paused') {
+      if (phase === 'skipped') {
         this.logger.log(
-          `Job ${job.id}: conversation paused, no reply to ${to}`,
+          `Job ${job.id}: a person attends the conversation (or the bot is paused), no reply to ${to}`,
         );
-        return { outcome: 'paused', sent: 0, uncertain: 0, failed: 0 };
+        return { outcome: 'skipped', sent: 0, uncertain: 0, failed: 0 };
       }
     }
 
@@ -130,20 +137,20 @@ export class BotService {
    * reply generator, whose planned tool effects (lead, demo request,
    * handoff) are applied here (ToolEffectsService). Either way the replies,
    * the transition or effects and the inbound PROCESSED marker commit in one
-   * transaction. A paused conversation (also
-   * re-checked under the row lock) stores the message with no reply and
-   * runs no command.
+   * transaction. A conversation a person attends (assigned) or with the bot
+   * paused (also re-checked under the row lock) stores the message with no
+   * reply and runs no command.
    */
   private async generateReplies(
     job: ClaimedJob,
     inbound: Message,
     conversation: Conversation,
-  ): Promise<'paused' | 'done'> {
+  ): Promise<'skipped' | 'done'> {
     const command =
       inbound.type === MessageType.TEXT ? matchCommand(inbound.content) : null;
 
     let generated: GeneratedOutcome | null = null;
-    if (!conversation.paused && !command) {
+    if (botMayReply(conversation) && !command) {
       const contextId = conversation.activeContextId ?? inbound.contextId;
       if (!contextId) {
         throw new JobError('active_context_missing', false);
@@ -164,7 +171,8 @@ export class BotService {
 
     return this.prisma.$transaction(async (tx) => {
       const locked = await this.contexts.lock(tx, conversation.id);
-      const paused = conversation.paused || locked.paused;
+      // Re-checked under the row lock: someone may have taken it meanwhile.
+      const paused = !botMayReply(conversation) || !botMayReply(locked);
       const { count } = await tx.message.updateMany({
         where: { id: inbound.id, status: MessageStatus.RECEIVED },
         // A message processed after a context change belongs to the context
@@ -179,7 +187,7 @@ export class BotService {
         throw new JobError('generate_conflict', true);
       }
       if (paused) {
-        return 'paused';
+        return 'skipped';
       }
 
       const { contextId, replies } = command
@@ -198,6 +206,7 @@ export class BotService {
             idempotencyKey: `${job.id}:${index}`,
           })),
         });
+        await recordOutboundActivity(tx, conversation.id, replies.at(-1)!);
       }
       return 'done';
     });
@@ -223,7 +232,7 @@ export class BotService {
     if (row.status === MessageStatus.SENDING) {
       // A previous run crashed between claiming the send and recording its
       // outcome: Meta may have accepted it, so never resend.
-      await this.setStatus(row.id, MessageStatus.UNCERTAIN, {
+      await this.setStatus(row, MessageStatus.UNCERTAIN, {
         errorCode: 'interrupted_send',
       });
       result.uncertain += 1;
@@ -251,22 +260,27 @@ export class BotService {
 
     switch (outcome.kind) {
       case 'sent':
-        await this.setStatus(row.id, MessageStatus.SENT, {
+        await this.setStatus(row, MessageStatus.SENT, {
           waMessageId: outcome.waMessageId,
         });
         result.sent += 1;
         return;
       case 'uncertain':
-        await this.setStatus(row.id, MessageStatus.UNCERTAIN, {});
+        await this.setStatus(row, MessageStatus.UNCERTAIN, {});
         result.uncertain += 1;
         return;
       case 'rejected': {
         const errorCode = String(outcome.code);
         if (outcome.retryable && job.attempts < job.maxAttempts) {
-          await this.setStatus(row.id, MessageStatus.QUEUED, {});
+          await this.setStatus(row, MessageStatus.QUEUED, {});
           throw new JobError(`send_rejected_${errorCode}`, true);
         }
-        await this.setStatus(row.id, MessageStatus.FAILED, { errorCode });
+        await this.setStatus(
+          row,
+          MessageStatus.FAILED,
+          { errorCode },
+          metaErrorKind(outcome.code) === 'window_closed',
+        );
         result.failed += 1;
         if (outcome.retryable) {
           // Out of attempts: the reply is lost; fail the job visibly.
@@ -277,14 +291,30 @@ export class BotService {
     }
   }
 
+  /** The send's result, and the conversation joins the inbox changes. */
+  /**
+   * The send's result, and the conversation joins the inbox changes. Meta
+   * saying the window is closed (131047) moves windowExpiresAt to now.
+   */
   private async setStatus(
-    id: string,
+    row: Message,
     status: MessageStatus,
     extra: { waMessageId?: string; errorCode?: string },
+    windowClosed = false,
   ): Promise<void> {
-    await this.prisma.message.update({
-      where: { id },
-      data: { status, ...extra },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.message.update({
+        where: { id: row.id },
+        data: { status, ...extra },
+      });
+      if (windowClosed) {
+        await tx.conversation.update({
+          where: { id: row.conversationId },
+          data: { windowExpiresAt: new Date() },
+        });
+      } else {
+        await touchConversations(tx, { id: row.conversationId });
+      }
     });
   }
 }

@@ -1,6 +1,11 @@
 /** Sends WhatsApp messages from one line. Never throws. */
 export interface WhatsAppClient {
   sendText(to: string, body: string): Promise<SendOutcome>;
+  /**
+   * Marks an inbound message as read (best effort: false on any failure).
+   * Optional: clients that cannot send (or test doubles) leave it out.
+   */
+  markRead?(waMessageId: string): Promise<boolean>;
 }
 
 /**

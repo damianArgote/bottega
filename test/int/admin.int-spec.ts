@@ -71,10 +71,14 @@ describe('Admin operations (integration)', () => {
   };
 
   /** Moves the last inbound time so the 24h window is open or closed. */
+  /** The window follows windowExpiresAt (24 h after the last inbound). */
   const setLastInbound = (id: string, hoursAgo: number) =>
     prisma.conversation.update({
       where: { id },
-      data: { lastInboundAt: new Date(Date.now() - hoursAgo * HOUR) },
+      data: {
+        lastInboundAt: new Date(Date.now() - hoursAgo * HOUR),
+        windowExpiresAt: new Date(Date.now() - (hoursAgo - 24) * HOUR),
+      },
     });
 
   const handoffs = (conversationId: string) =>
@@ -192,6 +196,9 @@ describe('Admin operations (integration)', () => {
     await expect(admin.sendHumanReply(id, 'Hola')).rejects.toBeInstanceOf(
       ConflictException,
     );
+    await expect(admin.sendHumanReply(id, 'Hola')).rejects.toMatchObject({
+      response: { code: 'WINDOW_CLOSED' },
+    });
 
     expect(sendText).not.toHaveBeenCalled();
     expect(await prisma.message.count({ where: { author: 'HUMAN' } })).toBe(0);

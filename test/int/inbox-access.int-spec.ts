@@ -10,8 +10,9 @@ import {
 } from '../../src/auth/login-rate-limiter.js';
 import { UsersService } from '../../src/auth/users.service.js';
 import { AppConfigService } from '../../src/config/app-config.service.js';
+import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
-import { createLine, resetDb } from './helpers.js';
+import { createLine, resetDb, textEvent } from './helpers.js';
 
 const PASSWORD = 'una clave larga';
 
@@ -128,5 +129,113 @@ describe('Inbox business access (integration, HTTP)', () => {
     await prisma.membership.deleteMany();
 
     await inbox(a, session).expect(403);
+  });
+
+  describe('conversation actions over HTTP', () => {
+    const conversationOf = async () => {
+      await app
+        .get(ConversationsService)
+        .recordInbound({ ...textEvent('wamid.http.1'), timestamp: new Date() });
+      return (await prisma.conversation.findFirstOrThrow()).id;
+    };
+    const act = (cookie: string, id: string, action: string, body?: object) =>
+      http()
+        .post(`/inbox/businesses/${a}/conversations/${id}/${action}`)
+        .set('Cookie', cookie)
+        .send(body ?? {});
+
+    it('take, then another member gets 409; hand back, release and resolve answer with the new state', async () => {
+      await users.addToBusiness(a, {
+        email: 'beto@example.com',
+        name: 'Beto',
+        password: PASSWORD,
+        role: 'AGENT',
+      });
+      const id = await conversationOf();
+      const ana = await sessionOf('ana@example.com');
+      const beto = await sessionOf('beto@example.com');
+
+      const taken = await act(ana, id, 'take').expect(200);
+      expect(taken.body).toMatchObject({
+        id,
+        status: 'OPEN',
+        assignedTo: { name: 'Ana' },
+        paused: false,
+      });
+      const conflict = await act(beto, id, 'take').expect(409);
+      expect(conflict.body).toMatchObject({ code: 'ALREADY_TAKEN' });
+      await act(beto, id, 'take', { force: true }).expect(403);
+
+      expect((await act(ana, id, 'handback').expect(200)).body).toMatchObject({
+        assignedTo: null,
+        paused: false,
+      });
+      expect((await act(ana, id, 'release').expect(200)).body).toMatchObject({
+        paused: true,
+      });
+      expect((await act(ana, id, 'resolve').expect(200)).body).toMatchObject({
+        status: 'RESOLVED',
+      });
+    });
+
+    it('validates the conversation id and the body, and 404s for another business', async () => {
+      const id = await conversationOf();
+      const ana = await sessionOf('ana@example.com');
+
+      await act(ana, 'abc', 'take').expect(400);
+      await act(ana, id, 'take', { force: 'yes' }).expect(400);
+      await act(ana, '00000000-0000-4000-8000-000000000000', 'take').expect(
+        404,
+      );
+    });
+  });
+
+  describe('reads over HTTP', () => {
+    it('lists, polls changes, pages messages and lists lines; JSON-safe (seq as string)', async () => {
+      await app
+        .get(ConversationsService)
+        .recordInbound({ ...textEvent('wamid.read.1'), timestamp: new Date() });
+      const ana = await sessionOf('ana@example.com');
+      const get = (path: string) =>
+        http().get(`/inbox/businesses/${a}${path}`).set('Cookie', ana);
+
+      const list = (await get('/conversations?view=unassigned').expect(200))
+        .body as { conversations: { id: string }[] };
+      expect(list.conversations).toHaveLength(1);
+      const id = list.conversations[0]!.id;
+
+      const changes = (await get('/changes').expect(200)).body as {
+        hasMore: boolean;
+        cursor: unknown;
+      };
+      expect(changes.hasMore).toBe(false);
+      expect(typeof changes.cursor).toBe('string');
+
+      const messages = (await get(`/conversations/${id}/messages`).expect(200))
+        .body as { messages: unknown[] };
+      expect(messages.messages[0]).toMatchObject({
+        content: 'hola',
+        seq: expect.stringMatching(/^\d+$/) as unknown,
+      });
+
+      const lines = (await get('/lines').expect(200)).body as {
+        lines: unknown[];
+      };
+      expect(lines.lines).toHaveLength(1);
+    });
+
+    it('validates the queries', async () => {
+      const ana = await sessionOf('ana@example.com');
+      const get = (path: string) =>
+        http().get(`/inbox/businesses/${a}${path}`).set('Cookie', ana);
+
+      await get('/conversations').expect(400);
+      await get('/conversations?view=all').expect(400);
+      await get('/changes?cursor=nope').expect(400);
+      await get('/conversations/abc/messages').expect(400);
+      await get(
+        `/conversations/00000000-0000-4000-8000-000000000000/messages?before=x`,
+      ).expect(400);
+    });
   });
 });

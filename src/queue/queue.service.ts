@@ -98,6 +98,20 @@ export class QueueService {
   }
 
   /**
+   * Marks the job done without a reply (a person attends the conversation).
+   * Returns false when the worker no longer owns it.
+   */
+  async skip(job: Pick<ClaimedJob, 'id' | 'lockedBy'>): Promise<boolean> {
+    const count = await this.prisma.$executeRaw`
+      UPDATE processing_job
+      SET status = 'SKIPPED', lease_expires_at = NULL, locked_by = NULL,
+          updated_at = ${UTC_NOW}
+      WHERE id = ${job.id}::uuid AND status = 'PROCESSING'
+        AND locked_by = ${job.lockedBy}`;
+    return count > 0;
+  }
+
+  /**
    * Records a failure. Retryable failures with attempts left go back to
    * PENDING with exponential backoff (5s·2^attempts, capped at 5 min);
    * anything else ends FAILED, which no longer blocks the conversation.

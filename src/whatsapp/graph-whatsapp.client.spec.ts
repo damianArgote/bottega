@@ -134,6 +134,48 @@ describe('GraphWhatsAppClient', () => {
     });
   });
 
+  it.each([131048, 131049])(
+    'classifies %s (rate limit) as retryable rejection',
+    async (code) => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(400, { error: { code, message: 'limit' } }),
+      );
+
+      expect(await client.sendText(LINE, TO, BODY)).toMatchObject({
+        kind: 'rejected',
+        code,
+        retryable: true,
+      });
+    },
+  );
+
+  describe('markRead', () => {
+    it('sends the documented read receipt and returns true', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { success: true }));
+
+      expect(await client.markRead(LINE, 'wamid.in.1')).toBe(true);
+
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe('https://graph.facebook.com/v26.0/123/messages');
+      expect(JSON.parse(init?.body as string)).toEqual({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: 'wamid.in.1',
+      });
+      expect(init?.headers).toMatchObject({ Authorization: `Bearer ${TOKEN}` });
+    });
+
+    it('returns false instead of throwing on an error or a network failure', async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(400, { error: { code: 100, message: 'bad' } }),
+      );
+      fetchMock.mockRejectedValueOnce(networkError('ECONNRESET'));
+
+      expect(await client.markRead(LINE, 'wamid.in.1')).toBe(false);
+      expect(await client.markRead(LINE, 'wamid.in.1')).toBe(false);
+    });
+  });
+
   it('classifies 4xx without error body using the http status', async () => {
     fetchMock.mockResolvedValue(new Response('nope', { status: 404 }));
 

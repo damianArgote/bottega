@@ -264,7 +264,8 @@ describe('BotService two-phase processing (integration)', () => {
     expect(generate).not.toHaveBeenCalled();
     expect(sendText).not.toHaveBeenCalled();
     expect(await outbound()).toEqual([]);
-    expect((await onlyJob()).status).toBe('COMPLETED');
+    // Prompt 04: a job with no reply because nobody may answer ends SKIPPED.
+    expect((await onlyJob()).status).toBe('SKIPPED');
     const inbound = await prisma.message.findUniqueOrThrow({
       where: { waMessageId: 'wamid.in' },
     });

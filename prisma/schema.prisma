@@ -96,6 +96,9 @@ enum JobStatus {
   PROCESSING
   COMPLETED
   FAILED
+  /// Done without a reply: a person attends the conversation (assigned) or
+  /// the bot is paused.
+  SKIPPED
 
   @@map("job_status")
 }
@@ -219,23 +222,38 @@ model Contact {
 
 /// One thread per (line, contact): it is reopened, never split.
 model Conversation {
-  id                 String           @id @default(uuid()) @db.Uuid
-  lineId             String           @map("line_id") @db.Uuid
-  contactId          String           @map("contact_id") @db.Uuid
-  mode               ConversationMode @default(COMMERCIAL)
-  paused             Boolean          @default(false)
-  pausedAt           DateTime?        @map("paused_at")
+  id                 String             @id @default(uuid()) @db.Uuid
+  lineId             String             @map("line_id") @db.Uuid
+  contactId          String             @map("contact_id") @db.Uuid
+  mode               ConversationMode   @default(COMMERCIAL)
+  paused             Boolean            @default(false)
+  pausedAt           DateTime?          @map("paused_at")
   /// Day (Business.timezone) the out-of-hours notice was last added.
-  outOfHoursNoticeOn DateTime?        @map("out_of_hours_notice_on") @db.Date
-  activeContextId    String?          @unique @map("active_context_id") @db.Uuid
-  /// Last inbound message time, used to enforce the 24h customer service window.
-  lastInboundAt      DateTime?        @map("last_inbound_at")
-  createdAt          DateTime         @default(now()) @map("created_at")
-  updatedAt          DateTime         @updatedAt @map("updated_at")
+  outOfHoursNoticeOn DateTime?          @map("out_of_hours_notice_on") @db.Date
+  activeContextId    String?            @unique @map("active_context_id") @db.Uuid
+  /// Last inbound message time (sent time). The window rule uses windowExpiresAt.
+  lastInboundAt      DateTime?          @map("last_inbound_at")
+  /// Inbox state (src/inbox/conversation-state.ts).
+  status             ConversationStatus @default(OPEN)
+  /// The person attending it; while set, the bot does not answer.
+  assignedToId       String?            @map("assigned_to_id") @db.Uuid
+  unreadCount        Int                @default(0) @map("unread_count")
+  lastMessageAt      DateTime?          @map("last_message_at")
+  lastMessagePreview String?            @map("last_message_preview") @db.VarChar(120)
+  /// End of WhatsApp's 24 h customer service window; never moves back.
+  windowExpiresAt    DateTime?          @map("window_expires_at")
+  /// Set by the conversation_track_change trigger on every insert and update
+  /// (pg_current_xact_id()); the /changes cursor. Never written by the app.
+  changeTxid         BigInt             @default(0) @map("change_txid")
+  /// Raised by the same trigger on every update.
+  version            Int                @default(1)
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
 
   line            Line                  @relation(fields: [lineId], references: [id], onDelete: Restrict)
   contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Restrict)
   activeContext   ConversationContext?  @relation("ActiveContext", fields: [activeContextId], references: [id], onDelete: SetNull)
+  assignedTo      User?                 @relation("ConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   contexts        ConversationContext[] @relation("ConversationContexts")
   messages        Message[]
   lead            Lead?
@@ -246,6 +264,9 @@ model Conversation {
 
   @@unique([lineId, contactId])
   @@index([contactId])
+  @@index([lineId, status, lastMessageAt(sort: Desc)])
+  @@index([assignedToId, status])
+  @@index([lineId, changeTxid])
   @@map("conversation")
 }
 
@@ -269,6 +290,8 @@ model ConversationContext {
 }
 
 model Message {
+  /// Insertion order (autoincrement); the inbox pages messages by it.
+  seq            BigInt           @unique @default(autoincrement())
   id             String           @id @default(uuid()) @db.Uuid
   conversationId String           @map("conversation_id") @db.Uuid
   contextId      String?          @map("context_id") @db.Uuid
@@ -419,6 +442,14 @@ model WebhookEvent {
   @@map("webhook_event")
 }
 
+enum ConversationStatus {
+  OPEN
+  PENDING
+  RESOLVED
+
+  @@map("conversation_status")
+}
+
 enum MembershipRole {
   OWNER
   AGENT
@@ -439,8 +470,9 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  memberships   Membership[]
-  refreshTokens RefreshToken[]
+  memberships           Membership[]
+  refreshTokens         RefreshToken[]
+  assignedConversations Conversation[] @relation("ConversationAssignee")
 
   @@map("app_user")
 }
