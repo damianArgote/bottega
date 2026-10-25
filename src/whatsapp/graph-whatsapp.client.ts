@@ -8,6 +8,10 @@ export interface GraphClientOptions {
   baseUrl?: string;
 }
 
+export type SubscribeOutcome =
+  | { subscribed: true }
+  | { subscribed: false; code: number | string; message: string };
+
 /** The sending line: its Meta phone number id and decrypted access token. */
 export interface LineSendCredentials {
   phoneNumberId: string;
@@ -118,6 +122,52 @@ export class GraphWhatsAppClient {
     }
 
     return classifyErrorResponse(response.status, payload);
+  }
+
+  /**
+   * Subscribes the app that owns `accessToken` to the events of a WhatsApp
+   * Business account (`POST /{waba-id}/subscribed_apps`). Never throws and
+   * never logs the token.
+   */
+  async subscribeApp(
+    wabaId: string,
+    accessToken: string,
+  ): Promise<SubscribeOutcome> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(
+        `${this.baseUrl}/${wabaId}/subscribed_apps`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(this.options.timeoutMs),
+        },
+      );
+    } catch {
+      return {
+        subscribed: false,
+        code: 'network_error',
+        message: 'request failed or timed out',
+      };
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = undefined;
+    }
+    if (response.ok && (payload as { success?: unknown })?.success === true) {
+      return { subscribed: true };
+    }
+    const error = (payload as GraphErrorBody | undefined)?.error;
+    return {
+      subscribed: false,
+      code: typeof error?.code === 'number' ? error.code : response.status,
+      message:
+        typeof error?.message === 'string'
+          ? error.message.slice(0, MAX_ERROR_MESSAGE_LENGTH)
+          : `http ${response.status}`,
+    };
   }
 
   private logOutcome(to: string, outcome: SendOutcome): void {

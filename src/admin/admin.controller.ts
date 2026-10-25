@@ -14,7 +14,10 @@ import {
 import type { Response } from 'express';
 import { AdminApiKeyGuard } from './admin-api-key.guard.js';
 import {
+  businessIdSchema,
   conversationIdSchema,
+  createBusinessBodySchema,
+  createLineBodySchema,
   conversationQuerySchema,
   handoffsQuerySchema,
   humanReplyBodySchema,
@@ -26,6 +29,7 @@ import {
   waIdSchema,
 } from './admin.schemas.js';
 import { AdminService, type HumanReplyResult } from './admin.service.js';
+import { BusinessesService } from './businesses.service.js';
 
 /** HTTP status per human reply outcome, so `curl -f` fails on a rejection. */
 const REPLY_STATUS: Record<HumanReplyResult['outcome'], number> = {
@@ -39,7 +43,28 @@ const REPLY_STATUS: Record<HumanReplyResult['outcome'], number> = {
 @Controller('admin')
 @UseGuards(AdminApiKeyGuard)
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly businesses: BusinessesService,
+  ) {}
+
+  @Post('businesses')
+  @HttpCode(HttpStatus.CREATED)
+  createBusiness(@Body() body: unknown) {
+    return this.businesses.createBusiness(
+      parseOrBadRequest(createBusinessBodySchema, body ?? {}, 'body'),
+    );
+  }
+
+  /** Returns the webhook URL and verify token to paste in the Meta app. */
+  @Post('businesses/:id/lines')
+  @HttpCode(HttpStatus.CREATED)
+  createLine(@Param('id') id: string, @Body() body: unknown) {
+    return this.businesses.createLine(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      parseOrBadRequest(createLineBodySchema, body ?? {}, 'body'),
+    );
+  }
 
   @Get('leads')
   leads(@Query() query: unknown) {

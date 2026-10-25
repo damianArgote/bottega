@@ -25,6 +25,16 @@ const optionalString = () =>
     .optional()
     .transform((value) => (value ? value : undefined));
 
+/** Optional http(s) URL without a trailing slash; blank counts as not set. */
+const optionalUrl = (name: string) =>
+  optionalString()
+    .refine(
+      (value) =>
+        value === undefined || /^https?:\/\/[^\s/]+(\/\S*)?$/.test(value),
+      `${name} must be an http(s) URL`,
+    )
+    .transform((value) => value?.replace(/\/+$/, ''));
+
 const positiveInt = (name: string, defaultValue: number) =>
   z.coerce
     .number({ error: `${name} must be a number` })
@@ -126,6 +136,12 @@ export const envSchema = z
     // time (AI call + several sends with WHATSAPP_HTTP_TIMEOUT_MS each), or a
     // slow job could be picked up twice.
     QUEUE_LEASE_MS: positiveInt('QUEUE_LEASE_MS', 120_000),
+
+    // Public base URL of this API, used to build each line's webhook URL in
+    // the admin API (e.g. https://bottega-api.onrender.com). Render sets
+    // RENDER_EXTERNAL_URL itself; PUBLIC_BASE_URL wins when both are set.
+    PUBLIC_BASE_URL: optionalUrl('PUBLIC_BASE_URL'),
+    RENDER_EXTERNAL_URL: optionalUrl('RENDER_EXTERNAL_URL'),
 
     // Encrypts per-line Meta credentials at rest (AES-256-GCM). Losing or
     // changing it makes the stored credentials unreadable.

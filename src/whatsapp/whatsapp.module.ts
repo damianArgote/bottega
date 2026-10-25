@@ -32,6 +32,6 @@ import { WHATSAPP_CLIENT_FACTORY } from './whatsapp.client.js';
     },
     { provide: WHATSAPP_CLIENT_FACTORY, useClass: LineWhatsAppClientFactory },
   ],
-  exports: [WHATSAPP_CLIENT_FACTORY],
+  exports: [WHATSAPP_CLIENT_FACTORY, GraphWhatsAppClient],
 })
 export class WhatsAppModule {}
