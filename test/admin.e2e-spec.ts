@@ -245,6 +245,10 @@ describe('Admin API (e2e)', () => {
       ['an unknown role', { messages: [{ role: 'system', content: 'x' }] }],
       ['an empty message', { messages: [{ role: 'user', content: '  ' }] }],
       [
+        'a message over 1.000 characters',
+        { messages: [{ role: 'user', content: 'a'.repeat(1_001) }] },
+      ],
+      [
         'more than 20 messages',
         {
           messages: Array.from({ length: 21 }, () => ({

@@ -93,6 +93,8 @@ export const idempotencyKeySchema = z
 
 /** Parses `value` or throws a 400 listing each problem (paths and rules only). */
 export const MAX_PREVIEW_MESSAGES = 20;
+/** Shorter than a human reply: each preview message is resent to the model. */
+export const MAX_PREVIEW_MESSAGE_LENGTH = 1_000;
 
 /** POST /admin/businesses/:id/agent/preview: the conversation so far. */
 export const agentPreviewBodySchema = z
@@ -102,7 +104,7 @@ export const agentPreviewBodySchema = z
         z
           .object({
             role: z.enum(['user', 'assistant']),
-            content: z.string().trim().min(1).max(MAX_HUMAN_REPLY_LENGTH),
+            content: z.string().trim().min(1).max(MAX_PREVIEW_MESSAGE_LENGTH),
           })
           .strict(),
       )

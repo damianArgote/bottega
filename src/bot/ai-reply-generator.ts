@@ -131,15 +131,13 @@ export class AiReplyGenerator implements ReplyGenerator {
         tools: { mode: input.mode, barbershop, ...toolOptions },
       },
       (r) => this.call(turn, r),
-    );
-    for (const call of outcome.calls) {
-      if (!call.accepted) {
-        const tool = isToolName(call.name) ? call.name : 'unknown';
+      (rejected) => {
+        const tool = isToolName(rejected.name) ? rejected.name : 'unknown';
         this.logger.warn(
-          `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${call.reason}`,
+          `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${rejected.reason}`,
         );
-      }
-    }
+      },
+    );
     switch (outcome.kind) {
       case 'no_response':
         return fallback();

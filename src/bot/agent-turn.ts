@@ -46,6 +46,8 @@ export async function runAgentTurn(
     tools: Omit<ToolContext, 'planned'>;
   },
   call: (request: AiRequest) => Promise<AiResponse | null>,
+  /** Called for each rejected tool call as soon as it is planned. */
+  onRejected?: (trace: ToolCallTrace) => void,
 ): Promise<AgentTurnOutcome> {
   const items = [...setup.input];
   const effects: PlannedEffect[] = [];
@@ -68,14 +70,17 @@ export async function runAgentTurn(
         { kind: 'tool_call', ...toolCall },
         { kind: 'tool_result', callId: toolCall.callId, output: result.output },
       );
-      calls.push({
+      const trace: ToolCallTrace = {
         name: toolCall.name,
         arguments: toolCall.arguments,
         accepted: result.ok,
         ...(result.ok ? {} : { reason: result.reason }),
-      });
+      };
+      calls.push(trace);
       if (result.ok) {
         effects.push(result.effect);
+      } else {
+        onRejected?.(trace);
       }
     }
     if (effects.some((e) => e.kind === 'request_handoff')) {
