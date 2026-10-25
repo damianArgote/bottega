@@ -39,7 +39,7 @@ describe('scenario files', () => {
     ).toThrow();
   });
 
-  it('BotSuite46 has the six scenarios the prompt asks for', () => {
+  it('BotSuite46 has the scenarios the prompt asks for, plus no-repite-datos', () => {
     const file = loadScenarioFile(join(SCENARIOS_DIR, 'botsuite46.json'));
 
     expect(file.business).toBe('botsuite46');
@@ -50,6 +50,7 @@ describe('scenario files', () => {
       'pide-humano',
       'cambiar-reglas',
       'fuera-de-tema',
+      'no-repite-datos',
     ]);
     const tools = (name: string) =>
       file.scenarios.find((s) => s.name === name)?.turns.at(-1);
