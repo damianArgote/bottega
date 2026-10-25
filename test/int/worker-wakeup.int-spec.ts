@@ -108,7 +108,7 @@ describe('Idle worker wake-up (integration)', () => {
     expect(Date.now() - startedAt).toBeLessThan(2_000);
     expect(sendText).toHaveBeenCalledExactlyOnceWith(
       USER,
-      'Hola! Soy Bottega 🤖 Recibí tu mensaje: "hola"',
+      'Hola! Soy BotSuite46 🤖 Recibí tu mensaje: "hola"',
     );
   });
 });

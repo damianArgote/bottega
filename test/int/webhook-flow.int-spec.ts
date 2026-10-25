@@ -102,7 +102,7 @@ describe('Webhook → queue → worker flow (integration)', () => {
     expect(await worker.drain()).toBe(1);
     expect(sendText).toHaveBeenCalledExactlyOnceWith(
       USER,
-      'Hola! Soy Bottega 🤖 Recibí tu mensaje: "hola"',
+      'Hola! Soy BotSuite46 🤖 Recibí tu mensaje: "hola"',
     );
   });
 

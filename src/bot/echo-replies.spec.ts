@@ -3,7 +3,7 @@ import { echoReply } from './echo-replies.js';
 describe('echoReply', () => {
   it('quotes the received text', () => {
     expect(echoReply('hola')).toBe(
-      'Hola! Soy Bottega 🤖 Recibí tu mensaje: "hola"',
+      'Hola! Soy BotSuite46 🤖 Recibí tu mensaje: "hola"',
     );
   });
 

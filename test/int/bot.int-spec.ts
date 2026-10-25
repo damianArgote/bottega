@@ -84,7 +84,7 @@ describe('BotService two-phase processing (integration)', () => {
 
     expect(sendText).toHaveBeenCalledExactlyOnceWith(
       USER,
-      'Hola! Soy Bottega 🤖 Recibí tu mensaje: "hola"',
+      'Hola! Soy BotSuite46 🤖 Recibí tu mensaje: "hola"',
     );
     const job = await onlyJob();
     const conversation = await prisma.conversation.findFirstOrThrow();

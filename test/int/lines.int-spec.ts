@@ -89,8 +89,8 @@ describe('Businesses, lines and contacts (integration)', () => {
 
     it('a conversation cannot exist without a line and a contact', async () => {
       await expect(prisma.$executeRaw`
-        INSERT INTO conversation (id, wa_id, mode, paused, created_at, updated_at)
-        VALUES (gen_random_uuid(), '5491100001234', 'COMMERCIAL', false, now(), now())`).rejects.toThrow(
+        INSERT INTO conversation (id, mode, paused, created_at, updated_at)
+        VALUES (gen_random_uuid(), 'COMMERCIAL', false, now(), now())`).rejects.toThrow(
         /(line_id|contact_id).*not-null constraint/,
       );
     });
@@ -192,7 +192,7 @@ describe('Businesses, lines and contacts (integration)', () => {
       expect(thread.contact.waId).toBe(USER);
     });
 
-    it('keeps working once conversation.wa_id is dropped (next migration)', async () => {
+    it('conversation has no wa_id column; inbound, bot reply and admin view work', async () => {
       const a = await createLine(prisma, { slug: 'a', phoneNumberId: '111' });
       const sent: Array<{ to: string }> = [];
       const worker = new BotWorker(
@@ -213,31 +213,31 @@ describe('Businesses, lines and contacts (integration)', () => {
         ),
         new QueueSignal(),
       );
-      await prisma.$executeRaw`ALTER TABLE conversation DROP COLUMN wa_id`;
-      try {
-        const result = await conversations.recordInbound(
-          { ...textEvent('wamid.1', USER), timestamp: new Date() },
-          a,
-        );
-        await worker.drain();
-        const admin = new AdminService(
-          prisma,
-          new ContextService(prisma),
-          fixedClientFactory({
-            sendText: () =>
-              Promise.resolve({ kind: 'sent', waMessageId: 'wamid.h' }),
-          }),
-        );
-        const view = await admin.getConversation(
-          result.outcome === 'created' ? result.conversationId : '',
-          10,
-        );
+      const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'conversation'`;
 
-        expect(sent).toEqual([{ to: USER }]);
-        expect(view.conversation.waId).toBe(USER);
-      } finally {
-        await prisma.$executeRaw`ALTER TABLE conversation ADD COLUMN wa_id text`;
-      }
+      const result = await conversations.recordInbound(
+        { ...textEvent('wamid.1', USER), timestamp: new Date() },
+        a,
+      );
+      await worker.drain();
+      const admin = new AdminService(
+        prisma,
+        new ContextService(prisma),
+        fixedClientFactory({
+          sendText: () =>
+            Promise.resolve({ kind: 'sent', waMessageId: 'wamid.h' }),
+        }),
+      );
+      const view = await admin.getConversation(
+        result.outcome === 'created' ? result.conversationId : '',
+        10,
+      );
+
+      expect(columns.map((c) => c.column_name)).not.toContain('wa_id');
+      expect(sent).toEqual([{ to: USER }]);
+      expect(view.conversation.waId).toBe(USER);
     });
 
     it('stores the profile name Meta sends on the contact', async () => {
