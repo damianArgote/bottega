@@ -49,6 +49,7 @@ describe('save_lead generated from leadFields', () => {
       expect(prop.type).toEqual(['string', 'null']);
     }
     expect(properties.phone?.description).toContain('Celular');
+    expect(properties.phone?.description).toContain('máx. 40 caracteres');
     expect(properties.email?.description).toContain('Email');
   });
 

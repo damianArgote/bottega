@@ -18,13 +18,19 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Argument schema and model-facing hint for each lead field kind. */
 const KINDS: Record<
   LeadField['kind'],
-  { arg: () => z.ZodType<string | null, unknown>; hint: string }
+  {
+    /** Longest accepted value, as the user typed it. */
+    max: number;
+    arg: (max: number) => z.ZodType<string | null, unknown>;
+    hint: string;
+  }
 > = {
-  text: { arg: () => textArg(MAX), hint: '' },
+  text: { max: MAX, arg: textArg, hint: '' },
   // Stored as digits with an optional leading "+".
   phone: {
-    arg: () =>
-      textArg(40)
+    max: 40,
+    arg: (max) =>
+      textArg(max)
         .transform((v) => (v === null ? null : v.replace(PHONE_SEPARATORS, '')))
         .refine((v) => v === null || PHONE.test(v), {
           message: 'must be a phone number',
@@ -32,8 +38,9 @@ const KINDS: Record<
     hint: ' Un número de teléfono, con característica.',
   },
   email: {
-    arg: () =>
-      textArg(MAX)
+    max: MAX,
+    arg: (max) =>
+      textArg(max)
         .transform((v) => (v === null ? null : v.toLowerCase()))
         .refine((v) => v === null || EMAIL.test(v), {
           message: 'must be an email address',
@@ -41,7 +48,8 @@ const KINDS: Record<
     hint: ' Una dirección de email.',
   },
   date: {
-    arg: () => textArg(100),
+    max: 100,
+    arg: textArg,
     hint: ' Una fecha, como la dijo el usuario.',
   },
 };
@@ -66,14 +74,16 @@ export function saveLeadToolFor(
         fields.map((f) => [
           f.key,
           nullableString(
-            `${f.label}.${KINDS[f.kind].hint} (máx. ${MAX} caracteres).`,
+            `${f.label}.${KINDS[f.kind].hint} (máx. ${KINDS[f.kind].max} caracteres).`,
           ),
         ]),
       ),
     ),
     schema: z
       .object(
-        Object.fromEntries(fields.map((f) => [f.key, KINDS[f.kind].arg()])),
+        Object.fromEntries(
+          fields.map((f) => [f.key, KINDS[f.kind].arg(KINDS[f.kind].max)]),
+        ),
       )
       .strict(),
     plan(args) {

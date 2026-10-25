@@ -25,14 +25,16 @@ describe('lead values', () => {
     expect(() => cleanLeadValues({ name: 'x'.repeat(501) })).toThrow(ZodError);
   });
 
-  it('leadValuesOf merges the fixed columns under data, data winning', () => {
+  it('leadValuesOf merges data and the fixed columns, the columns winning for the old keys', () => {
+    // The previous release may correct a column after the backfill; new code
+    // writes both, so a column is never older than data.
     expect(
       leadValuesOf({
         ...columns,
-        name: 'Ana (column)',
+        name: 'Ana',
         businessName: 'Consultorio Sur',
         contactNotes: 'por la tarde',
-        data: { name: 'Ana', phone: '+5491100000000' },
+        data: { name: 'Ana (old)', phone: '+5491100000000' },
       }),
     ).toEqual({
       name: 'Ana',

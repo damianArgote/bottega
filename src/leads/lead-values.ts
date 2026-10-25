@@ -37,9 +37,11 @@ export function cleanLeadValues(values: Record<string, string>): LeadValues {
 }
 
 /**
- * Everything known about the lead: the fixed columns (leads written before
- * Lead.data, or by the previous release during a deploy) under Lead.data,
- * which wins. Non-text data is ignored.
+ * Everything known about the lead: Lead.data plus the fixed columns (leads
+ * written before Lead.data, or by the previous release during a deploy).
+ * The columns win for their keys: the previous release may correct them, and
+ * new code writes both, so a column is never older than data. Non-text data
+ * is ignored.
  */
 export function leadValuesOf(
   lead: (Pick<Lead, LegacyColumn> & { data: unknown }) | null,
@@ -48,18 +50,18 @@ export function leadValuesOf(
     return {};
   }
   const values: LeadValues = {};
-  for (const [key, column] of Object.entries(LEGACY_LEAD_COLUMNS)) {
-    const value = lead[column];
-    if (value) {
-      values[key] = value;
-    }
-  }
   const data = lead.data;
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     for (const [key, value] of Object.entries(data)) {
       if (typeof value === 'string' && value) {
         values[key] = value;
       }
+    }
+  }
+  for (const [key, column] of Object.entries(LEGACY_LEAD_COLUMNS)) {
+    const value = lead[column];
+    if (value) {
+      values[key] = value;
     }
   }
   return values;

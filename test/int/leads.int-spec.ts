@@ -115,9 +115,11 @@ describe('Leads (integration)', () => {
       });
     });
 
-    it('is idempotent and keeps values already in data', async () => {
+    it('is idempotent, keeps keys only in data and takes corrected columns', async () => {
       await legacyLead();
-      await prisma.lead.updateMany({ data: { data: { name: 'Ana María' } } });
+      await prisma.lead.updateMany({
+        data: { data: { name: 'Ana (old)', phone: '+5491100000000' } },
+      });
 
       await backfillLeads(prisma);
       const first = await prisma.lead.findFirstOrThrow();
@@ -126,8 +128,9 @@ describe('Leads (integration)', () => {
       const second = await prisma.lead.findFirstOrThrow();
       expect(second.data).toEqual(first.data);
       expect(second.data).toMatchObject({
-        name: 'Ana María',
+        name: 'Ana',
         business_name: 'Consultorio Sur',
+        phone: '+5491100000000',
       });
     });
   });

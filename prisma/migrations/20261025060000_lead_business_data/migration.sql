@@ -14,26 +14,28 @@ CREATE INDEX "lead_business_id_idx" ON "lead"("business_id");
 -- AddForeignKey
 ALTER TABLE "lead" ADD CONSTRAINT "lead_business_id_fkey" FOREIGN KEY ("business_id") REFERENCES "business"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- Backfill: same statement as backfillLeads. Values already in data win.
+-- Backfill: same statement as backfillLeads. The fixed columns win for
+-- their keys: the previous release may still correct them, and new code
+-- writes both, so a column is never older than data.
 UPDATE lead AS l
 SET business_id = COALESCE(l.business_id, ln.business_id),
-    data = jsonb_strip_nulls(jsonb_build_object(
+    data = l.data || jsonb_strip_nulls(jsonb_build_object(
       'name', l.name,
       'business_name', l.business_name,
       'industry', l.industry,
       'need', l.need,
       'contact_notes', l.contact_notes
-    )) || l.data
+    ))
 FROM conversation AS c
 JOIN line AS ln ON ln.id = c.line_id
 WHERE c.id = l.conversation_id
   AND (
     l.business_id IS NULL
-    OR (jsonb_strip_nulls(jsonb_build_object(
+    OR (l.data || jsonb_strip_nulls(jsonb_build_object(
       'name', l.name,
       'business_name', l.business_name,
       'industry', l.industry,
       'need', l.need,
       'contact_notes', l.contact_notes
-    )) || l.data) IS DISTINCT FROM l.data
+    ))) IS DISTINCT FROM l.data
   );

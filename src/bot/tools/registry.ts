@@ -35,8 +35,8 @@ export function toolHandlerFor(
   { leadFields }: ToolOptions,
 ): ToolHandler {
   return name === 'save_lead'
-    ? (saveLeadToolFor(leadFields))
-    : (STATIC_HANDLERS[name]);
+    ? saveLeadToolFor(leadFields)
+    : STATIC_HANDLERS[name];
 }
 
 /** Tools allowed in `mode` for this business. */
