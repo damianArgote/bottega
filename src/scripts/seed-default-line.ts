@@ -1,6 +1,5 @@
 // Creates or updates the default business and line from the env, and the
-// business's agent profile from content/commercial-info.md (first run only),
-// and copies the fixed lead columns into Lead.data (backfillLeads).
+// business's agent profile from content/commercial-info.md (first run only).
 // Idempotent: Render runs it after the migrations on every deploy
 // (render.yaml preDeployCommand).
 // Usage: npm run build && npm run seed:default-line
@@ -11,7 +10,6 @@ import { seedDefaultAgentProfile } from '../agents/default-agent-profile.seed.js
 import { loadContent } from '../content/content.schema.js';
 import { DEFAULT_CONTENT_DIR } from '../content/content.service.js';
 import { PrismaClient } from '../generated/prisma/client.js';
-import { backfillLeads } from '../leads/lead-backfill.js';
 import { CredentialsCipher } from '../lines/credentials-cipher.js';
 import { seedDefaultLine } from '../lines/default-line.seed.js';
 
@@ -37,8 +35,6 @@ async function main(): Promise<void> {
         ? 'seed:default-line agent profile skipped: no default business'
         : `seed:default-line agent profile ready: ${profile.profileId}`,
     );
-    const leads = await backfillLeads(prisma);
-    console.log(`seed:default-line leads backfilled: ${leads}`);
   } finally {
     await prisma.$disconnect();
   }
