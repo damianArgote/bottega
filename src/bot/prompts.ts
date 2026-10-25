@@ -79,7 +79,9 @@ export function buildCommercialInstructions(
 ): string {
   const asksForData = profile.leadFields.length > 0;
   const howTo = [
+    `- En tu primer mensaje de la conversación, presentate como "${cleanText(profile.botName)}".`,
     '- Respondé consultas con la información del negocio de abajo. Si un dato está marcado [COMPLETAR] o no aparece, decí que el equipo lo confirma; no lo inventes.',
+    '- Si te preguntan algo que no tiene que ver con el negocio, decí con amabilidad que solo podés ayudar con temas del negocio y no lo respondas.',
     ...(asksForData
       ? [
           '- De a poco y sin presionar, pedí los datos de "Datos a pedir", uno por vez.',

@@ -33,6 +33,29 @@ export const DEFAULT_LEAD_FIELDS: AgentProfileInput['leadFields'] = [
   { key: 'need', label: 'Necesidad', required: true, kind: 'text' },
 ];
 
+/**
+ * BotSuite46's initial profile (validated; throws a ZodError when the
+ * content is over the profile limits). Also used by the scenario runner.
+ */
+export function defaultAgentProfile(
+  botName: string,
+  commercialInfo: string,
+): AgentProfileInput {
+  return agentProfileSchema.parse({
+    enabled: true,
+    botName,
+    persona: DEFAULT_PERSONA,
+    businessInfo: commercialInfo,
+    faq: [],
+    leadFields: DEFAULT_LEAD_FIELDS,
+    handoffRules: DEFAULT_HANDOFF_RULES,
+    outOfHoursMessage: DEFAULT_OUT_OF_HOURS_MESSAGE,
+    openingHours: DEFAULT_OPENING_HOURS,
+    model: null,
+    demoEnabled: true,
+  } satisfies AgentProfileInput);
+}
+
 export type AgentProfileSeedResult =
   { outcome: 'skipped' } | { outcome: 'seeded'; profileId: string };
 
@@ -61,19 +84,7 @@ export async function seedDefaultAgentProfile(
     // cannot fail a deploy.
     return { outcome: 'seeded', profileId: existing.id };
   }
-  const profile = agentProfileSchema.parse({
-    enabled: true,
-    botName: business.botName,
-    persona: DEFAULT_PERSONA,
-    businessInfo: commercialInfo,
-    faq: [],
-    leadFields: DEFAULT_LEAD_FIELDS,
-    handoffRules: DEFAULT_HANDOFF_RULES,
-    outOfHoursMessage: DEFAULT_OUT_OF_HOURS_MESSAGE,
-    openingHours: DEFAULT_OPENING_HOURS,
-    model: null,
-    demoEnabled: true,
-  } satisfies AgentProfileInput);
+  const profile = defaultAgentProfile(business.botName, commercialInfo);
 
   // Upsert so a concurrent first run cannot fail on the unique business id.
   const { id } = await prisma.agentProfile.upsert({
