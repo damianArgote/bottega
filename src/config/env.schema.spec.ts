@@ -182,6 +182,13 @@ describe('parseEnv', () => {
     ]);
   });
 
+  it('lowercases INBOX_ORIGIN, as browsers send it', () => {
+    expect(
+      parseEnv(validEnv({ INBOX_ORIGIN: 'https://Inbox.BotSuite46.com' }))
+        .INBOX_ORIGIN,
+    ).toBe('https://inbox.botsuite46.com');
+  });
+
   it('accepts a local INBOX_ORIGIN with a port', () => {
     expect(
       parseEnv(validEnv({ INBOX_ORIGIN: 'http://localhost:4200' }))
