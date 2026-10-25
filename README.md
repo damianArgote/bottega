@@ -240,6 +240,9 @@ En la app de Meta → **WhatsApp → Configuración**, poné como URL
 - **Deploys sin cortar respuestas.** En cada deploy Render manda `SIGTERM`: el
   worker deja de tomar trabajos y termina los que tiene en curso (hasta 120 s,
   `maxShutdownDelaySeconds`).
+- **Solo se despliega lo que pasó el CI.** Render despliega cada commit de
+  `main`, pero espera a que pasen los checks de GitHub (`autoDeployTrigger:
+  checksPass`).
 - **Las migraciones corren antes de arrancar.** Si fallan, el deploy se corta
   y queda andando la versión anterior.
 
@@ -438,6 +441,10 @@ mensajes reales ni consumen créditos.
 | `npm run test:int` | Integración con Postgres real | `npm run db:up`. Usa la base `bottega_test` (la crea sola y la vacía en cada test). |
 | `npm run lint` | ESLint | — |
 | `npm run build` | Compila a `dist/` | — |
+
+En GitHub, el workflow `.github/workflows/ci.yml` corre lint, las tres suites
+(con un Postgres propio) y el build en cada PR a `develop` o `main` y en cada
+push a esas ramas.
 
 ---
 

@@ -1,0 +1,51 @@
+# Lint, all test suites and build on every PR and on pushes to develop/main.
+# Render deploys main only after these checks pass (autoDeployTrigger:
+# checksPass in render.yaml). Uses throwaway test values only, no secrets.
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # Same image and dev-only credentials as docker-compose.yml; the
+      # integration suite creates and migrates its own `bottega_test` database.
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: bottega
+          POSTGRES_PASSWORD: bottega
+          POSTGRES_DB: bottega
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bottega -d bottega"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:e2e
+      - run: npm run test:int
+      - run: npm run build

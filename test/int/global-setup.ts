@@ -27,8 +27,14 @@ export default async function setup(): Promise<void> {
     await admin.$disconnect();
   }
 
+  // prisma.config.ts prefers DATABASE_URL_UNPOOLED: pin both so a direct URL
+  // left in the shell (e.g. Neon) is never the one migrated.
   execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
-    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
+    env: {
+      ...process.env,
+      DATABASE_URL: TEST_DATABASE_URL,
+      DATABASE_URL_UNPOOLED: TEST_DATABASE_URL,
+    },
     stdio: 'pipe',
   });
 }
