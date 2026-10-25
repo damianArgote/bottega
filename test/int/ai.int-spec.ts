@@ -27,7 +27,11 @@ import {
 const USER = '5491100001234';
 const MODEL = 'test-model';
 const content = new ContentService();
-const vars = { demoBusinessName: content.getBarbershop().name };
+const vars = {
+  demoBusinessName: content.getBarbershop().name,
+  // resetDb seeds the profile with the test business's botName.
+  botName: 'Bot de botsuite46',
+};
 
 const text = (outputText: string): AiResponse => ({
   outputText,

@@ -92,6 +92,28 @@ export const idempotencyKeySchema = z
   .optional();
 
 /** Parses `value` or throws a 400 listing each problem (paths and rules only). */
+export const MAX_PREVIEW_MESSAGES = 20;
+
+/** POST /admin/businesses/:id/agent/preview: the conversation so far. */
+export const agentPreviewBodySchema = z
+  .object({
+    messages: z
+      .array(
+        z
+          .object({
+            role: z.enum(['user', 'assistant']),
+            content: z.string().trim().min(1).max(MAX_HUMAN_REPLY_LENGTH),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(MAX_PREVIEW_MESSAGES)
+      .refine((messages) => messages.at(-1)?.role === 'user', {
+        message: 'the last message must be from the user',
+      }),
+  })
+  .strict();
+
 export function parseOrBadRequest<T extends z.ZodType>(
   schema: T,
   value: unknown,

@@ -1,4 +1,7 @@
-import type { Prisma } from '../generated/prisma/client.js';
+import type {
+  AgentProfile as StoredAgentProfile,
+  Prisma,
+} from '../generated/prisma/client.js';
 import { DEFAULT_BOT_NAME } from '../lines/default-line.seed.js';
 import {
   type AgentProfileInput,
@@ -43,9 +46,8 @@ export class AgentProfileInvalidError extends Error {
 type Db = Pick<Prisma.TransactionClient, 'conversation'>;
 
 /**
- * The agent profile of the conversation's business. Stored profiles are
- * parsed with {@link agentProfileSchema} again, so the jsonb columns are typed
- * and checked before they reach the prompt.
+ * The agent profile of the conversation's business (see
+ * {@link toAgentProfile}), or the switched-off fallback when it has none.
  */
 export async function loadAgentProfile(
   db: Db,
@@ -57,7 +59,7 @@ export async function loadAgentProfile(
       line: {
         select: {
           business: {
-            select: { id: true, botName: true, agentProfile: true },
+            select: { botName: true, agentProfile: true },
           },
         },
       },
@@ -67,10 +69,31 @@ export async function loadAgentProfile(
   if (!business) {
     return fallbackAgentProfile(DEFAULT_BOT_NAME);
   }
-  const stored = business.agentProfile;
-  if (!stored) {
-    return fallbackAgentProfile(business.botName);
+  return business.agentProfile
+    ? toAgentProfile(business.agentProfile)
+    : fallbackAgentProfile(business.botName);
+}
+
+/**
+ * The stored profile of a business: null when the business exists but has
+ * no profile, undefined when there is no such business.
+ */
+export async function loadBusinessAgentProfile(
+  db: Pick<Prisma.TransactionClient, 'business'>,
+  businessId: string,
+): Promise<AgentProfile | null | undefined> {
+  const business = await db.business.findUnique({
+    where: { id: businessId },
+    select: { agentProfile: true },
+  });
+  if (!business) {
+    return undefined;
   }
+  return business.agentProfile ? toAgentProfile(business.agentProfile) : null;
+}
+
+/** A stored row, parsed again so its jsonb columns are typed and checked. */
+export function toAgentProfile(stored: StoredAgentProfile): AgentProfile {
   const parsed = agentProfileSchema.safeParse({
     enabled: stored.enabled,
     botName: stored.botName,
@@ -84,7 +107,7 @@ export async function loadAgentProfile(
     demoEnabled: stored.demoEnabled,
   });
   if (!parsed.success) {
-    throw new AgentProfileInvalidError(business.id);
+    throw new AgentProfileInvalidError(stored.businessId);
   }
   return { ...parsed.data, version: stored.version };
 }
