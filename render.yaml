@@ -11,8 +11,10 @@ services:
     # pre-deploy migration) are devDependencies, and npm skips them when
     # NODE_ENV=production.
     buildCommand: npm ci --include=dev && npm run build
-    # Uses DATABASE_URL_UNPOOLED (direct connection), see prisma.config.ts.
-    preDeployCommand: npm run prisma:deploy
+    # Migrations use DATABASE_URL_UNPOOLED (direct connection, see
+    # prisma.config.ts); then the idempotent seed creates the default business
+    # and line from the env and backfills conversations without a line.
+    preDeployCommand: npm run prisma:deploy && npm run seed:default-line
     startCommand: npm run start:prod
     # Liveness only: answers without touching the database, so Neon can
     # suspend. /health (with the database) stays for monitoring.
@@ -20,6 +22,9 @@ services:
     # A deploy sends SIGTERM; the worker finishes its in-flight jobs before
     # exiting. Matches the default QUEUE_LEASE_MS (120 s).
     maxShutdownDelaySeconds: 120
+    # Deploy a new commit only after its GitHub checks (.github/workflows/ci.yml)
+    # pass, so a red build never reaches production.
+    autoDeployTrigger: checksPass
     # Node version comes from .nvmrc.
     envVars:
       - key: NODE_ENV
@@ -43,6 +48,8 @@ services:
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: ADMIN_API_KEY
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
         sync: false
       - key: OPENAI_API_KEY
         sync: false

@@ -41,13 +41,17 @@ function knownLeadBlock(lead: KnownLead | null): string {
     : '- Todavía no hay datos.';
 }
 
-/** Instructions for the commercial assistant (real business, real leads). */
+/**
+ * Instructions for the commercial assistant (real business, real leads).
+ * `botName` is how the business's bot introduces itself (Business.botName).
+ */
 export function buildCommercialInstructions(
   commercialInfo: string,
   lead: KnownLead | null,
+  botName: string,
 ): string {
   return `
-Sos Bottega, el asistente virtual de nuestro emprendimiento. Atendés por WhatsApp a personas interesadas en un asistente con IA para su negocio.
+Sos ${cleanText(botName)}. Atendés por WhatsApp a personas interesadas en un asistente con IA para su negocio.
 
 ${COMMON_RULES}
 
@@ -85,7 +89,7 @@ export function buildDemoInstructions(barbershop: BarbershopDemo): string {
     .join('\n');
 
   return `
-Sos el asistente virtual de "${barbershop.name}", una barbería FICTICIA que se usa como demo para mostrar cómo funciona un asistente de WhatsApp. El negocio, sus datos y sus precios son inventados.
+Sos la IA que atiende el WhatsApp de "${barbershop.name}", una barbería FICTICIA que se usa como demo para mostrar cómo funciona un asistente de WhatsApp. El negocio, sus datos y sus precios son inventados.
 
 ${COMMON_RULES}
 

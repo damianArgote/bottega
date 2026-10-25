@@ -18,6 +18,8 @@ export default defineConfig({
       WHATSAPP_GRAPH_API_VERSION: 'v26.0',
       BOT_REPLY_MODE: 'echo',
       ADMIN_API_KEY: 'e2e-admin-api-key-0123456789abcdef',
+      // 32 zero bytes, base64: test-only.
+      TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       // The queue worker would poll the (mocked) database; e2e is HTTP-only.
       WORKER_ENABLED: 'false',
     },

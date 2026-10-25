@@ -36,6 +36,7 @@ import {
   toolDefinitionsFor,
 } from './tools/registry.js';
 import type { PlannedEffect } from './tools/tool.js';
+import { DEFAULT_BOT_NAME } from '../lines/default-line.seed.js';
 
 /** WhatsApp allows 4096 characters; keep model text well below it. */
 const MAX_REPLY_CHARS = 3000;
@@ -222,10 +223,23 @@ export class AiReplyGenerator implements ReplyGenerator {
       // Isolation: no lead data and no commercial info in the demo prompt.
       return buildDemoInstructions(content.getBarbershop());
     }
-    const lead = await prisma.lead.findUnique({
-      where: { conversationId: input.conversationId },
-    });
-    return buildCommercialInstructions(content.getCommercialInfo(), lead);
+    const [lead, conversation] = await Promise.all([
+      prisma.lead.findUnique({
+        where: { conversationId: input.conversationId },
+      }),
+      prisma.conversation.findUnique({
+        where: { id: input.conversationId },
+        select: {
+          line: { select: { business: { select: { botName: true } } } },
+        },
+      }),
+    ]);
+    return buildCommercialInstructions(
+      content.getCommercialInfo(),
+      lead,
+      // Every conversation has a line once seed:default-line has run.
+      conversation?.line?.business.botName ?? DEFAULT_BOT_NAME,
+    );
   }
 
   /** Last AI_HISTORY_LIMIT messages of the active context, oldest first. */

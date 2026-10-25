@@ -102,14 +102,20 @@ mal formato, no inicia y te dice **qué variable** falla (nunca muestra su valor
 | `PORT` | No | `3000` | Puerto HTTP. |
 | `NODE_ENV` | No | `development` | `development`, `test` o `production`. |
 
-**WhatsApp / Meta**
+**WhatsApp / Meta (línea por defecto)**
+
+\* Estas cuatro describen la **línea por defecto** (BotSuite46): la ruta sin
+clave `/webhooks/whatsapp` y el negocio que crea `npm run seed:default-line`.
+Si faltan, la app arranca igual y esa ruta responde `404`. Cada línea guarda
+sus propias credenciales (cifradas) en la base: la app manda los mensajes con
+el token de la línea de cada conversación, no con el del entorno.
 
 | Variable | Obligatoria | Default | Qué es y dónde se consigue |
 | -------- | ----------- | ------- | -------------------------- |
-| `META_APP_SECRET` | Sí | — | Secreto de la app. Meta for Developers → tu app → **App settings → Basic → App secret**. Se usa para validar la firma de cada webhook. |
-| `WHATSAPP_VERIFY_TOKEN` | Sí | — | Un texto **que inventás vos** (por ejemplo `openssl rand -hex 16`). Lo vas a pegar también en Meta al configurar el webhook. **No es el access token.** |
-| `WHATSAPP_ACCESS_TOKEN` | Sí | — | Token para enviar mensajes. WhatsApp → **API Setup** → token temporal. **Vence en unas horas** y hay que regenerarlo. Para algo durable: token de un **System User** (Business Settings), con la expiración que elijas. |
-| `WHATSAPP_PHONE_NUMBER_ID` | Sí | — | El **ID** del número (WhatsApp → API Setup). **No es el número de teléfono.** |
+| `META_APP_SECRET` | No* | — | Secreto de la app. Meta for Developers → tu app → **App settings → Basic → App secret**. Se usa para validar la firma de cada webhook. |
+| `WHATSAPP_VERIFY_TOKEN` | No* | — | Un texto **que inventás vos** (por ejemplo `openssl rand -hex 16`). Lo vas a pegar también en Meta al configurar el webhook. **No es el access token.** |
+| `WHATSAPP_ACCESS_TOKEN` | No* | — | Token para enviar mensajes. WhatsApp → **API Setup** → token temporal. **Vence en unas horas** y hay que regenerarlo. Para algo durable: token de un **System User** (Business Settings), con la expiración que elijas. |
+| `WHATSAPP_PHONE_NUMBER_ID` | No* | — | El **ID** del número (WhatsApp → API Setup). **No es el número de teléfono.** |
 | `WHATSAPP_GRAPH_API_VERSION` | Sí | — | Versión de la Graph API, con formato `v26.0`. Revisá la vigente en el [changelog](https://developers.facebook.com/docs/graph-api/changelog). |
 | `WHATSAPP_HTTP_TIMEOUT_MS` | No | `10000` | Tiempo máximo de cada envío a Meta. Si se agota, el envío queda "incierto" y **no se reenvía**. |
 
@@ -144,6 +150,8 @@ mal formato, no inicia y te dice **qué variable** falla (nunca muestra su valor
 | Variable | Obligatoria | Default | Qué es |
 | -------- | ----------- | ------- | ------ |
 | `ADMIN_API_KEY` | Sí | — | Clave de la [API de administración](#api-de-administración). Mínimo 32 caracteres. Generala con `openssl rand -hex 32`. |
+| `PUBLIC_BASE_URL` | No | — | URL pública de esta API (por ejemplo `https://bottega-api.onrender.com`). Con ella el alta de una línea devuelve la URL completa del webhook. En Render no hace falta: se usa `RENDER_EXTERNAL_URL`, que Render define solo. |
+| `TOKEN_ENCRYPTION_KEY` | Sí | — | Cifra las credenciales de Meta de cada línea guardadas en la base (AES-256-GCM). 32 bytes en base64: generala con `openssl rand -base64 32`. Usá una distinta por entorno y guardala bien: si se pierde o se cambia, las credenciales guardadas no se pueden leer. |
 
 ### 5. Migraciones
 
@@ -152,6 +160,18 @@ npm run prisma:migrate        # desarrollo: aplica las migraciones pendientes
 npm run prisma:deploy         # producción: solo aplica, nunca crea
 npx prisma migrate status     # estado (lee DATABASE_URL del .env)
 ```
+
+Después de migrar, creá el negocio y la línea por defecto (BotSuite46, con el
+número de `WHATSAPP_PHONE_NUMBER_ID`). El script es idempotente: se puede
+correr las veces que quieras, y también asigna a esa línea las conversaciones
+que todavía no tienen una.
+
+```bash
+npm run build
+npm run seed:default-line
+```
+
+En Render corre solo en cada deploy, después de las migraciones.
 
 ### 6. Arrancar
 
@@ -211,7 +231,8 @@ es PostgreSQL en **Neon**. La configuración está en `render.yaml` (Blueprint).
    elegí este repositorio. Render lee `render.yaml`.
 2. Completá las variables que pide (son las de `sync: false`): `DATABASE_URL`,
    `DATABASE_URL_UNPOOLED`, `META_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`,
-   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `ADMIN_API_KEY` y, solo
+   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `ADMIN_API_KEY`,
+   `TOKEN_ENCRYPTION_KEY` y, solo
    para el modo IA, `OPENAI_API_KEY` y `OPENAI_MODEL`. Ver [tabla de
    variables](#4-configurar-el-env).
    - Usá un token de **System User** para `WHATSAPP_ACCESS_TOKEN`: el temporal
@@ -220,7 +241,8 @@ es PostgreSQL en **Neon**. La configuración está en `render.yaml` (Blueprint).
      **Environment** cuando el echo funcione.
 3. **Primer deploy:** Render instala y compila (`npm ci --include=dev && npm
    run build`), aplica las migraciones (`npm run prisma:deploy`, con la URL
-   directa) y arranca (`npm run start:prod`). El health check es
+   directa), crea el negocio y la línea por defecto (`npm run
+   seed:default-line`) y arranca (`npm run start:prod`). El health check es
    `/health/live`.
 4. Probá: `curl https://<servicio>.onrender.com/health` →
    `{"status":"ok","db":"up"}`.
@@ -240,6 +262,9 @@ En la app de Meta → **WhatsApp → Configuración**, poné como URL
 - **Deploys sin cortar respuestas.** En cada deploy Render manda `SIGTERM`: el
   worker deja de tomar trabajos y termina los que tiene en curso (hasta 120 s,
   `maxShutdownDelaySeconds`).
+- **Solo se despliega lo que pasó el CI.** Render despliega cada commit de
+  `main`, pero espera a que pasen los checks de GitHub (`autoDeployTrigger:
+  checksPass`).
 - **Las migraciones corren antes de arrancar.** Si fallan, el deploy se corta
   y queda andando la versión anterior.
 
@@ -262,6 +287,22 @@ En Meta for Developers → app **BotSuite** → **WhatsApp → Configuration**:
 Tocá **Verify and save**. La app tiene que estar corriendo (en Render, o local
 con ngrok activo).
 En los logs vas a ver `Webhook verification accepted`.
+
+**Una URL por línea.** Cada línea (un número de un negocio, con su propia app
+de Meta) tiene su ruta: `https://<servicio>/webhooks/whatsapp/<webhookKey>`,
+con su propio *verify token*. Bottega valida la firma con el *app secret* de
+esa línea antes de guardar nada: una firma de otra app da `401` y una clave
+desconocida da `404`. La ruta sin clave (`/webhooks/whatsapp`) queda para la
+línea por defecto, con las variables de entorno de arriba. Un evento de otro
+número que llega por la ruta de una línea se descarta con un aviso en los logs.
+
+**Nada se pierde si falla el procesamiento.** Cada entrega firmada se guarda
+tal cual llegó (`webhook_event`) antes de responder `200`, y se procesa en el
+momento. Si el procesamiento falla (por ejemplo, la base no responde a mitad
+de camino), el evento queda pendiente y se reintenta solo cada 30 s, hasta 10
+intentos. Los reintentos corren en la instancia que tiene el worker
+(`WORKER_ENABLED=true`). Solo si no se puede guardar el evento se responde `5xx` y Meta lo
+reenvía.
 
 ### 9. Suscribir el campo `messages`
 
@@ -410,6 +451,39 @@ curl -s -X POST -H "$H" -H 'Content-Type: application/json' \
 | `uncertain` | 202 | No se sabe si Meta lo recibió. **No se reenvía automáticamente**: revisá el chat antes de mandarlo de nuevo. |
 | `rejected` | 502 | Meta lo rechazó (`code`, `detail`). Queda como `FAILED`. |
 
+### Dar de alta un negocio y su línea
+
+Cada negocio tiene **su propia app de Meta**, dentro de su propio portfolio.
+Primero se crea el negocio y después su línea, con los datos de esa app:
+
+```bash
+curl -X POST "$API/admin/businesses" -H "X-Admin-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Peluquería Ana","slug":"peluqueria-ana","botName":"Ana, IA de Peluquería Ana"}'
+# → 201 {"id":"<businessId>", ...}
+
+curl -X POST "$API/admin/businesses/<businessId>/lines" -H "X-Admin-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"phoneNumberId":"...","wabaId":"...","appId":"...","appSecret":"...","accessToken":"..."}'
+```
+
+| Campo | De dónde sale |
+| ----- | ------------- |
+| `phoneNumberId` | WhatsApp → API Setup: el **ID** del número. |
+| `wabaId` | El ID de la cuenta de WhatsApp Business (en API Setup). |
+| `appId` / `appSecret` | App settings → Basic de la app de Meta del negocio. |
+| `accessToken` | Token del **System User** del negocio, con `whatsapp_business_messaging` y `whatsapp_business_management`. |
+| `displayPhone` | Opcional: el número para mostrar. |
+
+La respuesta (`201`) trae lo que hay que pegar en la app de Meta del negocio
+(WhatsApp → Configuración): `webhookUrl` y `verifyToken`. Además, Bottega
+suscribe la app a la cuenta de WhatsApp (`subscription.subscribed`). Si la
+suscripción falla, la línea queda creada igual y el motivo viene en
+`subscription`; se puede suscribir a mano desde el dashboard de la app.
+
+El `appSecret` y el `accessToken` se guardan cifrados y **nunca** se devuelven.
+Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404`.
+
 ---
 
 ## Editar contenido
@@ -438,6 +512,10 @@ mensajes reales ni consumen créditos.
 | `npm run test:int` | Integración con Postgres real | `npm run db:up`. Usa la base `bottega_test` (la crea sola y la vacía en cada test). |
 | `npm run lint` | ESLint | — |
 | `npm run build` | Compila a `dist/` | — |
+
+En GitHub, el workflow `.github/workflows/ci.yml` corre lint, las tres suites
+(con un Postgres propio) y el build en cada PR a `develop` o `main` y en cada
+push a esas ramas.
 
 ---
 
@@ -469,7 +547,9 @@ Monolito modular en NestJS: `whatsapp`, `conversations`, `queue`, `bot`, `ai`,
 `leads`, `demos`, `content`, `admin`, `health`.
 
 ```text
-Meta ──POST──▶ /webhooks/whatsapp ──▶ valida firma ──▶ guarda mensaje + trabajo ──▶ 200
+Meta ──POST──▶ /webhooks/whatsapp[/<webhookKey>] ──▶ valida firma de la línea ──▶ guarda evento crudo ──▶ 200
+                                                  └─▶ procesa: contacto + conversación por línea + mensaje + trabajo
+                                                      (si falla, queda pendiente y se reintenta)
                                                               │
                          (cola en PostgreSQL, en orden por conversación)
                                                               ▼

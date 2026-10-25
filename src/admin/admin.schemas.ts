@@ -22,6 +22,38 @@ export const conversationIdSchema = z.uuid();
 /** WhatsApp ids are phone numbers in international format, digits only. */
 export const waIdSchema = z.string().regex(/^\d{6,20}$/, 'must be 6-20 digits');
 
+const digits = (name: string) =>
+  z.string().regex(/^\d{5,30}$/, `${name} must be 5-30 digits`);
+
+export const businessIdSchema = z.uuid();
+
+export const createBusinessBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    slug: z
+      .string()
+      .regex(
+        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+        'must be lowercase letters, digits and dashes',
+      )
+      .max(50),
+    /** How the bot introduces itself, e.g. "Ana, IA de Peluquería Ana". */
+    botName: z.string().trim().min(1).max(100),
+  })
+  .strict();
+
+export const createLineBodySchema = z
+  .object({
+    phoneNumberId: digits('phoneNumberId'),
+    wabaId: digits('wabaId'),
+    appId: digits('appId'),
+    appSecret: z.string().trim().min(8).max(200),
+    /** System User token of the client's Meta app. */
+    accessToken: z.string().trim().min(20).max(2000),
+    displayPhone: z.string().trim().min(1).max(30).optional(),
+  })
+  .strict();
+
 export const leadsQuerySchema = z.object({
   status: z.enum(LeadStatus).optional(),
   limit,

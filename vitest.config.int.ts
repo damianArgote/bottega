@@ -25,6 +25,8 @@ export default defineConfig({
       WHATSAPP_GRAPH_API_VERSION: 'v26.0',
       BOT_REPLY_MODE: 'echo',
       ADMIN_API_KEY: 'int-admin-api-key-0123456789abcdef',
+      // 32 zero bytes, base64: test-only.
+      TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       // Tests drive the worker by hand (BotWorker.processNext / drain).
       WORKER_ENABLED: 'false',
       JOB_MAX_ATTEMPTS: '3',

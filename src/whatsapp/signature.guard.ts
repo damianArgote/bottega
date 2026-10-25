@@ -3,6 +3,7 @@ import {
   type ExecutionContext,
   Injectable,
   Logger,
+  NotFoundException,
   type RawBodyRequest,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -13,8 +14,10 @@ import { isValidSignature } from './signature.js';
 export const SIGNATURE_HEADER = 'x-hub-signature-256';
 
 /**
- * Rejects webhook deliveries whose `X-Hub-Signature-256` does not match the
- * raw body. Requires the app to be created with `rawBody: true`.
+ * For the keyless default-line route: rejects deliveries whose
+ * `X-Hub-Signature-256` does not match the raw body under META_APP_SECRET
+ * (401), and answers 404 when META_APP_SECRET is not configured. Requires
+ * the app to be created with `rawBody: true`.
  */
 @Injectable()
 export class WhatsAppSignatureGuard implements CanActivate {
@@ -26,11 +29,15 @@ export class WhatsAppSignatureGuard implements CanActivate {
     const request = context
       .switchToHttp()
       .getRequest<RawBodyRequest<Request>>();
+    const appSecret = this.config.get('META_APP_SECRET');
+    if (!appSecret) {
+      throw new NotFoundException();
+    }
     const header = request.headers[SIGNATURE_HEADER];
     const valid = isValidSignature(
       request.rawBody,
       typeof header === 'string' ? header : undefined,
-      this.config.get('META_APP_SECRET'),
+      appSecret,
     );
     if (!valid) {
       this.logger.warn('Rejected webhook delivery with an invalid signature');

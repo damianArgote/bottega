@@ -3,12 +3,37 @@ import { worstCaseAiJobMs } from '../ai/ai-limits.js';
 
 const GRAPH_API_VERSION_PATTERN = /^v\d+\.\d+$/;
 const ADMIN_API_KEY_MIN_LENGTH = 32;
+const ENCRYPTION_KEY_BYTES = 32;
+
+/** True when `value` is canonical base64 for exactly `bytes` bytes. */
+function isBase64Key(value: string, bytes: number): boolean {
+  const decoded = Buffer.from(value, 'base64');
+  return decoded.length === bytes && decoded.toString('base64') === value;
+}
 
 const requiredString = (name: string) =>
   z
     .string({ error: `${name} is required` })
     .trim()
     .min(1, `${name} is required`);
+
+/** Optional string; blank counts as not set. */
+const optionalString = () =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value ? value : undefined));
+
+/** Optional http(s) URL without a trailing slash; blank counts as not set. */
+const optionalUrl = (name: string) =>
+  optionalString()
+    .refine(
+      (value) =>
+        value === undefined || /^https?:\/\/[^\s/]+(\/\S*)?$/.test(value),
+      `${name} must be an http(s) URL`,
+    )
+    .transform((value) => value?.replace(/\/+$/, ''));
 
 const positiveInt = (name: string, defaultValue: number) =>
   z.coerce
@@ -53,10 +78,14 @@ export const envSchema = z
         'DATABASE_URL_UNPOOLED must be a postgresql:// connection string',
       ),
 
-    META_APP_SECRET: requiredString('META_APP_SECRET'),
-    WHATSAPP_VERIFY_TOKEN: requiredString('WHATSAPP_VERIFY_TOKEN'),
-    WHATSAPP_ACCESS_TOKEN: requiredString('WHATSAPP_ACCESS_TOKEN'),
-    WHATSAPP_PHONE_NUMBER_ID: requiredString('WHATSAPP_PHONE_NUMBER_ID'),
+    // The default line (BotSuite46), served by the keyless webhook route and
+    // created by `npm run seed:default-line`. All optional: without them the
+    // app starts and the keyless route answers 404. Other lines keep their
+    // own credentials in the database.
+    META_APP_SECRET: optionalString(),
+    WHATSAPP_VERIFY_TOKEN: optionalString(),
+    WHATSAPP_ACCESS_TOKEN: optionalString(),
+    WHATSAPP_PHONE_NUMBER_ID: optionalString(),
     WHATSAPP_GRAPH_API_VERSION: requiredString(
       'WHATSAPP_GRAPH_API_VERSION',
     ).regex(
@@ -107,6 +136,19 @@ export const envSchema = z
     // time (AI call + several sends with WHATSAPP_HTTP_TIMEOUT_MS each), or a
     // slow job could be picked up twice.
     QUEUE_LEASE_MS: positiveInt('QUEUE_LEASE_MS', 120_000),
+
+    // Public base URL of this API, used to build each line's webhook URL in
+    // the admin API (e.g. https://bottega-api.onrender.com). Render sets
+    // RENDER_EXTERNAL_URL itself; PUBLIC_BASE_URL wins when both are set.
+    PUBLIC_BASE_URL: optionalUrl('PUBLIC_BASE_URL'),
+    RENDER_EXTERNAL_URL: optionalUrl('RENDER_EXTERNAL_URL'),
+
+    // Encrypts per-line Meta credentials at rest (AES-256-GCM). Losing or
+    // changing it makes the stored credentials unreadable.
+    TOKEN_ENCRYPTION_KEY: requiredString('TOKEN_ENCRYPTION_KEY').refine(
+      (value) => isBase64Key(value, ENCRYPTION_KEY_BYTES),
+      'TOKEN_ENCRYPTION_KEY must be 32 bytes encoded in base64 (openssl rand -base64 32)',
+    ),
 
     ADMIN_API_KEY: requiredString('ADMIN_API_KEY').min(
       ADMIN_API_KEY_MIN_LENGTH,

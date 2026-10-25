@@ -6,6 +6,8 @@ const SECRETS = {
   WHATSAPP_ACCESS_TOKEN: 'access-token-value-should-never-leak',
   OPENAI_API_KEY: 'sk-openai-value-should-never-leak',
   ADMIN_API_KEY: 'admin-key-value-should-never-leak-0123456789',
+  // 32 random bytes, base64.
+  TOKEN_ENCRYPTION_KEY: 'Q2xhdmVEZVBydWViYU5vVXNhckVuUHJvZHVjY2lvbiE=',
 };
 
 function validEnv(
@@ -19,6 +21,7 @@ function validEnv(
     WHATSAPP_PHONE_NUMBER_ID: '123456789012345',
     WHATSAPP_GRAPH_API_VERSION: 'v26.0',
     ADMIN_API_KEY: SECRETS.ADMIN_API_KEY,
+    TOKEN_ENCRYPTION_KEY: SECRETS.TOKEN_ENCRYPTION_KEY,
     ...overrides,
   };
 }
@@ -68,14 +71,38 @@ describe('parseEnv', () => {
     expect(env.AI_MAX_INTERACTIONS_PER_USER_PER_DAY).toBe(5);
   });
 
+  it('starts without the default line Meta variables', () => {
+    const env = parseEnv(
+      validEnv({
+        META_APP_SECRET: undefined,
+        WHATSAPP_VERIFY_TOKEN: undefined,
+        WHATSAPP_ACCESS_TOKEN: undefined,
+        WHATSAPP_PHONE_NUMBER_ID: undefined,
+      }),
+    );
+
+    expect(env.META_APP_SECRET).toBeUndefined();
+    expect(env.WHATSAPP_VERIFY_TOKEN).toBeUndefined();
+    expect(env.WHATSAPP_ACCESS_TOKEN).toBeUndefined();
+    expect(env.WHATSAPP_PHONE_NUMBER_ID).toBeUndefined();
+  });
+
   it.each([
-    'DATABASE_URL',
     'META_APP_SECRET',
     'WHATSAPP_VERIFY_TOKEN',
     'WHATSAPP_ACCESS_TOKEN',
     'WHATSAPP_PHONE_NUMBER_ID',
+  ])('treats a blank %s as not set', (key) => {
+    const env = parseEnv(validEnv({ [key]: '   ' }));
+
+    expect(env[key as keyof typeof env]).toBeUndefined();
+  });
+
+  it.each([
+    'DATABASE_URL',
     'WHATSAPP_GRAPH_API_VERSION',
     'ADMIN_API_KEY',
+    'TOKEN_ENCRYPTION_KEY',
   ])('rejects a missing %s', (key) => {
     const error = captureError(validEnv({ [key]: undefined }));
 
@@ -83,11 +110,11 @@ describe('parseEnv', () => {
   });
 
   it('rejects an empty required value', () => {
-    const error = captureError(validEnv({ META_APP_SECRET: '   ' }));
+    const error = captureError(validEnv({ ADMIN_API_KEY: '   ' }));
 
-    expect(error.problems).toEqual([
-      'META_APP_SECRET: META_APP_SECRET is required',
-    ]);
+    expect(error.problems).toContain(
+      'ADMIN_API_KEY: ADMIN_API_KEY is required',
+    );
   });
 
   it.each(['26.0', 'v26', 'v26.0.1', 'latest'])(
@@ -102,6 +129,24 @@ describe('parseEnv', () => {
       ]);
     },
   );
+
+  it.each([
+    ['too short', Buffer.alloc(16, 1).toString('base64')],
+    ['too long', Buffer.alloc(48, 1).toString('base64')],
+    ['not base64', 'this is definitely not base64 at all!!!!!!!'],
+  ])('rejects a TOKEN_ENCRYPTION_KEY that is %s', (_label, value) => {
+    const error = captureError(validEnv({ TOKEN_ENCRYPTION_KEY: value }));
+
+    expect(error.problems).toEqual([
+      'TOKEN_ENCRYPTION_KEY: TOKEN_ENCRYPTION_KEY must be 32 bytes encoded in base64 (openssl rand -base64 32)',
+    ]);
+  });
+
+  it('accepts a 32-byte base64 TOKEN_ENCRYPTION_KEY', () => {
+    const env = parseEnv(validEnv());
+
+    expect(Buffer.from(env.TOKEN_ENCRYPTION_KEY, 'base64')).toHaveLength(32);
+  });
 
   it('rejects an admin api key shorter than 32 characters', () => {
     const error = captureError(validEnv({ ADMIN_API_KEY: 'short-key' }));
@@ -176,6 +221,22 @@ describe('parseEnv', () => {
 
     expect(error.problems).toEqual([
       'DATABASE_URL: DATABASE_URL must be a postgresql:// connection string',
+    ]);
+  });
+
+  it('normalizes PUBLIC_BASE_URL without a trailing slash', () => {
+    const env = parseEnv(
+      validEnv({ PUBLIC_BASE_URL: 'https://bottega.example.com/' }),
+    );
+
+    expect(env.PUBLIC_BASE_URL).toBe('https://bottega.example.com');
+  });
+
+  it('rejects a PUBLIC_BASE_URL that is not an http(s) URL', () => {
+    const error = captureError(validEnv({ PUBLIC_BASE_URL: 'bottega.com' }));
+
+    expect(error.problems).toEqual([
+      'PUBLIC_BASE_URL: PUBLIC_BASE_URL must be an http(s) URL',
     ]);
   });
 

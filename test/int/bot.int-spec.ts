@@ -15,6 +15,7 @@ import {
   resetDb,
   testConfig,
   textEvent,
+  DEFAULT_PHONE_NUMBER_ID,
 } from './helpers.js';
 
 const USER = '5491100001234';
@@ -108,6 +109,7 @@ describe('BotService two-phase processing (integration)', () => {
     sendText.mockResolvedValue(sent('wamid.out'));
     await conversations.recordInbound({
       kind: 'unsupported',
+      phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
       waMessageId: 'wamid.img',
       from: USER,
       timestamp: new Date(),
@@ -278,6 +280,7 @@ describe('BotService two-phase processing (integration)', () => {
     await conversations.ingest([
       {
         kind: 'status',
+        phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
         waMessageId: 'wamid.out',
         status: 'delivered',
         recipientId: USER,

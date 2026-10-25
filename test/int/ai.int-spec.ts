@@ -145,6 +145,20 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   const usageOutcomes = async () =>
     (await prisma.aiUsage.findMany()).map((u) => u.outcome).sort();
 
+  it("introduces the bot with its business's botName", async () => {
+    await prisma.business.updateMany({
+      data: { botName: 'BotSuite, IA de BotSuite46' },
+    });
+    respond.mockResolvedValueOnce(text('¡Hola!'));
+
+    await say('hola');
+
+    expect(request(0)?.instructions).toContain(
+      'Sos BotSuite, IA de BotSuite46.',
+    );
+    expect(request(0)?.instructions).not.toContain('asistente virtual');
+  });
+
   it('save_lead in commercial mode merges the lead and sends the model reply', async () => {
     respond.mockResolvedValueOnce(text('¡Hola! ¿Cómo te llamás?'));
     await say('hola');

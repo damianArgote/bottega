@@ -1,17 +1,21 @@
 import { Logger } from '@nestjs/common';
-import {
-  maskPhone,
-  type SendOutcome,
-  type WhatsAppClient,
-} from './whatsapp.client.js';
+import { maskPhone, type SendOutcome } from './whatsapp.client.js';
 
 export interface GraphClientOptions {
-  accessToken: string;
-  phoneNumberId: string;
   /** e.g. `v26.0` */
   apiVersion: string;
   timeoutMs: number;
   baseUrl?: string;
+}
+
+export type SubscribeOutcome =
+  | { subscribed: true }
+  | { subscribed: false; code: number | string; message: string };
+
+/** The sending line: its Meta phone number id and decrypted access token. */
+export interface LineSendCredentials {
+  phoneNumberId: string;
+  accessToken: string;
 }
 
 /** Network error codes raised before any request byte reached Meta. */
@@ -43,46 +47,58 @@ interface GraphSuccessBody {
 
 /**
  * WhatsApp Cloud API adapter (`POST /{version}/{phone-number-id}/messages`).
- * Never throws: every failure is classified into a {@link SendOutcome}.
- * Never logs the access token, the message body, or full phone numbers.
+ * The phone number id and token come with each call (one Meta app and token
+ * per line). Never throws: every failure is classified into a
+ * {@link SendOutcome}. Never logs the access token, the message body, or
+ * full phone numbers.
  */
-export class GraphWhatsAppClient implements WhatsAppClient {
+export class GraphWhatsAppClient {
   private readonly logger = new Logger(GraphWhatsAppClient.name);
-  private readonly url: string;
+  private readonly baseUrl: string;
 
   constructor(
     private readonly options: GraphClientOptions,
     private readonly fetchImpl: typeof fetch = (input, init) =>
       fetch(input, init),
   ) {
-    const baseUrl = options.baseUrl ?? 'https://graph.facebook.com';
-    this.url = `${baseUrl}/${options.apiVersion}/${options.phoneNumberId}/messages`;
+    this.baseUrl = `${options.baseUrl ?? 'https://graph.facebook.com'}/${options.apiVersion}`;
   }
 
-  async sendText(to: string, body: string): Promise<SendOutcome> {
-    const outcome = await this.send(to, body);
+  async sendText(
+    line: LineSendCredentials,
+    to: string,
+    body: string,
+  ): Promise<SendOutcome> {
+    const outcome = await this.send(line, to, body);
     this.logOutcome(to, outcome);
     return outcome;
   }
 
-  private async send(to: string, body: string): Promise<SendOutcome> {
+  private async send(
+    line: LineSendCredentials,
+    to: string,
+    body: string,
+  ): Promise<SendOutcome> {
     let response: Response;
     try {
-      response = await this.fetchImpl(this.url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.options.accessToken}`,
-          'Content-Type': 'application/json',
+      response = await this.fetchImpl(
+        `${this.baseUrl}/${line.phoneNumberId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${line.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to,
+            type: 'text',
+            text: { preview_url: false, body },
+          }),
+          signal: AbortSignal.timeout(this.options.timeoutMs),
         },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to,
-          type: 'text',
-          text: { preview_url: false, body },
-        }),
-        signal: AbortSignal.timeout(this.options.timeoutMs),
-      });
+      );
     } catch (error) {
       return classifyNetworkError(error);
     }
@@ -106,6 +122,52 @@ export class GraphWhatsAppClient implements WhatsAppClient {
     }
 
     return classifyErrorResponse(response.status, payload);
+  }
+
+  /**
+   * Subscribes the app that owns `accessToken` to the events of a WhatsApp
+   * Business account (`POST /{waba-id}/subscribed_apps`). Never throws and
+   * never logs the token.
+   */
+  async subscribeApp(
+    wabaId: string,
+    accessToken: string,
+  ): Promise<SubscribeOutcome> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(
+        `${this.baseUrl}/${wabaId}/subscribed_apps`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(this.options.timeoutMs),
+        },
+      );
+    } catch {
+      return {
+        subscribed: false,
+        code: 'network_error',
+        message: 'request failed or timed out',
+      };
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = undefined;
+    }
+    if (response.ok && (payload as { success?: unknown })?.success === true) {
+      return { subscribed: true };
+    }
+    const error = (payload as GraphErrorBody | undefined)?.error;
+    return {
+      subscribed: false,
+      code: typeof error?.code === 'number' ? error.code : response.status,
+      message:
+        typeof error?.message === 'string'
+          ? error.message.slice(0, MAX_ERROR_MESSAGE_LENGTH)
+          : `http ${response.status}`,
+    };
   }
 
   private logOutcome(to: string, outcome: SendOutcome): void {
