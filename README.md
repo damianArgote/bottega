@@ -490,6 +490,29 @@ vive en dos cookies `httpOnly`, `Secure` y `SameSite=Lax`:
 El límite de intentos es en memoria (sirve con una sola instancia); está
 detrás de la interfaz `LoginRateLimiter` para pasarlo a un almacén compartido.
 
+### Rutas de la bandeja
+
+Todas van bajo `/inbox/businesses/<businessId>/...` y piden sesión y
+pertenencia a ese negocio (`SessionGuard` + `BusinessAccessGuard`): sin sesión
+`401`; con sesión pero sin pertenencia, o con un negocio que no existe, `403`;
+un `businessId` que no es UUID, `400`. La pertenencia se revisa en cada pedido:
+si se la sacan a alguien, pierde el acceso enseguida.
+
+| Método y ruta | Qué hace |
+| ------------- | -------- |
+| `GET /inbox/businesses/<businessId>` | El negocio (`id`, `name`, `slug`) y el rol del usuario en él. |
+
+Las conversaciones y los mensajes llegan con el prompt 04.
+
+### Pendiente
+
+- Recuperar la contraseña por email.
+- Segundo factor (2FA).
+- Entrar con una cuenta de otro servicio (SSO).
+
+Hasta entonces, una contraseña nueva se carga a mano y no hay forma de
+cambiarla por la API.
+
 ## API de administración
 
 Todas las rutas requieren la clave en `X-Admin-Api-Key: <clave>` o
