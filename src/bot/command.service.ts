@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { loadAgentProfile } from '../agents/agent-profile.js';
 import { ContentService } from '../content/content.service.js';
 import { ContextService, type Tx } from '../conversations/context.service.js';
 import type { CommandId } from './commands.js';
@@ -37,7 +38,11 @@ export class CommandService {
     options: CommandOptions = {},
   ): Promise<CommandOutcome> {
     const conversation = await this.contexts.lock(tx, conversationId);
-    const plan = planTransition({ mode: conversation.mode }, command);
+    const { demoEnabled } = await loadAgentProfile(tx, conversationId);
+    const plan = planTransition(
+      { mode: conversation.mode, demoEnabled },
+      command,
+    );
 
     let contextId = conversation.activeContextId;
     switch (plan.effect.kind) {

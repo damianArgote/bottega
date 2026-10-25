@@ -18,6 +18,8 @@ const REPLIES = {
     'Ya estás en la demo 😉 Seguí escribiendo como si fueras cliente, o escribí "salir" para volver.',
   EXIT_DEMO: () =>
     'Saliste de la demo. Volviste a hablar con el asistente de BotSuite46 👋 ¿Querés contarme qué necesitás para tu negocio?',
+  DEMO_UNAVAILABLE: () =>
+    'Por acá no hay una demo para probar. ¿En qué te puedo ayudar?',
   NOT_IN_DEMO: () =>
     'No estás en ninguna demo. Si querés probar una, escribí "demo".',
   RESET_COMMERCIAL: () =>

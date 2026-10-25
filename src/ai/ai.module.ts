@@ -21,13 +21,16 @@ const disabledProvider: AiProvider = {
       inject: [AppConfigService],
       useFactory: (config: AppConfigService): AiProvider => {
         const apiKey = config.get('OPENAI_API_KEY');
-        const model = config.get('OPENAI_MODEL');
-        if (config.get('BOT_REPLY_MODE') !== 'ai' || !apiKey || !model) {
+        // The model goes in each request (the business's profile may set one).
+        if (
+          config.get('BOT_REPLY_MODE') !== 'ai' ||
+          !apiKey ||
+          !config.get('OPENAI_MODEL')
+        ) {
           return disabledProvider;
         }
         return new OpenAiProvider({
           apiKey,
-          model,
           timeoutMs: config.get('OPENAI_TIMEOUT_MS'),
         });
       },

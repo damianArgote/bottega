@@ -12,9 +12,27 @@ export const TOOL_HANDLERS: Readonly<Record<ToolName, ToolHandler>> = {
   request_handoff: requestHandoffTool,
 };
 
+/** What the business's agent profile changes in the offered tools. */
+export interface ToolOptions {
+  demoEnabled: boolean;
+}
+
+/** Tools allowed in `mode` for this business. */
+function offeredTools(
+  mode: ConversationMode,
+  { demoEnabled }: ToolOptions,
+): readonly ToolName[] {
+  return MODE_PROFILES[mode].allowedTools.filter(
+    (name) => demoEnabled || name !== 'register_demo_request',
+  );
+}
+
 /** Tool definitions offered to the model in `mode`. */
-export function toolDefinitionsFor(mode: ConversationMode): AiToolDefinition[] {
-  return MODE_PROFILES[mode].allowedTools.map((name) => {
+export function toolDefinitionsFor(
+  mode: ConversationMode,
+  options: ToolOptions,
+): AiToolDefinition[] {
+  return offeredTools(mode, options).map((name) => {
     const tool = TOOL_HANDLERS[name];
     return {
       name: tool.name,
@@ -43,7 +61,7 @@ const reject = (reason: string, message: string): ToolCallResult => ({
 
 /**
  * Validates a tool call from the model and plans its effect. Unknown tools,
- * tools not allowed in the active mode, invalid JSON and arguments failing
+ * tools not offered in the active mode (or by the business's profile), invalid JSON and arguments failing
  * the schema are rejected: nothing is planned and the model is told so.
  */
 export function planToolCall(
@@ -57,7 +75,7 @@ export function planToolCall(
   }
   if (
     !tool.allowedModes.includes(ctx.mode) ||
-    !MODE_PROFILES[ctx.mode].allowedTools.includes(name)
+    !offeredTools(ctx.mode, ctx).includes(name)
   ) {
     return reject(
       'tool_not_allowed',

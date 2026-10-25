@@ -6,6 +6,8 @@ import type { ReplyKey } from './replies.js';
 /** State a transition is planned from. Paused conversations never get here. */
 export interface TransitionState {
   mode: ConversationMode;
+  /** The business's profile offers the demo. */
+  demoEnabled: boolean;
 }
 
 export type TransitionEffect =
@@ -32,6 +34,14 @@ export function planTransition(
   command: CommandId,
 ): TransitionPlan {
   const inDemo = state.mode === ConversationMode.DEMO;
+  // Leaving still works if the demo was disabled while the user was in it.
+  if (
+    !state.demoEnabled &&
+    !inDemo &&
+    (command === CommandId.ENTER_DEMO || command === CommandId.EXIT_DEMO)
+  ) {
+    return { effect: { kind: 'none' }, reply: 'DEMO_UNAVAILABLE' };
+  }
   switch (command) {
     case CommandId.ENTER_DEMO:
       return inDemo

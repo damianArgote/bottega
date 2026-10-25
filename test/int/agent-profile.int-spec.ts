@@ -21,6 +21,8 @@ describe('Agent profiles (integration)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    // resetDb seeds the profile like production; these tests seed it.
+    await prisma.agentProfile.deleteMany();
   });
 
   describe('seedDefaultAgentProfile', () => {

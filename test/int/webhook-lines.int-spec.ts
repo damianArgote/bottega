@@ -248,6 +248,7 @@ describe('Per-line webhooks and webhook events (integration)', () => {
     it('keeps a failed processing pending and the reprocessor finishes it', async () => {
       // No default line yet (e.g. the seed has not run): processing fails.
       await prisma.line.deleteMany();
+      await prisma.agentProfile.deleteMany();
       await prisma.business.deleteMany();
       const raw = textWebhook(DEFAULT_PHONE_NUMBER_ID, 'wamid.late');
 

@@ -14,7 +14,8 @@ const barbershop = loadContent(DEFAULT_CONTENT_DIR).barbershop;
 const ctx = (
   mode: ToolContext['mode'],
   planned: PlannedEffect[] = [],
-): ToolContext => ({ mode, barbershop, planned });
+  demoEnabled = true,
+): ToolContext => ({ mode, barbershop, planned, demoEnabled });
 
 const call = (name: string, args: unknown) => ({
   callId: 'call_1',
@@ -71,7 +72,9 @@ describe('tool registry', () => {
 
   it('offers each mode exactly its allowed tools, consistent with allowedModes', () => {
     for (const profile of Object.values(MODE_PROFILES)) {
-      const names = toolDefinitionsFor(profile.mode).map((t) => t.name);
+      const names = toolDefinitionsFor(profile.mode, { demoEnabled: true }).map(
+        (t) => t.name,
+      );
       expect(names).toEqual(profile.allowedTools);
       for (const name of names) {
         expect(TOOL_HANDLERS[name as ToolName].allowedModes).toContain(
@@ -221,6 +224,31 @@ describe('tool registry', () => {
           ctx('DEMO'),
         ),
         'invalid_arguments',
+      );
+    });
+  });
+
+  describe('without the demo (demoEnabled false)', () => {
+    it('register_demo_request is not offered', () => {
+      const names = (mode: ToolContext['mode'], demoEnabled: boolean) =>
+        toolDefinitionsFor(mode, { demoEnabled }).map((t) => t.name);
+
+      expect(names('DEMO', false)).not.toContain('register_demo_request');
+      expect(names('DEMO', false)).toContain('request_handoff');
+      expect(names('DEMO', true)).toContain('register_demo_request');
+      expect(names('COMMERCIAL', false)).toEqual([
+        'save_lead',
+        'request_handoff',
+      ]);
+    });
+
+    it('register_demo_request is rejected if the model calls it anyway', () => {
+      expectRejected(
+        planToolCall(
+          call('register_demo_request', booking()),
+          ctx('DEMO', [], false),
+        ),
+        'tool_not_allowed',
       );
     });
   });
