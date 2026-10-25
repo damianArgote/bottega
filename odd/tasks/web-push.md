@@ -27,8 +27,8 @@ Quoted from the prompt (Spanish). Assumptions are marked.
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
 | T1 | S2 (queue part), A3, A4 | inline | done (RED→GREEN queue int + worker spec; lane mutation caught) | ba4d26c |
-| T2 | S1-S7, A1, A2, A5-A8 | inline | done (RED→GREEN env, rules, int; e2e routes; retry mutation caught) | |
-| T3 | S8 | inline | pending | |
+| T2 | S1-S7, A1, A2, A5-A8 | inline | done (RED→GREEN env, rules, int; e2e routes; retry mutation caught) | 0f50557 |
+| T3 | S8 | inline | done (RED→GREEN inbox-queries int) | |
 
 Route evidence: one feature in one repo, units depend on each other (T2 needs T1's queue lane); no parallel writer reason. High-risk items: T1 concurrency and a migration on the queue (1, 4); T2 a new dependency and secrets (2, 5).
 
@@ -37,4 +37,5 @@ Route evidence: one feature in one repo, units depend on each other (T2 needs T1
 - L2 (2026-10-25): the file is not in the inbox working tree (that session is on another branch); read from commit deabfdf (branches origin/develop, docs/web-push-prompt). Exploration: `processing_job.message_id` is NOT NULL and unique; the claim runs one job per conversation in `seq` order and a partial unique index allows one PROCESSING per conversation. A push job there would collide with the inbound job's message and, while retrying, hold the bot's replies back; hence A3/A4.
 - L3 (2026-10-25): T1. Migrations 20261025190000_job_type_push_notification (enum value alone) and 20261025190100_push_jobs: push_reason enum and column, message_id nullable, CHECKs (inbound has a message, push has a reason), the message unique index and the one-PROCESSING index become partial on INBOUND_MESSAGE (hand-written, like the existing one). Claim: push jobs skip the per-conversation order and only INBOUND_MESSAGE jobs count as "older". ClaimedJob is a union (InboundJob for the bot, PushJob) with createdAt and pushReason. `enqueuePushJob` (shared insert) and the PushJobProcessor port; BotWorker takes it optionally and skips push jobs without it. Mutation: the old claim fails 3 lane tests.
 - L4 (2026-10-25): T2. `web-push` 3.6.7 (+ @types/web-push): its license is MPL-2.0, not MIT as the prompt says; used unmodified as a dependency. VAPID_* in env.schema (base64url key lengths 65/32, subject mailto:/https:, the three or none). Migration 20261025190200_push_subscriptions. Pure `pushRecipients`/`buildPushPayload`. PushService (PushJobProcessor) behind a PushSender port (WebPushSender: TTL, topic, urgency high, 10 s timeout; 404/410 → gone). Enqueued in recordInbound's transaction and in ContextService.requestHuman (config optional there, as tests build it without). Routes in PushController (SessionGuard; 404 while off). Found while testing: filtering by lastSuccessAt on the first attempt would skip a browser that a close earlier push reached after this job was created; the filter now applies only on retries (test added, RED then GREEN). Same-transaction proof: a test trigger rejecting the push insert leaves no message and no job.
-- Next: T3.
+- L5 (2026-10-25): T3. Conversation items of the list and /changes carry `windowClosesAt` (windowClosesAt() over windowExpiresAt and lastInboundAt; lastInboundAt is read but not returned). Additive field.
+- Next: independent verifier (high-risk: queue migration and claim, dependency, secrets), then the PR.
