@@ -185,9 +185,10 @@ model Conversation {
   /// a later migration makes it required.
   lineId          String?          @map("line_id") @db.Uuid
   contactId       String?          @map("contact_id") @db.Uuid
-  /// User's WhatsApp id. Kept (no longer unique) until the contact
-  /// migration is complete; use contact.waId in new code.
-  waId            String           @map("wa_id")
+  /// User's WhatsApp id. Still unique (one line per wa_id) so the previous
+  /// app version keeps working during the deploy; the next migration drops
+  /// the constraint. Use contact.waId in new code.
+  waId            String           @unique @map("wa_id")
   mode            ConversationMode @default(COMMERCIAL)
   paused          Boolean          @default(false)
   pausedAt        DateTime?        @map("paused_at")

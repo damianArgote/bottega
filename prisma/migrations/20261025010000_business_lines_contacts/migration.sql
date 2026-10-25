@@ -2,10 +2,9 @@
 -- conversation.line_id / contact_id stay nullable: `npm run seed:default-line`
 -- creates the default business and line and backfills every conversation;
 -- a later migration makes them NOT NULL and drops conversation.wa_id.
--- wa_id stops being unique: the same user may talk to several lines.
-
--- DropIndex
-DROP INDEX "conversation_wa_id_key";
+-- conversation_wa_id_key is kept on purpose: the previous app version (still
+-- serving while Render runs the pre-deploy step) upserts ON CONFLICT (wa_id).
+-- It is dropped by the next migration, once this version is live.
 
 -- AlterTable
 ALTER TABLE "conversation" ADD COLUMN     "contact_id" UUID,
