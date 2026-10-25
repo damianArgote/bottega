@@ -189,4 +189,53 @@ describe('Inbox business access (integration, HTTP)', () => {
       );
     });
   });
+
+  describe('reads over HTTP', () => {
+    it('lists, polls changes, pages messages and lists lines; JSON-safe (seq as string)', async () => {
+      await app
+        .get(ConversationsService)
+        .recordInbound({ ...textEvent('wamid.read.1'), timestamp: new Date() });
+      const ana = await sessionOf('ana@example.com');
+      const get = (path: string) =>
+        http().get(`/inbox/businesses/${a}${path}`).set('Cookie', ana);
+
+      const list = (await get('/conversations?view=unassigned').expect(200))
+        .body as { conversations: { id: string }[] };
+      expect(list.conversations).toHaveLength(1);
+      const id = list.conversations[0]!.id;
+
+      const changes = (await get('/changes').expect(200)).body as {
+        hasMore: boolean;
+        cursor: unknown;
+      };
+      expect(changes.hasMore).toBe(false);
+      expect(typeof changes.cursor).toBe('string');
+
+      const messages = (await get(`/conversations/${id}/messages`).expect(200))
+        .body as { messages: unknown[] };
+      expect(messages.messages[0]).toMatchObject({
+        content: 'hola',
+        seq: expect.stringMatching(/^\d+$/) as unknown,
+      });
+
+      const lines = (await get('/lines').expect(200)).body as {
+        lines: unknown[];
+      };
+      expect(lines.lines).toHaveLength(1);
+    });
+
+    it('validates the queries', async () => {
+      const ana = await sessionOf('ana@example.com');
+      const get = (path: string) =>
+        http().get(`/inbox/businesses/${a}${path}`).set('Cookie', ana);
+
+      await get('/conversations').expect(400);
+      await get('/conversations?view=all').expect(400);
+      await get('/changes?cursor=nope').expect(400);
+      await get('/conversations/abc/messages').expect(400);
+      await get(
+        `/conversations/00000000-0000-4000-8000-000000000000/messages?before=x`,
+      ).expect(400);
+    });
+  });
 });
