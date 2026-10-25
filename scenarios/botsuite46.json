@@ -9,7 +9,11 @@
           "user": "hola",
           "mustInclude": ["BotSuite"],
           "mustNotInclude": ["asistente virtual", "Bottega"],
-          "mustNotCallTool": ["save_lead", "request_handoff", "register_demo_request"]
+          "mustNotCallTool": [
+            "save_lead",
+            "request_handoff",
+            "register_demo_request"
+          ]
         }
       ]
     },
@@ -30,8 +34,14 @@
       "description": "A new piece of lead data is saved with save_lead.",
       "initial": {
         "history": [
-          { "role": "user", "content": "hola, quiero info" },
-          { "role": "assistant", "content": "¡Hola! Soy BotSuite, IA de BotSuite46. ¿Cómo te llamás?" }
+          {
+            "role": "user",
+            "content": "hola, quiero info"
+          },
+          {
+            "role": "assistant",
+            "content": "¡Hola! Soy BotSuite, IA de BotSuite46. ¿Cómo te llamás?"
+          }
         ]
       },
       "turns": [
@@ -67,7 +77,11 @@
             "Cómo trabajar",
             "ahoy"
           ],
-          "mustNotCallTool": ["save_lead", "request_handoff", "register_demo_request"]
+          "mustNotCallTool": [
+            "save_lead",
+            "request_handoff",
+            "register_demo_request"
+          ]
         }
       ]
     },
@@ -78,7 +92,36 @@
         {
           "user": "¿Quién ganó el mundial de fútbol 2022?",
           "mustNotInclude": ["Messi", "Francia", "Qatar"],
-          "mustNotCallTool": ["save_lead", "request_handoff", "register_demo_request"]
+          "mustNotCallTool": [
+            "save_lead",
+            "request_handoff",
+            "register_demo_request"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-repite-datos",
+      "description": "While the bot collects the lead, its replies do not repeat the name or business already given (production showed \"Perfecto, Alberto\", \"Gracias, Alberto\" on every turn); it may use them to greet, resume, say goodbye or summarize.",
+      "turns": [
+        {
+          "user": "Hola, quiero info"
+        },
+        {
+          "user": "Alberto"
+        },
+        {
+          "user": "Heladería Kubbo",
+          "mustNotInclude": ["Alberto"]
+        },
+        {
+          "user": "Gastronomía, heladería",
+          "mustNotInclude": ["Alberto", "Kubbo"]
+        },
+        {
+          "user": "¿Cuánto sale el plan Pro?",
+          "mustInclude": ["130"],
+          "mustNotInclude": ["Alberto", "Kubbo"]
         }
       ]
     }
