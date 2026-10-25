@@ -38,6 +38,23 @@ const optionalUrl = (name: string) =>
     )
     .transform((value) => value?.replace(/\/+$/, ''));
 
+/** True when `value` is unpadded base64url for exactly `bytes` bytes. */
+function isBase64UrlKey(value: string, bytes: number): boolean {
+  return (
+    /^[A-Za-z0-9_-]+$/.test(value) &&
+    Buffer.from(value, 'base64url').length === bytes
+  );
+}
+
+/** VAPID keys: an uncompressed P-256 public key and its private scalar. */
+const VAPID_PUBLIC_KEY_BYTES = 65;
+const VAPID_PRIVATE_KEY_BYTES = 32;
+const VAPID_KEYS = [
+  'VAPID_PUBLIC_KEY',
+  'VAPID_PRIVATE_KEY',
+  'VAPID_SUBJECT',
+] as const;
+
 const positiveInt = (name: string, defaultValue: number) =>
   z.coerce
     .number({ error: `${name} must be a number` })
@@ -172,9 +189,41 @@ export const envSchema = z
         'INBOX_ORIGIN must be an origin like https://inbox.example.com (scheme, host and optional port, no path)',
       )
       .transform((value) => value.toLowerCase()),
+
+    // Web Push to the inbox (the three or none; none turns push off).
+    // Generate the pair with `npx web-push generate-vapid-keys`.
+    VAPID_PUBLIC_KEY: optionalString().refine(
+      (value) =>
+        value === undefined || isBase64UrlKey(value, VAPID_PUBLIC_KEY_BYTES),
+      'VAPID_PUBLIC_KEY must be a P-256 public key in base64url (npx web-push generate-vapid-keys)',
+    ),
+    VAPID_PRIVATE_KEY: optionalString().refine(
+      (value) =>
+        value === undefined || isBase64UrlKey(value, VAPID_PRIVATE_KEY_BYTES),
+      'VAPID_PRIVATE_KEY must be a P-256 private key in base64url (npx web-push generate-vapid-keys)',
+    ),
+    // Contact for the push services: mailto:someone@example.com or a URL.
+    VAPID_SUBJECT: optionalString().refine(
+      (value) =>
+        value === undefined || /^(mailto:\S+@\S+|https:\/\/\S+)$/.test(value),
+      'VAPID_SUBJECT must be a mailto: or https: URL',
+    ),
   })
   .superRefine(
     (env, ctx) => {
+      // Raw presence (a malformed value already has its own issue).
+      const set = VAPID_KEYS.filter((key) => env[key] !== undefined);
+      if (set.length > 0 && set.length < VAPID_KEYS.length) {
+        for (const key of VAPID_KEYS) {
+          if (env[key] === undefined) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [key],
+              message: `${key} is required when another VAPID_* variable is set (set the three or none)`,
+            });
+          }
+        }
+      }
       if (env.BOT_REPLY_MODE !== 'ai') {
         return;
       }

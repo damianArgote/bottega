@@ -1,6 +1,9 @@
 import { onHandoff } from '../inbox/conversation-state.js';
 import { addSystemMessage } from '../inbox/system-messages.js';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { AppConfigService } from '../config/app-config.service.js';
+import { vapidDetails } from '../push/push-config.js';
+import { enqueuePushJob } from '../queue/push-jobs.js';
 import {
   ContextEndReason,
   ConversationMode,
@@ -41,7 +44,11 @@ export interface ResumeResult {
  */
 @Injectable()
 export class ContextService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /** Absent in some tests: then no push job is enqueued. */
+    @Optional() private readonly config?: AppConfigService,
+  ) {}
 
   /**
    * Locks the conversation row until the transaction ends, serializing
@@ -90,7 +97,8 @@ export class ContextService {
 
   /**
    * Pauses the bot, opens a handoff request and leaves the conversation in
-   * the inbox's "Pendientes" (PENDING, unassigned), with a system message.
+   * the inbox's "Pendientes" (PENDING, unassigned), with a system message,
+   * and enqueues the push to the business's people (when push is on).
    * Returns the handoff request id.
    */
   requestHuman(
@@ -113,6 +121,14 @@ export class ContextService {
         author: 'BOT',
         text: 'Pasó a Pendientes: pidió hablar con una persona',
       });
+      if (this.config && vapidDetails(this.config)) {
+        await enqueuePushJob(t, {
+          conversationId,
+          reason: 'HANDOFF',
+          messageId: null,
+          maxAttempts: this.config.get('JOB_MAX_ATTEMPTS'),
+        });
+      }
       return handoff.id;
     });
   }

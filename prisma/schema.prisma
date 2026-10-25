@@ -516,6 +516,7 @@ model User {
   assignedConversations Conversation[]        @relation("ConversationAssignee")
   agentProfileUpdates   AgentProfile[]        @relation("AgentProfileUpdatedBy")
   agentProfileVersions  AgentProfileVersion[] @relation("AgentProfileVersionAuthor")
+  pushSubscriptions     PushSubscription[]
 
   @@map("app_user")
 }
@@ -553,4 +554,25 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_token")
+}
+
+/// A browser (phone or computer) where an inbox person gets Web Push
+/// notifications. Notifications go out by the user's memberships.
+model PushSubscription {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// The push service URL; it identifies the browser. Never logged.
+  endpoint      String    @unique
+  /// Encryption keys from the browser (base64url). Never logged.
+  p256dh        String
+  auth          String
+  userAgent     String?   @map("user_agent")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  /// Last push the service accepted for it.
+  lastSuccessAt DateTime? @map("last_success_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscription")
 }
