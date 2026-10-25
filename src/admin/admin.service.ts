@@ -35,8 +35,36 @@ export const HANDOFF_REASON_ADMIN = 'admin';
 const IDEMPOTENCY_PREFIX = 'admin:';
 
 const conversationSummary = {
-  select: { id: true, waId: true, mode: true, paused: true },
+  select: {
+    id: true,
+    mode: true,
+    paused: true,
+    contact: { select: { waId: true } },
+  },
 } as const;
+
+type ConversationSummaryRow = {
+  id: string;
+  mode: Conversation['mode'];
+  paused: boolean;
+  contact: { waId: string };
+};
+
+/**
+ * The admin API's conversation summary: `{ id, waId, mode, paused }`, with
+ * the wa_id taken from the contact (the conversation no longer stores it).
+ */
+function withSummary<T extends { conversation: ConversationSummaryRow }>(
+  row: T,
+) {
+  const { id, mode, paused, contact } = row.conversation;
+  return {
+    ...row,
+    conversation: { id, waId: contact.waId, mode, paused },
+  };
+}
+
+type ConversationWithContact = Conversation & { contact: { waId: string } };
 
 const messageView = {
   id: true,
@@ -102,30 +130,32 @@ export class AdminService {
     private readonly clients: WhatsAppClientFactory,
   ) {}
 
-  listLeads(query: { status?: LeadStatus; limit: number }) {
-    return this.prisma.lead.findMany({
+  async listLeads(query: { status?: LeadStatus; limit: number }) {
+    const rows = await this.prisma.lead.findMany({
       where: query.status ? { status: query.status } : {},
       orderBy: { createdAt: 'desc' },
       take: query.limit,
       include: { conversation: conversationSummary },
     });
+    return rows.map(withSummary);
   }
 
-  listHandoffs(query: { status?: HandoffStatus; limit: number }) {
-    return this.prisma.handoffRequest.findMany({
+  async listHandoffs(query: { status?: HandoffStatus; limit: number }) {
+    const rows = await this.prisma.handoffRequest.findMany({
       where: query.status ? { status: query.status } : {},
       orderBy: { createdAt: 'desc' },
       take: query.limit,
       include: { conversation: conversationSummary },
     });
+    return rows.map(withSummary);
   }
 
   /** Outbound sends that ended UNCERTAIN or FAILED, newest first. */
-  listAttentionMessages(query: {
+  async listAttentionMessages(query: {
     status?: (typeof ATTENTION_STATUSES)[number];
     limit: number;
   }) {
-    return this.prisma.message.findMany({
+    const rows = await this.prisma.message.findMany({
       where: {
         direction: MessageDirection.OUTBOUND,
         status: query.status ?? { in: [...ATTENTION_STATUSES] },
@@ -134,6 +164,7 @@ export class AdminService {
       take: query.limit,
       select: { ...messageView, conversation: conversationSummary },
     });
+    return rows.map(withSummary);
   }
 
   async getConversation(id: string, limit: number) {
@@ -192,7 +223,7 @@ export class AdminService {
     }
     // Resolved before the row exists: a failure here must not leave a
     // QUEUED row that an Idempotency-Key retry would only replay.
-    const recipient = await this.recipientOf(conversation);
+    const recipient = conversation.contact.waId;
     const client = await this.clients.forLine(conversation.lineId);
 
     let row: Message;
@@ -225,18 +256,6 @@ export class AdminService {
       `Human reply ${row.id} to ${maskPhone(recipient)}: ${result.outcome}`,
     );
     return result;
-  }
-
-  /** The contact's wa_id (conversation.waId until every row is backfilled). */
-  private async recipientOf(conversation: Conversation): Promise<string> {
-    if (!conversation.contactId) {
-      return conversation.waId;
-    }
-    const contact = await this.prisma.contact.findUnique({
-      where: { id: conversation.contactId },
-      select: { waId: true },
-    });
-    return contact?.waId ?? conversation.waId;
   }
 
   private async deliver(
@@ -292,7 +311,7 @@ export class AdminService {
     }
   }
 
-  private async describe(conversation: Conversation, limit: number) {
+  private async describe(conversation: ConversationWithContact, limit: number) {
     const [lead, openHandoffs, latest] = await Promise.all([
       this.prisma.lead.findUnique({
         where: { conversationId: conversation.id },
@@ -311,7 +330,7 @@ export class AdminService {
     return {
       conversation: {
         id: conversation.id,
-        waId: conversation.waId,
+        waId: conversation.contact.waId,
         mode: conversation.mode,
         paused: conversation.paused,
         pausedAt: conversation.pausedAt,
@@ -333,16 +352,18 @@ export class AdminService {
    */
   private async findConversation(
     where: { id: string } | { waId: string },
-  ): Promise<Conversation> {
+  ): Promise<ConversationWithContact> {
+    const include = { contact: { select: { waId: true } } } as const;
     const conversation =
       'id' in where
-        ? await this.prisma.conversation.findUnique({ where })
+        ? await this.prisma.conversation.findUnique({ where, include })
         : await this.prisma.conversation.findFirst({
             where: {
-              waId: where.waId,
+              contact: { waId: where.waId },
               line: { business: { slug: DEFAULT_BUSINESS_SLUG } },
             },
             orderBy: { createdAt: 'asc' },
+            include,
           });
     if (!conversation) {
       throw new NotFoundException('Conversation not found');

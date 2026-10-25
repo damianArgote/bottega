@@ -164,10 +164,10 @@ export class ConversationsService {
         Array<{ id: string; activeContextId: string | null }>
       >`
         INSERT INTO conversation
-          (id, line_id, contact_id, wa_id, mode, paused, last_inbound_at,
+          (id, line_id, contact_id, mode, paused, last_inbound_at,
            created_at, updated_at)
         VALUES (gen_random_uuid(), ${target.lineId}::uuid, ${contact.id}::uuid,
-          ${event.from}, 'COMMERCIAL', false,
+          'COMMERCIAL', false,
           ${event.timestamp.toISOString()}::timestamp, ${UTC_NOW}, ${UTC_NOW})
         ON CONFLICT (line_id, contact_id) DO UPDATE SET
           last_inbound_at = GREATEST(conversation.last_inbound_at, EXCLUDED.last_inbound_at),
