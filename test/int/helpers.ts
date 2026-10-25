@@ -43,7 +43,7 @@ export async function resetDb(prisma: PrismaService): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE conversation, conversation_context, message, processing_job,
       lead, demo_request, handoff_request, ai_usage, contact, webhook_event,
-      line, business
+      line, agent_profile, business
       RESTART IDENTITY CASCADE`;
   await createLine(prisma, {
     slug: 'botsuite46',

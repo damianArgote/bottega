@@ -163,8 +163,10 @@ npx prisma migrate status     # estado (lee DATABASE_URL del .env)
 
 Después de migrar, creá el negocio y la línea por defecto (BotSuite46, con el
 número de `WHATSAPP_PHONE_NUMBER_ID`). El script es idempotente: se puede
-correr las veces que quieras, y también asigna a esa línea las conversaciones
-que todavía no tienen una.
+correr las veces que quieras. La primera vez también crea el perfil del agente
+de BotSuite46 a partir de `content/commercial-info.md` (nombre del bot,
+información del negocio, datos a pedir y demo activa); si el perfil ya existe
+no lo toca, así no pisa lo que se edite después.
 
 ```bash
 npm run build
@@ -293,7 +295,8 @@ Antes de mergear a `main`:
 - Cargá en Render las variables obligatorias nuevas: si falta una, la
   versión nueva no arranca pero las migraciones ya corrieron.
 - Revisá que el servicio y el Blueprint usen la rama `main`.
-- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`.
+- Después del deploy, buscá en el log del pre-deploy `seed:default-line done`
+  y `seed:default-line agent profile ready`.
 
 Así se hizo el paso a negocios y líneas (prompt 02):
 
