@@ -1,6 +1,6 @@
-// Creates or updates the default business and line from the env and assigns
-// every conversation without a line to it. Idempotent: Render runs it after
-// the migrations on every deploy (render.yaml preDeployCommand).
+// Creates or updates the default business and line from the env.
+// Idempotent: Render runs it after the migrations on every deploy
+// (render.yaml preDeployCommand).
 // Usage: npm run build && npm run seed:default-line
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -22,7 +22,7 @@ async function main(): Promise<void> {
     console.log(
       result.outcome === 'skipped'
         ? 'seed:default-line skipped: WHATSAPP_PHONE_NUMBER_ID is not set'
-        : `seed:default-line done: line ${result.lineId}, ${result.backfilled} conversation(s) backfilled`,
+        : `seed:default-line done: line ${result.lineId}`,
     );
   } finally {
     await prisma.$disconnect();
