@@ -578,6 +578,24 @@ mensajes reales ni consumen créditos.
 | `npm run lint` | ESLint | — |
 | `npm run build` | Compila a `dist/` | — |
 
+### Escenarios del agente (modelo real)
+
+`npm run test:scenarios` corre los escenarios de `scenarios/<slug>.json` contra
+el **modelo real de OpenAI**: cuesta plata y por eso no está en `npm test` ni en
+CI. Necesita el `.env` con `OPENAI_API_KEY` y `OPENAI_MODEL` (además de las
+variables obligatorias de la app); no usa la base. Para correr solo algunos:
+`npm run test:scenarios -- saludo pide-humano`. Termina con código 1 si algún
+escenario falla, e imprime cada respuesta del bot y las herramientas que llamó.
+
+Cada archivo tiene el `business` (el perfil del agente contra el que corren;
+hoy `botsuite46`, el perfil inicial del seed) y una lista de `scenarios` con
+`name`, `initial` opcional (`known`: datos del lead ya conocidos; `history`:
+mensajes anteriores) y `turns`. Cada turno lleva el texto del usuario y
+aserciones sobre la respuesta: `mustInclude` (cada texto tiene que aparecer;
+una lista dentro significa "alguno de estos"), `mustNotInclude`,
+`mustCallTool` (llamada y aceptada) y `mustNotCallTool`. El texto se compara
+sin mayúsculas ni tildes. `npm test` valida el formato de los archivos.
+
 En GitHub, el workflow `.github/workflows/ci.yml` corre lint, las tres suites
 (con un Postgres propio) y el build en cada PR a `develop` o `main` y en cada
 push a esas ramas.

@@ -54,6 +54,10 @@ describe('prompt builders', () => {
     });
 
     expect(prompt).toContain('Sos BotSuite, IA de BotSuite46.');
+    expect(prompt).toContain(
+      'En tu primer mensaje de la conversación, presentate como "BotSuite, IA de BotSuite46".',
+    );
+    expect(prompt).toContain('no tiene que ver con el negocio');
     expect(prompt).toContain('Tono cálido y profesional.');
     expect(prompt).toContain('## Qué hacemos');
     expect(prompt).toContain('[COMPLETAR]');
