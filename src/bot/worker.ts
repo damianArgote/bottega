@@ -1,16 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import {
+  Inject,
   Injectable,
   Logger,
+  Optional,
   type OnApplicationBootstrap,
   type OnModuleDestroy,
 } from '@nestjs/common';
 import type { Subscription } from 'rxjs';
 import { AppConfigService } from '../config/app-config.service.js';
 import { pollDelayMs } from '../queue/poll-delay.js';
+import {
+  PUSH_JOB_PROCESSOR,
+  type PushJobProcessor,
+} from '../queue/push-jobs.js';
 import { QueueSignal } from '../queue/queue-signal.js';
-import { QueueService, sanitizeError } from '../queue/queue.service.js';
+import {
+  type ClaimedJob,
+  QueueService,
+  sanitizeError,
+} from '../queue/queue.service.js';
 import { BotService, JobError } from './bot.service.js';
 
 /**
@@ -44,6 +54,10 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly queue: QueueService,
     private readonly bot: BotService,
     private readonly signal: QueueSignal,
+    /** Absent when Web Push is not configured: push jobs end SKIPPED. */
+    @Optional()
+    @Inject(PUSH_JOB_PROCESSOR)
+    private readonly push?: PushJobProcessor,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -83,8 +97,7 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
       return false;
     }
     try {
-      const result = await this.bot.process(job);
-      if (result.outcome === 'skipped') {
+      if ((await this.run(job)) === 'skipped') {
         await this.queue.skip(job);
       } else {
         await this.queue.complete(job);
@@ -97,6 +110,14 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
       );
     }
     return true;
+  }
+
+  /** The bot answers inbound messages; the push processor sends pushes. */
+  private async run(job: ClaimedJob): Promise<'done' | 'skipped'> {
+    if (job.type === 'PUSH_NOTIFICATION') {
+      return this.push ? this.push.process(job) : 'skipped';
+    }
+    return (await this.bot.process(job)).outcome;
   }
 
   /** Processes jobs until none is claimable. Used by tests. */

@@ -1,3 +1,5 @@
+import { vapidDetails } from '../push/push-config.js';
+import { enqueuePushJob } from '../queue/push-jobs.js';
 import {
   recordInboundActivity,
   touchConversations,
@@ -220,6 +222,16 @@ export class ConversationsService {
         VALUES (gen_random_uuid(), 'INBOUND_MESSAGE', ${conversation.id}::uuid,
           ${message.id}::uuid, 'PENDING', 0, ${maxAttempts}, ${UTC_NOW},
           ${UTC_NOW}, ${UTC_NOW})`;
+      // Its recipients are decided when it runs (nobody while the bot
+      // attends the conversation).
+      if (vapidDetails(this.config)) {
+        await enqueuePushJob(tx, {
+          conversationId: conversation.id,
+          reason: 'INBOUND',
+          messageId: message.id,
+          maxAttempts,
+        });
+      }
 
       return {
         outcome: 'created',

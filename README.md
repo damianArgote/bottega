@@ -153,6 +153,9 @@ el token de la línea de cada conversación, no con el del entorno.
 | `PUBLIC_BASE_URL` | No | — | URL pública de esta API (por ejemplo `https://bottega-api.onrender.com`). Con ella el alta de una línea devuelve la URL completa del webhook. En Render no hace falta: se usa `RENDER_EXTERNAL_URL`, que Render define solo. |
 | `JWT_SECRET` | Sí | — | Firma las sesiones de la bandeja (JWT). Mínimo 32 caracteres: generala con `openssl rand -base64 48`. Usá una distinta por entorno; si la cambiás, todas las sesiones se cierran. |
 | `INBOX_ORIGIN` | Sí | — | Origen de la bandeja web, el único que acepta CORS (con cookies). Solo esquema, dominio y puerto, sin barra final: `http://localhost:4200` en local, la URL publicada de la bandeja en Render. |
+| `VAPID_PUBLIC_KEY` | No | — | Clave pública para los avisos Web Push de la bandeja (ver [Avisos con la app cerrada](#avisos-con-la-app-cerrada-web-push)). Van las tres `VAPID_*` o ninguna: sin ninguna, los avisos quedan apagados; con algunas, la app no arranca. Generá el par con `npx web-push generate-vapid-keys`. |
+| `VAPID_PRIVATE_KEY` | No | — | Clave privada del mismo par. Es un secreto: cambiarla invalida todas las suscripciones guardadas. |
+| `VAPID_SUBJECT` | No | — | Contacto para los servicios de push: `mailto:alguien@ejemplo.com` o una URL `https://`. |
 | `TOKEN_ENCRYPTION_KEY` | Sí | — | Cifra las credenciales de Meta de cada línea guardadas en la base (AES-256-GCM). 32 bytes en base64: generala con `openssl rand -base64 32`. Usá una distinta por entorno y guardala bien: si se pierde o se cambia, las credenciales guardadas no se pueden leer. |
 
 ### 5. Migraciones
@@ -519,7 +522,7 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | Método y ruta | Qué hace |
 | ------------- | -------- |
 | `GET /inbox/businesses/<businessId>` | El negocio (`id`, `name`, `slug`) y el rol del usuario en él. |
-| `GET .../conversations?view=&lineId=&q=&cursor=` | Lista de 30 por página, la más reciente primero (por `lastMessageAt` e `id`). `view`: `mine` (asignadas a mí y no resueltas), `unassigned` (abiertas y sin asignar), `pending` (esperan a una persona) o `resolved`. `q` busca por nombre o número del contacto; `lineId`, una línea del negocio (`404` si no es suya). Devuelve `{ conversations, nextCursor }`. |
+| `GET .../conversations?view=&lineId=&q=&cursor=` | Lista de 30 por página, la más reciente primero (por `lastMessageAt` e `id`). `view`: `mine` (asignadas a mí y no resueltas), `unassigned` (abiertas y sin asignar), `pending` (esperan a una persona) o `resolved`. `q` busca por nombre o número del contacto; `lineId`, una línea del negocio (`404` si no es suya). Devuelve `{ conversations, nextCursor }`. Cada conversación trae `windowClosesAt`: cuándo cierra la ventana de 24 h (también si `windowExpiresAt` viene en `null`); con eso la web sabe si una persona puede responder. |
 | `GET .../changes?cursor=` | Las conversaciones que cambiaron desde el cursor (hasta 200), el cursor nuevo y `hasMore` (si es `true`, pedí de nuevo enseguida). El cursor es opaco y lo da el servidor; la primera vez se pide sin cursor. Puede repetir conversaciones: quedate con la `version` más alta de cada `id`. |
 | `GET .../conversations/<id>/messages?before=&after=` | Mensajes de a 50, del más viejo al más nuevo, paginados por `seq` (orden de inserción, viene como texto). Sin parámetros, los últimos; `before=<seq>`, los anteriores; `after=<seq>`, los nuevos. Incluye los mensajes de sistema (`type: "SYSTEM"`). |
 | `POST .../conversations/<id>/messages` | Body `{ "body", "clientId" }` (`clientId`: un UUID que genera la web por mensaje; reintentar con el mismo no manda dos veces). Revisa la ventana de 24 h **antes** de llamar a Meta: cerrada, `409` con `code: "WINDOW_CLOSED"`. Si nadie la tiene asignada, la toma quien responde; si la tiene otra persona, `409` con `code: "ALREADY_TAKEN"`. `200` enviado (o repetido), `202` incierto (no se reintenta), `502` rechazado por Meta (si Meta dice que la ventana está cerrada, `windowExpiresAt` pasa a ahora). |
@@ -564,6 +567,39 @@ Los leads del negocio, también solo para sus `OWNER`, bajo
 | ---- | -------- |
 | `GET /leads?from=&to=&q=&cursor=` | 50 por página, del más nuevo al más viejo, con el contacto y la conversación; `nextCursor` (o `null`) trae la página siguiente. `from` y `to` son días (`AAAA-MM-DD`) en la zona horaria del negocio, `to` incluido. `q` busca en el nombre o el número del contacto y en cualquier dato del lead. |
 | `GET /leads/export.csv?from=&to=` | Todos los leads del rango en CSV (UTF-8 con BOM, para que Excel lea los acentos): una columna por cada campo de `leadFields` del agente, después `Fecha` (hora del negocio), `Nombre de perfil` y `Teléfono`. Una celda que empieza con `=`, `+`, `-`, `@`, tab o retorno lleva un `'` adelante, para que la planilla no la ejecute como fórmula. |
+
+### Avisos con la app cerrada (Web Push)
+
+La bandeja avisa con una notificación del sistema (con el sonido del
+teléfono) aunque esté cerrada o el teléfono bloqueado. Se activa con las tres
+variables `VAPID_*`; sin ellas, las rutas de abajo responden `404` y no se
+encola ningún aviso.
+
+| Ruta | Qué hace |
+| ---- | -------- |
+| `GET /inbox/push/public-key` | `{ "publicKey" }`: la clave VAPID con la que el navegador se suscribe. |
+| `POST /inbox/push/subscriptions` | Body `{ "endpoint", "keys": { "p256dh", "auth" } }` (`endpoint` https). Guarda el navegador para el usuario de la sesión, o lo actualiza si el `endpoint` ya existía. `201`. |
+| `DELETE /inbox/push/subscriptions` | Body `{ "endpoint" }`. Borra ese navegador del usuario de la sesión. `204`, también si no existía. |
+
+A quién se avisa (se decide al mandar, con el estado de ese momento):
+
+- Mensaje de un contacto en una conversación asignada: solo a esa persona.
+- Sin asignar y en Pendientes, o sin asignar con el bot pausado: a todas las personas activas del negocio.
+- Mientras la atiende el bot: a nadie.
+- Cuando el bot la pasa a una persona: a todas las personas activas del negocio.
+
+Una persona inactiva en el negocio, o con la cuenta deshabilitada, no recibe
+avisos. El aviso lleva el nombre del contacto y los primeros 100 caracteres
+del mensaje (un audio o una imagen, como "Audio" o "Imagen"). Viaja cifrado de
+punta a punta (estándar Web Push), pero **se ve en la pantalla bloqueada del
+teléfono**: quien tenga el teléfono a mano lo puede leer.
+
+Cada aviso es un job de la cola (`PUSH_NOTIFICATION`) que corre aparte del
+orden de la conversación: nunca demora una respuesta del bot. Si el servicio
+de push dice que el navegador ya no existe (`404` o `410`), se borra esa
+suscripción; cualquier otro error reintenta con el backoff de la cola. El
+reintento vuelve a mandar a todos los navegadores de esas personas: como el
+aviso de una conversación reemplaza al anterior, no se acumulan.
 
 ### Pendiente
 

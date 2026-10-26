@@ -171,8 +171,32 @@ describe('Inbox reads (integration)', () => {
         lastMessageAt: expect.any(Date) as unknown,
         lastMessagePreview: 'primero',
         windowExpiresAt: expect.any(Date) as unknown,
+        windowClosesAt: expect.any(Date) as unknown,
         version: expect.any(Number) as unknown,
       });
+      expect(rows[1]!.windowClosesAt).toEqual(rows[1]!.windowExpiresAt);
+    });
+
+    it('windowClosesAt falls back to 24 h after the last inbound message', async () => {
+      await inbound('5491100000001');
+      const lastInboundAt = new Date('2026-10-20T10:00:00Z');
+      // A row the previous release wrote: no windowExpiresAt.
+      await prisma.conversation.updateMany({
+        data: { windowExpiresAt: null, lastInboundAt },
+      });
+
+      const [listed] = (await queries.list(access, ana, { view: 'unassigned' }))
+        .conversations;
+      const [changed] = (await queries.changes(access, undefined))
+        .conversations;
+
+      const expected = new Date('2026-10-21T10:00:00Z');
+      expect(listed).toMatchObject({
+        windowExpiresAt: null,
+        windowClosesAt: expected,
+      });
+      expect(changed).toMatchObject({ windowClosesAt: expected });
+      expect(listed).not.toHaveProperty('lastInboundAt');
     });
 
     it('pages 30 at a time by (lastMessageAt, id), without repeats', async () => {

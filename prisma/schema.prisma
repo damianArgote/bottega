@@ -87,8 +87,18 @@ enum HandoffStatus {
 
 enum JobType {
   INBOUND_MESSAGE
+  /// Web Push to the inbox people; runs outside the conversation's order.
+  PUSH_NOTIFICATION
 
   @@map("job_type")
+}
+
+/// Why a PUSH_NOTIFICATION job notifies.
+enum PushReason {
+  INBOUND
+  HANDOFF
+
+  @@map("push_reason")
 }
 
 enum JobStatus {
@@ -335,7 +345,8 @@ model Message {
 
   conversation  Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   context       ConversationContext? @relation(fields: [contextId], references: [id], onDelete: SetNull)
-  processingJob ProcessingJob?
+  processingJob ProcessingJob?       @relation("JobMessage")
+  pushJobs      ProcessingJob[]      @relation("PushMessage")
 
   @@index([contextId, createdAt])
   @@index([conversationId, createdAt])
@@ -401,25 +412,33 @@ model HandoffRequest {
 /// PostgreSQL-backed job queue. A partial unique index (added by hand in the
 /// initial migration) guarantees at most one PROCESSING job per conversation.
 model ProcessingJob {
-  id             String    @id @default(uuid()) @db.Uuid
+  id             String      @id @default(uuid()) @db.Uuid
   /// Monotonic enqueue order. Used by the queue to process the jobs of one
   /// conversation strictly in arrival order (created_at has ms resolution).
-  seq            BigInt    @unique @default(autoincrement())
+  seq            BigInt      @unique @default(autoincrement())
   type           JobType
-  conversationId String    @map("conversation_id") @db.Uuid
-  messageId      String    @unique @map("message_id") @db.Uuid
-  status         JobStatus @default(PENDING)
-  attempts       Int       @default(0)
-  maxAttempts    Int       @map("max_attempts")
-  runAfter       DateTime  @default(now()) @map("run_after")
-  leaseExpiresAt DateTime? @map("lease_expires_at")
-  lockedBy       String?   @map("locked_by")
-  lastError      String?   @map("last_error")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  conversationId String      @map("conversation_id") @db.Uuid
+  /// The inbound message the bot answers; null for PUSH_NOTIFICATION jobs
+  /// (the previous release's worker then fails them instead of taking one
+  /// for a message to answer).
+  messageId      String?     @unique @map("message_id") @db.Uuid
+  /// Set only for PUSH_NOTIFICATION jobs.
+  pushReason     PushReason? @map("push_reason")
+  /// The message a push shows; null for a handoff.
+  pushMessageId  String?     @map("push_message_id") @db.Uuid
+  status         JobStatus   @default(PENDING)
+  attempts       Int         @default(0)
+  maxAttempts    Int         @map("max_attempts")
+  runAfter       DateTime    @default(now()) @map("run_after")
+  leaseExpiresAt DateTime?   @map("lease_expires_at")
+  lockedBy       String?     @map("locked_by")
+  lastError      String?     @map("last_error")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message      Message?     @relation("JobMessage", fields: [messageId], references: [id], onDelete: Cascade)
+  pushMessage  Message?     @relation("PushMessage", fields: [pushMessageId], references: [id], onDelete: Cascade)
 
   @@index([status, runAfter])
   @@index([conversationId, createdAt])
@@ -502,6 +521,7 @@ model User {
   assignedConversations Conversation[]        @relation("ConversationAssignee")
   agentProfileUpdates   AgentProfile[]        @relation("AgentProfileUpdatedBy")
   agentProfileVersions  AgentProfileVersion[] @relation("AgentProfileVersionAuthor")
+  pushSubscriptions     PushSubscription[]
 
   @@map("app_user")
 }
@@ -539,4 +559,25 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_token")
+}
+
+/// A browser (phone or computer) where an inbox person gets Web Push
+/// notifications. Notifications go out by the user's memberships.
+model PushSubscription {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// The push service URL; it identifies the browser. Never logged.
+  endpoint      String    @unique
+  /// Encryption keys from the browser (base64url). Never logged.
+  p256dh        String
+  auth          String
+  userAgent     String?   @map("user_agent")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  /// Last push the service accepted for it.
+  lastSuccessAt DateTime? @map("last_success_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscription")
 }
