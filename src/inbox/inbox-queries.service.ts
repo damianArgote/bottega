@@ -1,3 +1,4 @@
+import { windowClosesAt } from './conversation-state.js';
 import {
   BadRequestException,
   Injectable,
@@ -28,6 +29,8 @@ const conversationItem = {
   lastMessageAt: true,
   lastMessagePreview: true,
   windowExpiresAt: true,
+  /** Only to compute windowClosesAt; not returned. */
+  lastInboundAt: true,
   version: true,
 } satisfies Prisma.ConversationSelect;
 
@@ -35,9 +38,17 @@ type ConversationRow = Prisma.ConversationGetPayload<{
   select: typeof conversationItem;
 }>;
 
-function toItem({ contact, ...row }: ConversationRow) {
+/**
+ * `windowClosesAt`: when the 24 h window closes (also for rows without
+ * windowExpiresAt); the web decides from it whether a person can reply.
+ */
+function toItem({ contact, lastInboundAt, ...row }: ConversationRow) {
   return {
     ...row,
+    windowClosesAt: windowClosesAt({
+      windowExpiresAt: row.windowExpiresAt,
+      lastInboundAt,
+    }),
     contact: { id: contact.id, waId: contact.waId, name: contact.profileName },
   };
 }

@@ -196,6 +196,65 @@ describe('parseEnv', () => {
     ).toBe('http://localhost:4200');
   });
 
+  describe('Web Push (VAPID)', () => {
+    // A throwaway pair, generated for these tests only.
+    const vapid = {
+      VAPID_PUBLIC_KEY:
+        'BDWoHXwGd0A1EkmJifVYTn-LkoWyr7Vg38nBPQlPawo4WhgQY8qkSbl_mzslt4X7XlJpbO1EnPw6JVUsl7KRfdY',
+      VAPID_PRIVATE_KEY: 'yPmYWYTyNgsNmDJWJwKd6DeTQ5JuM_IO5W7XSc9PYXw',
+      VAPID_SUBJECT: 'mailto:hola@botsuite46.com',
+    };
+
+    it('is off when none of the three is set', () => {
+      const env = parseEnv(validEnv());
+
+      expect(env.VAPID_PUBLIC_KEY).toBeUndefined();
+      expect(env.VAPID_PRIVATE_KEY).toBeUndefined();
+      expect(env.VAPID_SUBJECT).toBeUndefined();
+    });
+
+    it('accepts the three together (mailto or https subject)', () => {
+      expect(parseEnv(validEnv(vapid))).toMatchObject(vapid);
+      expect(
+        parseEnv(
+          validEnv({ ...vapid, VAPID_SUBJECT: 'https://botsuite46.com' }),
+        ).VAPID_SUBJECT,
+      ).toBe('https://botsuite46.com');
+    });
+
+    it.each([
+      ['VAPID_PUBLIC_KEY'],
+      ['VAPID_PRIVATE_KEY'],
+      ['VAPID_SUBJECT'],
+    ] as const)('does not start with only some of them (%s missing)', (key) => {
+      const error = captureError(validEnv({ ...vapid, [key]: undefined }));
+
+      expect(error.problems).toContain(
+        `${key}: ${key} is required when another VAPID_* variable is set (set the three or none)`,
+      );
+      expect(error.message).not.toContain(vapid.VAPID_PRIVATE_KEY);
+    });
+
+    it('rejects malformed keys and subject without echoing them', () => {
+      const error = captureError(
+        validEnv({
+          VAPID_PUBLIC_KEY: 'not-a-key',
+          VAPID_PRIVATE_KEY: 'secret-private-value',
+          VAPID_SUBJECT: 'hola@botsuite46.com',
+        }),
+      );
+
+      expect(error.problems).toEqual(
+        expect.arrayContaining([
+          'VAPID_PUBLIC_KEY: VAPID_PUBLIC_KEY must be a P-256 public key in base64url (npx web-push generate-vapid-keys)',
+          'VAPID_PRIVATE_KEY: VAPID_PRIVATE_KEY must be a P-256 private key in base64url (npx web-push generate-vapid-keys)',
+          'VAPID_SUBJECT: VAPID_SUBJECT must be a mailto: or https: URL',
+        ]),
+      );
+      expect(error.message).not.toContain('secret-private-value');
+    });
+  });
+
   it('rejects an unknown bot reply mode', () => {
     const error = captureError(validEnv({ BOT_REPLY_MODE: 'gpt' }));
 

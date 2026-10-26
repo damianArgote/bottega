@@ -17,7 +17,7 @@ import {
   Prisma,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { ClaimedJob } from '../queue/queue.service.js';
+import type { InboundJob } from '../queue/queue.service.js';
 import {
   maskPhone,
   WHATSAPP_CLIENT_FACTORY,
@@ -86,7 +86,7 @@ export class BotService {
     private readonly effects: ToolEffectsService,
   ) {}
 
-  async process(job: ClaimedJob): Promise<ProcessResult> {
+  async process(job: InboundJob): Promise<ProcessResult> {
     const inbound = await this.prisma.message.findUnique({
       where: { id: job.messageId },
       include: {
@@ -144,7 +144,7 @@ export class BotService {
    * reply and runs no command.
    */
   private async generateReplies(
-    job: ClaimedJob,
+    job: InboundJob,
     inbound: Message,
     conversation: Conversation,
   ): Promise<'skipped' | 'done'> {
@@ -238,7 +238,7 @@ export class BotService {
   }
 
   private async sendRow(
-    job: ClaimedJob,
+    job: InboundJob,
     row: Message,
     client: WhatsAppClient,
     waId: string,
