@@ -55,7 +55,13 @@ export async function runAgentTurn(
   const calls: ToolCallTrace[] = [];
 
   for (let round = 1; round <= AI_MAX_MODEL_ROUNDS; round += 1) {
-    const response = await call({ ...setup.request, input: [...items] });
+    // The last round may not call tools: the model has to answer with what
+    // it planned so far, instead of running out of rounds without a reply.
+    const response = await call({
+      ...setup.request,
+      input: [...items],
+      ...(round === AI_MAX_MODEL_ROUNDS ? { toolChoice: 'none' as const } : {}),
+    });
     if (!response) {
       return { kind: 'no_response', calls };
     }
@@ -91,11 +97,11 @@ export async function runAgentTurn(
   return { kind: 'rounds_exceeded', calls };
 }
 
-/** The buttons offer_options planned for this reply, if any. */
+/** The buttons offer_options planned for this reply (the last call wins). */
 export function offeredButtons(
   effects: readonly PlannedEffect[],
 ): ReplyButton[] | undefined {
-  const offer = effects.find((e) => e.kind === 'reply_buttons');
+  const offer = effects.findLast((e) => e.kind === 'reply_buttons');
   return offer?.kind === 'reply_buttons' ? offer.buttons : undefined;
 }
 

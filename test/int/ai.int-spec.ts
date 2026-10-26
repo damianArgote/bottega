@@ -485,7 +485,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(await usageOutcomes()).toEqual(['ERROR']);
   });
 
-  it('sends the history of the active context only (demo isolation and reiniciar)', async () => {
+  it('the demo sees only itself; back from it, the commercial chat before it is remembered; reiniciar forgets', async () => {
     respond.mockResolvedValue(text('respuesta'));
     await say('hola comercial');
     expect(messages(request(-1))).toEqual([['user', 'hola comercial']]);
@@ -499,13 +499,20 @@ describe('AI reply pipeline (integration, mocked model)', () => {
 
     await say('salir');
     await say('sigo');
+    // Never the demo's messages ("precios?" and its reply).
     expect(messages(request(-1))).toEqual([
+      ['user', 'hola comercial'],
+      ['assistant', 'respuesta'],
+      ['user', 'demo'],
       ['assistant', renderReply('EXIT_DEMO', vars)],
       ['user', 'sigo'],
     ]);
 
     await say('otra cosa');
     expect(messages(request(-1))).toEqual([
+      ['user', 'hola comercial'],
+      ['assistant', 'respuesta'],
+      ['user', 'demo'],
       ['assistant', renderReply('EXIT_DEMO', vars)],
       ['user', 'sigo'],
       ['assistant', 'respuesta'],

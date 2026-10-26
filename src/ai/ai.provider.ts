@@ -24,6 +24,8 @@ export interface AiRequest {
   instructions: string;
   input: readonly AiInputItem[];
   tools: readonly AiToolDefinition[];
+  /** 'none': the model must answer with text (the tools stay defined). */
+  toolChoice?: 'none';
   maxOutputTokens: number;
 }
 
