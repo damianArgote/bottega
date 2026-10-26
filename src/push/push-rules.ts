@@ -97,7 +97,7 @@ export function buildPushPayload(input: PayloadInput) {
           : name,
       body: bodyOf(input.message),
       icon: '/icons/icon-192.png',
-      badge: '/icons/maskable-192.png',
+      badge: '/icons/badge-96.png',
       tag: conversationId,
       renotify: true,
       data: {

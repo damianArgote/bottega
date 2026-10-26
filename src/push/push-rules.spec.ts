@@ -99,7 +99,7 @@ describe('buildPushPayload', () => {
         title: 'Juan Pérez',
         body: 'Perfecto, ¿me pasás el link de pago?',
         icon: '/icons/icon-192.png',
-        badge: '/icons/maskable-192.png',
+        badge: '/icons/badge-96.png',
         tag: 'c1',
         renotify: true,
         data: {
