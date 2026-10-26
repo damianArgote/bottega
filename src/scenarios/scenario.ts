@@ -32,6 +32,8 @@ const turnSchema = z
     mustNotCallTool: z.array(z.enum(TOOL_NAMES)).optional(),
     /** No offer_options button in this turn may contain these texts. */
     mustNotOffer: z.array(text).optional(),
+    /** Each text must be in an accepted offer_options button of this turn. */
+    mustOffer: z.array(text).optional(),
   })
   .strict();
 
@@ -120,6 +122,11 @@ export function checkTurn(
       return Array.isArray(options) ? options.map(String) : [];
     })
     .map(normalize);
+  for (const entry of turn.mustOffer ?? []) {
+    if (!offered.some((o) => o.includes(normalize(entry)))) {
+      failures.push(`mustOffer "${entry}"`);
+    }
+  }
   for (const entry of turn.mustNotOffer ?? []) {
     if (offered.some((o) => o.includes(normalize(entry)))) {
       failures.push(`mustNotOffer "${entry}"`);

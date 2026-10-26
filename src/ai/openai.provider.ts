@@ -66,6 +66,7 @@ export class OpenAiProvider implements AiProvider {
           parameters: tool.parameters,
           strict: true,
         })),
+        ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
         max_output_tokens: request.maxOutputTokens,
         store: false,
       });

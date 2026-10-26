@@ -1,3 +1,4 @@
+import { offeredButtons } from '../agent-turn.js';
 import { loadContent } from '../../content/content.schema.js';
 import { DEFAULT_CONTENT_DIR } from '../../content/content.service.js';
 import { MODE_PROFILES, type ToolName } from '../mode-profiles.js';
@@ -286,20 +287,33 @@ describe('tool registry', () => {
       expectRejected(offer(['Pro', 'pro']), 'invalid_arguments');
     });
 
-    it('only once per reply, in both modes', () => {
+    it('a second call in the same reply is accepted and replaces the first, in both modes', () => {
+      // Rejecting it made the model retry until it ran out of rounds.
+      for (const mode of ['DEMO', 'COMMERCIAL'] as const) {
+        expect(
+          planToolCall(
+            call('offer_options', { options: ['Sí', 'No'] }),
+            ctx(mode, [
+              {
+                kind: 'reply_buttons',
+                buttons: [{ id: 'option_1', title: 'Antes' }],
+              },
+            ]),
+          ),
+        ).toMatchObject({ ok: true });
+      }
       expect(
-        planToolCall(
-          call('offer_options', { options: ['Sí', 'No'] }),
-          ctx('DEMO'),
-        ),
-      ).toMatchObject({ ok: true });
-      expectRejected(
-        planToolCall(
-          call('offer_options', { options: ['Sí', 'No'] }),
-          ctx('COMMERCIAL', [{ kind: 'reply_buttons', buttons: [] }]),
-        ),
-        'plan_rejected',
-      );
+        offeredButtons([
+          {
+            kind: 'reply_buttons',
+            buttons: [{ id: 'option_1', title: 'Antes' }],
+          },
+          {
+            kind: 'reply_buttons',
+            buttons: [{ id: 'option_1', title: 'Después' }],
+          },
+        ]),
+      ).toEqual([{ id: 'option_1', title: 'Después' }]);
     });
   });
 

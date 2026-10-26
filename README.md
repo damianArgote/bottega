@@ -456,7 +456,8 @@ de la demo funcionan como los comandos (escribirlos a mano también funciona).
   respuesta del modelo lleva el de salir.
 - **Opciones del modelo:** con la herramienta `offer_options` el modelo
   muestra de 1 a 3 opciones como botones (por ejemplo los planes; después de
-  elegir uno, ofrece solo los que quedan).
+  elegir uno, lo explica y ofrece avanzar con ese o ver los otros). Si en una
+  misma respuesta lo llama dos veces, quedan los botones de la última.
 - Los emojis van solo en los mensajes con botones.
 - Los botones se guardan en `message.buttons`; un texto de más de 1.024
   caracteres sale sin botones (límite de WhatsApp para mensajes interactivos).
@@ -475,8 +476,16 @@ de la demo funcionan como los comandos (escribirlos a mano también funciona).
   conversación. BotSuite46 arranca con lunes a viernes de 9 a 18.
 - **Demo:** atiende como la barbería ficticia. Lo que se registra ahí es
   ficticio y nunca se mezcla con el lead.
-- Cada modo tiene su propio historial: lo dicho en la demo no aparece en el
-  comercial, y viceversa.
+- Lo dicho en la demo nunca aparece en el comercial, y viceversa. Al volver
+  de la demo, el bot recuerda la charla comercial de antes (sin la demo), hasta
+  el último "reiniciar".
+- **Cómo vende:** pide los datos de a uno y guarda con `save_lead` cada dato
+  que la persona menciona, aunque no se lo haya preguntado. Ofrece la demo
+  solo si la persona la pide o duda (si de verdad funciona, si es caro, si lo
+  va a pensar), no de entrada, y no la vuelve a ofrecer si ya la probó. Cuando
+  la persona avanza con un plan o dice que quiere contratar, completa los
+  datos obligatorios y pasa la conversación a Pendientes con un resumen, para
+  que una persona del equipo cierre la venta.
 
 ### Pausa
 
