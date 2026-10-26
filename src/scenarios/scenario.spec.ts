@@ -39,7 +39,7 @@ describe('scenario files', () => {
     ).toThrow();
   });
 
-  it('BotSuite46 has the scenarios the prompt asks for, plus no-repite-datos', () => {
+  it('BotSuite46 has the scenarios the prompt asks for, plus the ones of later fixes', () => {
     const file = loadScenarioFile(join(SCENARIOS_DIR, 'botsuite46.json'));
 
     expect(file.business).toBe('botsuite46');
@@ -54,11 +54,15 @@ describe('scenario files', () => {
       'opina-demo',
       'planes-en-botones',
       'invita-demo',
+      'no-demo-de-entrada',
+      'demo-si-duda',
+      'cierra-con-plan',
     ]);
     const tools = (name: string) =>
       file.scenarios.find((s) => s.name === name)?.turns.at(-1);
     expect(tools('da-su-nombre')?.mustCallTool).toContain('save_lead');
     expect(tools('pide-humano')?.mustCallTool).toContain('request_handoff');
+    expect(tools('cierra-con-plan')?.mustCallTool).toContain('request_handoff');
     // The raw file is valid JSON with no comments.
     expect(() => {
       JSON.parse(readFileSync(join(SCENARIOS_DIR, 'botsuite46.json'), 'utf8'));
@@ -104,6 +108,32 @@ describe('checkTurn', () => {
         offered(['Inicial', 'Plan Pro']),
       ),
     ).toEqual(['mustNotOffer "pro"']);
+  });
+
+  it('mustOffer fails unless an accepted offer_options includes each text', () => {
+    const offered = (options: string[], accepted = true) => ({
+      reply: 'x',
+      toolCalls: [{ name: 'offer_options', accepted, arguments: { options } }],
+    });
+
+    expect(
+      checkTurn(
+        { user: 'no sé', mustOffer: ['probar la demo'] },
+        offered(['🧪 Probar la demo']),
+      ),
+    ).toEqual([]);
+    expect(
+      checkTurn(
+        { user: 'no sé', mustOffer: ['Probar la demo'] },
+        offered(['Ver planes']),
+      ),
+    ).toEqual(['mustOffer "Probar la demo"']);
+    expect(
+      checkTurn(
+        { user: 'no sé', mustOffer: ['Probar la demo'] },
+        offered(['🧪 Probar la demo'], false),
+      ),
+    ).toEqual(['mustOffer "Probar la demo"']);
   });
 
   it('matches text ignoring case and accents', () => {

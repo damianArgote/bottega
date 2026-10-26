@@ -20,7 +20,7 @@ import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from './ai-replies.js';
 import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
 import { EXIT_DEMO_BUTTON } from './reply-buttons.js';
 import { UNSUPPORTED_REPLY } from './echo-replies.js';
-import { historyWhere, toHistoryItems } from './history.js';
+import { historyContextIds, historyWhere, toHistoryItems } from './history.js';
 import { JobError } from './job-error.js';
 import {
   buildCommercialInstructions,
@@ -291,10 +291,31 @@ export class AiReplyGenerator implements ReplyGenerator {
     return buildCommercialInstructions(profile, leadValuesOf(lead));
   }
 
-  /** Last AI_HISTORY_LIMIT messages of the active context, oldest first. */
+  /**
+   * Last AI_HISTORY_LIMIT messages the model remembers (see
+   * historyContextIds), oldest first.
+   */
   private async history(input: ReplyInput): Promise<AiInputItem[]> {
-    const rows = await this.deps.prisma.message.findMany({
-      where: historyWhere(input.contextId, input.message.id),
+    const { prisma } = this.deps;
+    const active = await prisma.conversationContext.findUnique({
+      where: { id: input.contextId },
+      select: { startedAt: true },
+    });
+    const contexts = await prisma.conversationContext.findMany({
+      where: {
+        conversationId: input.conversationId,
+        startedAt: { lte: active?.startedAt ?? new Date() },
+        id: { not: input.contextId },
+      },
+      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, mode: true, endReason: true },
+    });
+    const contextIds = historyContextIds(input.mode, [
+      { id: input.contextId, mode: input.mode, endReason: null },
+      ...contexts,
+    ]);
+    const rows = await prisma.message.findMany({
+      where: historyWhere(contextIds, input.message.id),
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: this.deps.config.get('AI_HISTORY_LIMIT'),
       select: { direction: true, content: true },

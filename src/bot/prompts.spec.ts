@@ -114,6 +114,41 @@ describe('prompt builders', () => {
     expect(buildCommercialInstructions(salon, {})).not.toContain('demo');
   });
 
+  it('commercial: offers the demo only when the person asks or hesitates, once', () => {
+    const prompt = buildCommercialInstructions(botsuite, {});
+
+    expect(prompt).toContain('No ofrezcas la demo de entrada');
+    expect(prompt).toContain('si duda y no termina de convencerse');
+    expect(prompt).toContain('Si ya la probó, no se la vuelvas a ofrecer');
+  });
+
+  it('commercial: saves every lead value the person mentions, even unasked', () => {
+    expect(buildCommercialInstructions(botsuite, {})).toContain(
+      'aunque no se lo hayas preguntado o venga junto con otra cosa, llamá a save_lead en ese mismo turno',
+    );
+  });
+
+  it('commercial: a chosen plan leads to closing with a person, not to the other plans', () => {
+    const prompt = buildCommercialInstructions(botsuite, {});
+    const withoutFields = buildCommercialInstructions(
+      { ...salon, leadFields: [] },
+      {},
+    );
+
+    expect(prompt).toContain(
+      'pedile de a uno los datos obligatorios de "Datos a pedir" que falten, confirmale en una frase lo que eligió y usá request_handoff',
+    );
+    expect(prompt).toContain(
+      'No le ofrezcas las otras opciones salvo que las pida o dude',
+    );
+    expect(prompt).not.toContain('las opciones que quedan sin ver');
+    // A business that asks for no data closes the same way.
+    expect(withoutFields).toContain(
+      'confirmale en una frase lo que eligió y usá request_handoff',
+    );
+    expect(withoutFields).not.toContain('Datos a pedir');
+  });
+
   it('commercial: says there is no known data when nothing was captured', () => {
     expect(buildCommercialInstructions(salon, {})).toContain(
       'Todavía no hay datos.',

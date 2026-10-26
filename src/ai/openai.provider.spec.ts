@@ -131,6 +131,28 @@ describe('OpenAiProvider', () => {
     });
   });
 
+  it("sends tool_choice 'none' only when asked (the model must answer)", async () => {
+    const { client, create } = fakeClient({
+      status: 'completed',
+      model: 'm',
+      output: [],
+      output_text: 'Listo.',
+      usage: { input_tokens: 1, output_tokens: 1 } as OpenAiResponse['usage'],
+    });
+
+    await new OpenAiProvider(options, client).respond({
+      ...request,
+      toolChoice: 'none',
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool_choice: 'none',
+        tools: expect.any(Array) as unknown,
+      }),
+    );
+  });
+
   it('extracts function calls from the output items', async () => {
     const { client } = fakeClient({
       status: 'completed',

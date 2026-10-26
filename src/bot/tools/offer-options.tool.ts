@@ -25,7 +25,9 @@ type OfferArgs = z.infer<typeof schema>;
 /**
  * Shows 1 to 3 choices as WhatsApp reply buttons under the reply (e.g. the
  * plans) instead of asking "which one do you prefer?". Tapping one sends its
- * title back as the user's text. Once per reply.
+ * title back as the user's text. A later call in the same reply replaces
+ * the earlier buttons (rejecting it made the model retry until it ran out
+ * of rounds).
  */
 export const offerOptionsTool: ToolHandler<OfferArgs> = {
   name: 'offer_options',
@@ -46,10 +48,7 @@ export const offerOptionsTool: ToolHandler<OfferArgs> = {
     additionalProperties: false,
   },
   schema,
-  plan(args, ctx) {
-    if (ctx.planned.some((e) => e.kind === 'reply_buttons')) {
-      return { ok: false, error: 'Ya ofreciste opciones en esta respuesta.' };
-    }
+  plan(args) {
     const titles = args.options.filter((t): t is string => t !== null);
     return {
       ok: true,

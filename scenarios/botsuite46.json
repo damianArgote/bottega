@@ -149,7 +149,7 @@
     },
     {
       "name": "planes-en-botones",
-      "description": "Plans are offered as buttons; after choosing one the bot explains it and offers only the remaining ones.",
+      "description": "Plans are offered as buttons; after choosing one the bot explains it and asks whether to go ahead, without offering the other plans.",
       "turns": [
         {
           "user": "¿Qué planes tienen?",
@@ -159,7 +159,8 @@
           "user": "Plan Pro",
           "mustInclude": ["130"],
           "mustCallTool": ["offer_options"],
-          "mustNotOffer": ["Pro"]
+          "mustNotOffer": ["Inicial", "Ventas"],
+          "mustNotCallTool": ["request_handoff"]
         }
       ]
     },
@@ -175,6 +176,90 @@
             "escribi demo",
             "escribir \"demo\""
           ]
+        }
+      ]
+    },
+    {
+      "name": "no-demo-de-entrada",
+      "description": "Telling what they need is not a reason to offer the demo; the data mentioned in passing is saved.",
+      "initial": {
+        "history": [
+          {
+            "role": "user",
+            "content": "hola"
+          },
+          {
+            "role": "assistant",
+            "content": "Hola, soy BotSuite, IA de BotSuite46. ¿En qué te puedo ayudar?"
+          }
+        ]
+      },
+      "turns": [
+        {
+          "user": "Soy Juan, tengo un estudio de abogados y quiero que el bot gestione las citas y las consultas",
+          "mustCallTool": ["save_lead"],
+          "mustNotOffer": ["Probar la demo"],
+          "mustNotCallTool": ["request_handoff"]
+        }
+      ]
+    },
+    {
+      "name": "demo-si-duda",
+      "description": "When the person hesitates, the bot offers the demo with a button.",
+      "initial": {
+        "known": {
+          "name": "Juan",
+          "business_name": "Gorditos de Leyes",
+          "industry": "Estudio de abogados",
+          "need": "Gestionar citas y consultas"
+        },
+        "history": [
+          {
+            "role": "assistant",
+            "content": "El asistente responde las consultas frecuentes y toma los pedidos de turno para que el equipo los confirme. ¿Querés que te cuente los planes?"
+          }
+        ]
+      },
+      "turns": [
+        {
+          "user": "No sé si me sirve, ¿de verdad funciona para un estudio como el mío?",
+          "mustOffer": ["Probar la demo"],
+          "mustNotCallTool": ["request_handoff"]
+        }
+      ]
+    },
+    {
+      "name": "cierra-con-plan",
+      "description": "After choosing a plan the bot asks to go ahead (no other plans); when the person goes ahead with complete data it hands off to close the sale.",
+      "initial": {
+        "known": {
+          "name": "Juan",
+          "business_name": "Gorditos de Leyes",
+          "industry": "Estudio de abogados",
+          "need": "Gestionar citas y consultas"
+        },
+        "history": [
+          {
+            "role": "user",
+            "content": "¿Qué planes tienen?"
+          },
+          {
+            "role": "assistant",
+            "content": "😊 Tenemos tres planes: Inicial, Pro y Ventas. ¿Cuál querés ver?"
+          }
+        ]
+      },
+      "turns": [
+        {
+          "user": "Inicial",
+          "mustInclude": ["70"],
+          "mustNotOffer": ["Pro", "Ventas"],
+          "mustNotCallTool": ["request_handoff"]
+        },
+        {
+          "user": "Sí, quiero avanzar con el Inicial",
+          "mustCallTool": ["request_handoff"],
+          "mustNotInclude": ["contratado", "link de pago"]
         }
       ]
     }

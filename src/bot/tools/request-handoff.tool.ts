@@ -15,7 +15,7 @@ type HandoffArgs = z.infer<typeof schema>;
 export const requestHandoffTool: ToolHandler<HandoffArgs> = {
   name: 'request_handoff',
   description:
-    'Pasa la conversación a una persona del equipo y pausa el asistente. Usala solo si el usuario pide hablar con una persona o si la consulta no se puede resolver acá.',
+    'Pasa la conversación a una persona del equipo y pausa el asistente. Usala si el usuario pide hablar con una persona, si la consulta no se puede resolver acá, o cuando eligió qué contratar o comprar y ya diste los datos obligatorios, para que el equipo cierre la venta.',
   allowedModes: [ConversationMode.COMMERCIAL, ConversationMode.DEMO],
   jsonSchema: strictObject({
     reason: nullableString('Motivo breve de la derivación (máx. 200).'),
