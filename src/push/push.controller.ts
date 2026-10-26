@@ -18,12 +18,16 @@ import { AppConfigService } from '../config/app-config.service.js';
 import { vapidDetails } from './push-config.js';
 import { PushSubscriptionsService } from './push-subscriptions.service.js';
 
-const base64url = (max: number) =>
+/** base64url (padding allowed) of exactly `bytes` bytes. */
+const base64urlKey = (bytes: number) =>
   z
     .string()
-    .min(1)
-    .max(max)
-    .regex(/^[A-Za-z0-9_-]+=*$/, 'must be base64url');
+    .max(200)
+    .regex(/^[A-Za-z0-9_-]+=*$/, 'must be base64url')
+    .refine(
+      (value) => Buffer.from(value, 'base64url').length === bytes,
+      `must be ${bytes} bytes`,
+    );
 const endpointSchema = z
   .string()
   .max(2_048)
@@ -31,7 +35,12 @@ const endpointSchema = z
 const subscribeBodySchema = z
   .object({
     endpoint: endpointSchema,
-    keys: z.object({ p256dh: base64url(200), auth: base64url(100) }).strict(),
+    // A P-256 public key and a 16-byte secret: anything else never works.
+    keys: z
+      .object({ p256dh: base64urlKey(65), auth: base64urlKey(16) })
+      .strict(),
+    /** Sent by PushSubscription.toJSON(); not used. */
+    expirationTime: z.number().nullable().optional(),
   })
   .strict();
 const unsubscribeBodySchema = z.object({ endpoint: endpointSchema }).strict();
@@ -63,9 +72,14 @@ export class PushController {
     @Headers('user-agent') userAgent: string | undefined,
   ): Promise<void> {
     this.vapid();
-    const input = parseOrBadRequest(subscribeBodySchema, body ?? {}, 'body');
+    const { endpoint, keys } = parseOrBadRequest(
+      subscribeBodySchema,
+      body ?? {},
+      'body',
+    );
     await this.subscriptions.save(user.id, {
-      ...input,
+      endpoint,
+      keys,
       ...(userAgent ? { userAgent: userAgent.slice(0, 300) } : {}),
     });
   }

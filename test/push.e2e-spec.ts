@@ -130,6 +130,16 @@ describe('Push routes (e2e)', () => {
         { endpoint: ENDPOINT, keys: KEYS, extra: 1 },
         'body',
       ],
+      [
+        'a p256dh of the wrong length',
+        { endpoint: ENDPOINT, keys: { ...KEYS, p256dh: 'BNcRdreA' } },
+        'body.keys.p256dh',
+      ],
+      [
+        'an auth of the wrong length',
+        { endpoint: ENDPOINT, keys: { ...KEYS, auth: 'tBHItJI5' } },
+        'body.keys.auth',
+      ],
     ])('rejects %s with 400', async (_label, body, path) => {
       const res = await http()
         .post('/inbox/push/subscriptions')
@@ -139,6 +149,21 @@ describe('Push routes (e2e)', () => {
 
       expect(JSON.stringify(res.body)).toContain(path);
       expect(subscriptions.save).not.toHaveBeenCalled();
+    });
+
+    it("accepts the browser's PushSubscription.toJSON() as is", async () => {
+      await http()
+        .post('/inbox/push/subscriptions')
+        .set('Cookie', SESSION)
+        .set('User-Agent', 'Firefox')
+        .send({ endpoint: ENDPOINT, expirationTime: null, keys: KEYS })
+        .expect(201);
+
+      expect(subscriptions.save).toHaveBeenCalledWith(USER.id, {
+        endpoint: ENDPOINT,
+        keys: KEYS,
+        userAgent: 'Firefox',
+      });
     });
 
     it('deletes the subscription of the session user (204)', async () => {

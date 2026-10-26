@@ -597,8 +597,9 @@ teléfono**: quien tenga el teléfono a mano lo puede leer.
 Cada aviso es un job de la cola (`PUSH_NOTIFICATION`) que corre aparte del
 orden de la conversación: nunca demora una respuesta del bot. Si el servicio
 de push dice que el navegador ya no existe (`404` o `410`), se borra esa
-suscripción; cualquier otro error reintenta con el backoff de la cola, solo
-para los navegadores que no lo recibieron.
+suscripción; cualquier otro error reintenta con el backoff de la cola. El
+reintento vuelve a mandar a todos los navegadores de esas personas: como el
+aviso de una conversación reemplaza al anterior, no se acumulan.
 
 ### Pendiente
 

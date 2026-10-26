@@ -6,7 +6,11 @@ import type { PushJobProcessor } from '../queue/push-jobs.js';
 import type { PushJob } from '../queue/queue.service.js';
 import { vapidDetails } from './push-config.js';
 import { buildPushPayload, pushRecipients } from './push-rules.js';
-import { PUSH_SENDER, type PushSender } from './push-sender.js';
+import {
+  PUSH_SENDER,
+  type PushOutcome,
+  type PushSender,
+} from './push-sender.js';
 
 /** Kept by the push service for an offline browser: a stale alert is noise. */
 const PUSH_TTL_SECONDS = 60 * 60;
@@ -15,8 +19,8 @@ const PUSH_TTL_SECONDS = 60 * 60;
  * Runs PUSH_NOTIFICATION jobs: decides the recipients with the
  * conversation's current state and sends the push to each of their
  * browsers. A subscription the push service no longer knows (404/410) is
- * deleted; any other failure retries the job, skipping the browsers that
- * already got it. Logs counts only: never endpoints, keys or content.
+ * deleted; any other failure retries the job (to every browser: the
+ * notification's tag and topic make a repeat replace it). Logs counts only: never endpoints, keys or content.
  */
 @Injectable()
 export class PushService implements PushJobProcessor {
@@ -67,25 +71,13 @@ export class PushService implements PushJobProcessor {
     }
     const subscriptions = await this.prisma.pushSubscription.findMany({
       where: { userId: { in: recipients } },
-      select: {
-        id: true,
-        endpoint: true,
-        p256dh: true,
-        auth: true,
-        lastSuccessAt: true,
-      },
+      select: { id: true, endpoint: true, p256dh: true, auth: true },
     });
-    // A retry skips the browsers an earlier attempt already reached. Only
-    // on a retry: another push of the conversation, sent after this job was
-    // created, also moves lastSuccessAt.
-    const pending =
-      job.attempts > 1
-        ? subscriptions.filter(
-            (s) => !s.lastSuccessAt || s.lastSuccessAt < job.createdAt,
-          )
-        : subscriptions;
-    if (pending.length === 0) {
-      return subscriptions.length === 0 ? 'skipped' : 'done';
+    // A retry sends to every browser again: lastSuccessAt is per browser,
+    // not per job, so it cannot tell which ones this job reached. The same
+    // tag and topic make a repeat replace the notification, not add one.
+    if (subscriptions.length === 0) {
+      return 'skipped';
     }
 
     const payload = JSON.stringify(
@@ -99,37 +91,38 @@ export class PushService implements PushJobProcessor {
     );
     // Web Push topics allow 32 URL-safe characters: the id without hyphens.
     const topic = job.conversationId.replaceAll('-', '');
-    let accepted = 0;
-    let gone = 0;
-    let failed = 0;
-    for (const subscription of pending) {
-      const outcome = await this.sender.send(
-        {
-          endpoint: subscription.endpoint,
-          keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-        },
-        payload,
-        { ttl: PUSH_TTL_SECONDS, topic },
-      );
-      if (outcome.kind === 'accepted') {
-        accepted += 1;
-        await this.prisma.pushSubscription.updateMany({
-          where: { id: subscription.id },
-          data: { lastSuccessAt: new Date() },
-        });
-      } else if (outcome.kind === 'gone') {
-        gone += 1;
-        await this.prisma.pushSubscription.deleteMany({
-          where: { id: subscription.id },
-        });
-      } else {
-        failed += 1;
-      }
-    }
-    this.logger.log(
-      `Push job ${job.id} (${job.pushReason.toLowerCase()}): recipients=${recipients.length} accepted=${accepted} gone=${gone} failed=${failed}`,
+    // In parallel: each send may wait up to its timeout, and the job holds
+    // a worker slot (and a lease) meanwhile.
+    const outcomes = await Promise.all(
+      subscriptions.map((subscription) =>
+        this.sender.send(
+          {
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+          },
+          payload,
+          { ttl: PUSH_TTL_SECONDS, topic },
+        ),
+      ),
     );
-    if (failed > 0) {
+    const idsWith = (kind: PushOutcome['kind']) =>
+      subscriptions
+        .filter((_, i) => outcomes[i]!.kind === kind)
+        .map((s) => s.id);
+    const accepted = idsWith('accepted');
+    const gone = idsWith('gone');
+    const failed = idsWith('failed');
+    await this.prisma.pushSubscription.updateMany({
+      where: { id: { in: accepted } },
+      data: { lastSuccessAt: new Date() },
+    });
+    await this.prisma.pushSubscription.deleteMany({
+      where: { id: { in: gone } },
+    });
+    this.logger.log(
+      `Push job ${job.id} (${job.pushReason.toLowerCase()}): recipients=${recipients.length} accepted=${accepted.length} gone=${gone.length} failed=${failed.length}`,
+    );
+    if (failed.length > 0) {
       throw new JobError('push_send_failed', true);
     }
     return 'done';
@@ -138,8 +131,11 @@ export class PushService implements PushJobProcessor {
   /** The job's message, or for a handoff the latest one from the contact. */
   private messageOf(job: PushJob) {
     const select = { type: true, content: true } as const;
-    return job.messageId
-      ? this.prisma.message.findUnique({ where: { id: job.messageId }, select })
+    return job.pushMessageId
+      ? this.prisma.message.findUnique({
+          where: { id: job.pushMessageId },
+          select,
+        })
       : this.prisma.message.findFirst({
           where: {
             conversationId: job.conversationId,

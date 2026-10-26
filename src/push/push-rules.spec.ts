@@ -159,6 +159,16 @@ describe('buildPushPayload', () => {
     expect(body).toBe(`${'a'.repeat(99)}…`);
   });
 
+  it('never cuts an emoji in half', () => {
+    const body = buildPushPayload({
+      ...base,
+      reason: 'INBOUND',
+      message: { type: 'TEXT', content: `${'a'.repeat(98)}😀😀😀` },
+    }).notification.body;
+
+    expect(body).toBe(`${'a'.repeat(98)}😀…`);
+  });
+
   it.each([
     ['[audio]', 'Audio'],
     ['[image]', 'Imagen'],

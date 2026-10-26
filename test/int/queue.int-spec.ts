@@ -120,7 +120,9 @@ describe('QueueService (integration)', () => {
         id: pushId,
         type: 'PUSH_NOTIFICATION',
         pushReason: 'INBOUND',
-        messageId: bot!.messageId,
+        // The previous release's worker must not take it for a message.
+        messageId: null,
+        pushMessageId: bot!.messageId,
         conversationId: bot!.conversationId,
       });
       expect(push!.createdAt).toBeInstanceOf(Date);
@@ -177,6 +179,7 @@ describe('QueueService (integration)', () => {
         type: 'PUSH_NOTIFICATION',
         pushReason: 'HANDOFF',
         messageId: null,
+        pushMessageId: null,
       });
     });
 

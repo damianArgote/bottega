@@ -18,12 +18,14 @@ export type ClaimedJob =
       type: 'INBOUND_MESSAGE';
       messageId: string;
       pushReason: null;
+      pushMessageId: null;
     })
   | (ClaimedJobBase & {
       type: 'PUSH_NOTIFICATION';
-      /** Null for a handoff. */
-      messageId: string | null;
+      messageId: null;
       pushReason: 'INBOUND' | 'HANDOFF';
+      /** The message it shows; null for a handoff. */
+      pushMessageId: string | null;
     });
 
 /** The bot's job: answers an inbound message. */
@@ -95,7 +97,8 @@ export class QueueService {
         WHERE j.id = candidate.id
         RETURNING j.id, j.type::text AS type,
           j.conversation_id AS "conversationId", j.message_id AS "messageId",
-          j.push_reason::text AS "pushReason", j.attempts,
+          j.push_reason::text AS "pushReason",
+          j.push_message_id AS "pushMessageId", j.attempts,
           j.max_attempts AS "maxAttempts", j.locked_by AS "lockedBy",
           j.created_at AS "createdAt"`;
       return rows[0] ?? null;

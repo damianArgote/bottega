@@ -74,10 +74,11 @@ function bodyOf(message: PayloadInput['message']): string {
     const type = /^\[(\w+)\]$/.exec(message.content)?.[1] ?? '';
     return MEDIA_LABELS[type] ?? 'Mensaje';
   }
-  const text = message.content.trim();
-  return text.length > PUSH_BODY_MAX_LENGTH
-    ? `${text.slice(0, PUSH_BODY_MAX_LENGTH - 1)}…`
-    : text;
+  // By code points, so an emoji is never cut in half.
+  const chars = Array.from(message.content.trim());
+  return chars.length > PUSH_BODY_MAX_LENGTH
+    ? `${chars.slice(0, PUSH_BODY_MAX_LENGTH - 1).join('')}…`
+    : chars.join('');
 }
 
 /**

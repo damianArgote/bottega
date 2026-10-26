@@ -5,7 +5,7 @@ import type { PushJob } from './queue.service.js';
 export interface PushJobInput {
   conversationId: string;
   reason: PushReason;
-  /** The inbound message that triggers it; null for a handoff. */
+  /** The inbound message it shows; null for a handoff. */
   messageId: string | null;
   maxAttempts: number;
 }
@@ -21,8 +21,8 @@ export async function enqueuePushJob(
 ): Promise<string> {
   const [row] = await db.$queryRaw<Array<{ id: string }>>`
     INSERT INTO processing_job
-      (id, type, conversation_id, message_id, push_reason, status, attempts,
-       max_attempts, run_after, created_at, updated_at)
+      (id, type, conversation_id, push_message_id, push_reason, status,
+       attempts, max_attempts, run_after, created_at, updated_at)
     VALUES (gen_random_uuid(), 'PUSH_NOTIFICATION', ${input.conversationId}::uuid,
       ${input.messageId}::uuid, ${input.reason}::push_reason, 'PENDING', 0,
       ${input.maxAttempts}, ${UTC_NOW}, ${UTC_NOW}, ${UTC_NOW})

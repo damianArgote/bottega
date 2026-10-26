@@ -120,7 +120,8 @@ describe('Web Push jobs (integration)', () => {
       expect(await pushJobs()).toEqual([
         expect.objectContaining({
           pushReason: 'INBOUND',
-          messageId: message.id,
+          messageId: null,
+          pushMessageId: message.id,
           conversationId: message.conversationId,
           status: 'PENDING',
         }),
@@ -172,6 +173,7 @@ describe('Web Push jobs (integration)', () => {
         expect.objectContaining({
           pushReason: 'HANDOFF',
           messageId: null,
+          pushMessageId: null,
           conversationId: id,
         }),
       ]);
@@ -277,7 +279,7 @@ describe('Web Push jobs (integration)', () => {
       ).toEqual(['https://push.example.com/ana-phone']);
     });
 
-    it('a transient error retries the job, and the retry only sends to the browsers that missed it', async () => {
+    it('a transient error retries the job; the retry reaches that browser even after a push of another conversation', async () => {
       await inboundPush('wamid.1');
       await setConversation({ assignedToId: ana });
       send.mockImplementation((target): Promise<PushOutcome> =>
@@ -295,7 +297,8 @@ describe('Web Push jobs (integration)', () => {
         id: job.id,
         type: 'PUSH_NOTIFICATION' as const,
         conversationId: job.conversationId,
-        messageId: job.messageId,
+        messageId: null,
+        pushMessageId: job.pushMessageId,
         pushReason: job.pushReason!,
         attempts: job.attempts,
         maxAttempts: job.maxAttempts,
@@ -313,6 +316,11 @@ describe('Web Push jobs (integration)', () => {
       );
       expect(await prisma.pushSubscription.count()).toBe(3);
 
+      // Meanwhile another conversation's push reaches every browser of Ana.
+      await prisma.pushSubscription.updateMany({
+        where: { userId: ana },
+        data: { lastSuccessAt: new Date() },
+      });
       send.mockClear().mockResolvedValue({ kind: 'accepted' });
       await prisma.processingJob.update({
         where: { id: job.id },
@@ -321,7 +329,11 @@ describe('Web Push jobs (integration)', () => {
       const retry = await queue.claimNext('w1');
       expect(retry?.id).toBe(job.id);
       expect(await push.process(retry as typeof claimed)).toBe('done');
-      expect(endpointsSent()).toEqual(['https://push.example.com/ana-laptop']);
+      // Every browser again: the notification's tag replaces the earlier one.
+      expect(endpointsSent()).toEqual([
+        'https://push.example.com/ana-laptop',
+        'https://push.example.com/ana-phone',
+      ]);
     });
 
     it("two close messages: the second job's first attempt reaches every browser", async () => {
