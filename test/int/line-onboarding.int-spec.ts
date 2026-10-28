@@ -12,7 +12,7 @@ import { LineCredentialsService } from '../../src/lines/line-credentials.service
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { GraphOnboardingClient } from '../../src/whatsapp/graph-onboarding.client.js';
 import { GraphWhatsAppClient } from '../../src/whatsapp/graph-whatsapp.client.js';
-import { resetDb, testConfig } from './helpers.js';
+import { createLine, resetDb, testConfig } from './helpers.js';
 
 // Must match ADMIN_API_KEY in vitest.config.int.ts.
 const ADMIN_KEY = 'int-admin-api-key-0123456789abcdef';
@@ -415,6 +415,35 @@ describe('Line onboarding (integration)', () => {
       }).expect(400);
 
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('on a line that already has a number, only accepts the account that holds it', async () => {
+      // Like the seeded default line: a number, no WABA stored.
+      const other = await createLine(prisma, {
+        slug: 'otro',
+        phoneNumberId: '700000000000999',
+      });
+      const same = await createLine(prisma, {
+        slug: 'linea-env',
+        phoneNumberId: PHONE_ID,
+      });
+
+      const res = await adminPut(
+        `/lines/${other.lineId}/credentials`,
+        credentialsBody,
+      ).expect(400);
+      expect((res.body as { message: string }).message).toContain(
+        'no está en esa cuenta de WhatsApp',
+      );
+      const untouched = await prisma.line.findUniqueOrThrow({
+        where: { id: other.lineId },
+      });
+      expect(untouched.accessTokenEncrypted).toBeNull();
+
+      await adminPut(
+        `/lines/${same.lineId}/credentials`,
+        credentialsBody,
+      ).expect(200);
     });
 
     it('lets an OWNER set them on a line of their business only', async () => {
@@ -854,6 +883,39 @@ describe('Line onboarding (integration)', () => {
 
       expect(calls).toBe(2);
       expect(fetchMock.mock.calls.length).toBe(calls);
+    });
+
+    it('does not cache a lookup that started before the credentials changed', async () => {
+      const { lineId } = await registered();
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        if ((input as string).startsWith(`${GRAPH}/${PHONE_ID}?`)) {
+          await held;
+        }
+        return metaOk(input as string, init);
+      });
+
+      const slow = adminGet(`/lines/${lineId}/status`).then((r) => r);
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            (url as string).startsWith(`${GRAPH}/${PHONE_ID}?`),
+          ),
+        ).toBe(true),
+      );
+      await adminPut(`/lines/${lineId}/credentials`, credentialsBody).expect(
+        200,
+      );
+      release();
+      expect((await slow).status).toBe(200);
+      fetchMock.mockClear();
+
+      await adminGet(`/lines/${lineId}/status`).expect(200);
+
+      expect(fetchMock).toHaveBeenCalled();
     });
 
     it('explains a failed Meta lookup and keeps the stored state', async () => {

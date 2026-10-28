@@ -75,6 +75,9 @@ type StatusLine = {
 const NUMBER_NOT_IN_WABA =
   'Ese número no es de la cuenta de WhatsApp de esta línea. Elegilo de la lista de números.';
 
+const NUMBER_NOT_IN_WABA_CREDENTIALS =
+  'El número de esta línea no está en esa cuenta de WhatsApp. Revisá el WABA ID.';
+
 const APP_SECRET_MISMATCH =
   'El App ID o el App Secret no son válidos. Copialos de nuevo desde Configuración de la app → Básica.';
 
@@ -111,6 +114,11 @@ export class LineOnboardingService {
     string,
     { expiresAt: number; value: MetaSnapshot }
   >();
+  /**
+   * Bumped on every change to a line, so a status lookup that started before
+   * the change does not cache what Meta said about the old values.
+   */
+  private readonly metaGeneration = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -144,6 +152,24 @@ export class LineOnboardingService {
     if (!app.ok) {
       throw metaError(app.error, APP_SECRET_MISMATCH);
     }
+    // A line that already has a number (the seeded default line has no
+    // WABA stored) only accepts the WhatsApp account that holds it.
+    if (line.phoneNumberId) {
+      const numbers = await this.meta.phoneNumbers(
+        input.wabaId,
+        input.accessToken,
+      );
+      if (!numbers.ok) {
+        throw metaError(numbers.error);
+      }
+      if (!numbers.data.some((n) => n.id === line.phoneNumberId)) {
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: NUMBER_NOT_IN_WABA_CREDENTIALS,
+        });
+      }
+    }
 
     const updated = await this.prisma.line.update({
       where: { id: line.id },
@@ -156,7 +182,7 @@ export class LineOnboardingService {
       select: lineView,
     });
     this.logger.log(`Credentials stored for line ${line.id}`);
-    this.metaCache.delete(line.id);
+    this.invalidateMeta(line.id);
     return { line: updated, wabaName: waba.data.name };
   }
 
@@ -219,7 +245,7 @@ export class LineOnboardingService {
         select: lineView,
       });
       this.logger.log(`Phone number registered for line ${line.id}`);
-      this.metaCache.delete(line.id);
+      this.invalidateMeta(line.id);
       return { line: updated };
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -249,7 +275,7 @@ export class LineOnboardingService {
       throw metaError(apps.error);
     }
     this.logger.log(`App subscribed for line ${line.id}`);
-    this.metaCache.delete(line.id);
+    this.invalidateMeta(line.id);
     // Without a known app id (the seeded default line), any second app is
     // another one.
     const otherApps = line.appId
@@ -332,6 +358,7 @@ export class LineOnboardingService {
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value;
     }
+    const generation = this.metaGeneration.get(line.id) ?? 0;
     let token: string;
     try {
       token = this.credentials.decrypt(line.accessTokenEncrypted);
@@ -366,14 +393,20 @@ export class LineOnboardingService {
         : null,
       metaError: failure ? onboardingErrorMessage(failure) : null,
     };
-    // A failed lookup is asked again next time instead of being cached.
-    if (!failure) {
+    // A failed lookup is asked again next time instead of being cached, and
+    // so is one that raced with a change to the line.
+    if (!failure && (this.metaGeneration.get(line.id) ?? 0) === generation) {
       this.metaCache.set(line.id, {
         expiresAt: Date.now() + META_CACHE_MS,
         value,
       });
     }
     return value;
+  }
+
+  private invalidateMeta(lineId: string): void {
+    this.metaGeneration.set(lineId, (this.metaGeneration.get(lineId) ?? 0) + 1);
+    this.metaCache.delete(lineId);
   }
 
   /** The line with its WhatsApp account and decrypted token (409 without). */
