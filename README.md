@@ -1,7 +1,8 @@
 # bottega-api
 
 Backend del bot comercial de WhatsApp de Bottega y de sus demos interactivas.
-Atiende prospectos, toma sus datos, muestra una demo (una barbería ficticia) y
+Atiende prospectos, toma sus datos, muestra demos (un productor de seguros y una
+barbería, con datos de ejemplo) y
 deriva a una persona del equipo cuando hace falta. Usa la **API oficial de
 WhatsApp Cloud** (sin BuilderBot ni librerías por QR), OpenAI y PostgreSQL.
 
@@ -419,14 +420,26 @@ Guion de prueba:
 | # | Escribís | Esperado |
 | - | -------- | -------- |
 | 1 | `hola` | Saludo del asistente de Bottega. |
-| 2 | `demo` | Entra a la demo de la barbería ficticia, con aviso de que es ficticia. |
-| 3 | `¿cuánto sale un corte?` | Precio tomado de `content/demos/barbershop.json`. |
-| 4 | Pedí un turno (nombre, servicio, día, hora) | Resumen de la solicitud, marcada como **ficticia**. |
-| 5 | `salir` | Vuelve al asistente de Bottega. |
-| 6 | `reiniciar` | Empieza la charla de cero (los datos del lead se conservan). |
-| 7 | `humano` | Aviso de que una persona va a responder; el bot queda en pausa. |
-| 8 | Cualquier mensaje | Sin respuesta (pausado). |
-| 9 | `POST /admin/conversations/<id>/resume` | El siguiente mensaje vuelve a tener respuesta. |
+| 2 | `demo` | Pregunta qué demo querés probar, con un botón por demo. |
+| 3 | `Barbería` (botón) | Entra a la demo de la barbería ficticia, con aviso de que es ficticia. |
+| 4 | `¿cuánto sale un corte?` | Precio tomado de `content/demos/barbershop.json`. |
+| 5 | Pedí un turno (nombre, servicio, día, hora) | Resumen de la solicitud, marcada como **ficticia**. |
+| 6 | `salir` | Vuelve al asistente de Bottega. |
+| 7 | `reiniciar` | Empieza la charla de cero (los datos del lead se conservan). |
+| 8 | `humano` | Aviso de que una persona va a responder; el bot queda en pausa. |
+| 9 | Cualquier mensaje | Sin respuesta (pausado). |
+| 10 | `POST /admin/conversations/<id>/resume` | El siguiente mensaje vuelve a tener respuesta. |
+
+Demo de seguros (`demo` → botón `Seguro de auto`):
+
+| # | Escribís | Esperado |
+| - | -------- | -------- |
+| 1 | `Tengo un Gol Trend 2018, soy de Caballito y quiero pagar menos` | Reconoce auto, año, zona y prioridad; pregunta solo lo que falta (versión, uso, GNC). |
+| 2 | Completá los datos | Hasta tres planes con precio mensual de `content/demos/insurance.json` y la aclaración "Cotización simulada para demostración". |
+| 3 | `¿Cuál incluye granizo?` | Responde con los datos de los planes. |
+| 4 | `En realidad es un Corolla 2022` | Vuelve a cotizar con el auto nuevo. |
+| 5 | `¿Aceptan pago con cripto?` | No lo confirma: lo deriva a un asesor. |
+| 6 | Elegí un plan y dejá tu nombre | Resumen para el asesor; la conversación pasa a Pendientes en la bandeja y el bot queda en pausa. |
 
 ---
 
@@ -474,7 +487,12 @@ de la demo funcionan como los comandos (escribirlos a mano también funciona).
   perfil (`openingHours`, en `Business.timezone`) el bot responde igual y, si
   hay `outOfHoursMessage`, lo agrega a su respuesta una vez por día y por
   conversación. BotSuite46 arranca con lunes a viernes de 9 a 18.
-- **Demo:** atiende como la barbería ficticia. Lo que se registra ahí es
+- **Demo:** `demo` muestra un botón por demo; cada contexto de demo guarda su
+  escenario (`ConversationContext.demoScenario`) y `reiniciar` lo conserva.
+  La barbería atiende consultas y pide turnos; el productor de seguros cotiza
+  con `quote_insurance` (los precios salen de la tabla, nunca del modelo) y,
+  cuando el cliente elige un plan, deja la consulta en `DemoRequest.details` y
+  pasa la conversación a la bandeja con el resumen. Lo que se registra ahí es
   ficticio y nunca se mezcla con el lead.
 - Lo dicho en la demo nunca aparece en el comercial, y viceversa. Al volver
   de la demo, el bot recuerda la charla comercial de antes (sin la demo), hasta
@@ -729,6 +747,7 @@ Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404
 | ------- | -------- |
 | `content/commercial-info.md` | Texto inicial de la información del negocio de BotSuite46. Solo se usa la primera vez, cuando `seed:default-line` crea el perfil del agente; después el bot lee el perfil de la base y editar este archivo no lo cambia. Donde dice `[COMPLETAR]`, el bot responde que el equipo lo confirma. |
 | `content/demos/barbershop.json` | Datos de la barbería ficticia: servicios, precios, horarios, preguntas frecuentes. |
+| `content/demos/insurance.json` | Demo de seguros de autos: autos de ejemplo, zonas, recargo por GNC y los tres planes (coberturas, franquicia, precio mensual por categoría de auto). |
 
 - Después de editar, **reiniciá la app**.
 - Los archivos se validan al arrancar: si hay un error, la app no inicia y

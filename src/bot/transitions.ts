@@ -1,5 +1,6 @@
 import { ConversationMode } from '../generated/prisma/client.js';
-import { CommandId } from './commands.js';
+import type { DemoScenario } from '../demos/demo-scenarios.js';
+import { CommandId, DEMO_START_COMMANDS } from './commands.js';
 import { MODE_PROFILES } from './mode-profiles.js';
 import type { ReplyKey } from './replies.js';
 
@@ -13,6 +14,8 @@ export interface TransitionState {
 export type TransitionEffect =
   /** Close the active context and open a new one in `to`. */
   | { kind: 'switch_mode'; to: ConversationMode }
+  /** Close the active context and open a DEMO one running `scenario`. */
+  | { kind: 'start_demo'; scenario: DemoScenario }
   /** Close the active context and open a new one in the same mode. */
   | { kind: 'reset_context' }
   /** Pause the bot and open a handoff request for the team. */
@@ -38,15 +41,24 @@ export function planTransition(
   if (
     !state.demoEnabled &&
     !inDemo &&
-    (command === CommandId.ENTER_DEMO || command === CommandId.EXIT_DEMO)
+    (command === CommandId.ENTER_DEMO ||
+      command === CommandId.EXIT_DEMO ||
+      command in DEMO_START_COMMANDS)
   ) {
     return { effect: { kind: 'none' }, reply: 'DEMO_UNAVAILABLE' };
   }
   switch (command) {
+    case CommandId.START_INSURANCE_DEMO:
+    case CommandId.START_BARBERSHOP_DEMO:
+      // Also from inside a demo: switches to the chosen one, from scratch.
+      return {
+        effect: { kind: 'start_demo', scenario: DEMO_START_COMMANDS[command] },
+        reply: MODE_PROFILES[ConversationMode.DEMO].enterReply,
+      };
     case CommandId.ENTER_DEMO:
       return inDemo
         ? { effect: { kind: 'none' }, reply: 'ALREADY_IN_DEMO' }
-        : switchTo(ConversationMode.DEMO);
+        : { effect: { kind: 'none' }, reply: 'CHOOSE_DEMO' };
     case CommandId.EXIT_DEMO:
       return inDemo
         ? switchTo(ConversationMode.COMMERCIAL)

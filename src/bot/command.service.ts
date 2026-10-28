@@ -3,6 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { loadAgentProfile } from '../agents/agent-profile.js';
 import { ContentService } from '../content/content.service.js';
 import { ContextService, type Tx } from '../conversations/context.service.js';
+import { type DemoScenario, demoScenarioOf } from '../demos/demo-scenarios.js';
+import { ConversationMode } from '../generated/prisma/client.js';
 import type { CommandId } from './commands.js';
 import { renderReply, replyButtons } from './replies.js';
 import { planTransition } from './transitions.js';
@@ -56,6 +58,14 @@ export class CommandService {
           tx,
         );
         break;
+      case 'start_demo':
+        contextId = await this.contexts.switchMode(
+          conversationId,
+          ConversationMode.DEMO,
+          tx,
+          plan.effect.scenario,
+        );
+        break;
       case 'reset_context':
         contextId = await this.contexts.resetContext(conversationId, tx);
         break;
@@ -73,14 +83,35 @@ export class CommandService {
       throw new Error(`conversation ${conversationId} has no active context`);
     }
 
+    // The demo the reply talks about: the one entered, or the active one.
+    const demoScenario =
+      plan.effect.kind === 'start_demo'
+        ? plan.effect.scenario
+        : conversation.mode === ConversationMode.DEMO
+          ? await this.activeDemoScenario(tx, contextId)
+          : undefined;
     const reply = renderReply(plan.reply, {
-      demoBusinessName: this.content.getBarbershop().name,
+      demoBusinessName: demoScenario
+        ? this.content.getDemo(demoScenario).name
+        : '',
       botName,
+      ...(demoScenario ? { demoScenario } : {}),
     });
     return {
       contextId,
       replies: [reply],
       buttons: replyButtons(plan.reply),
     };
+  }
+
+  private async activeDemoScenario(
+    tx: Tx,
+    contextId: string,
+  ): Promise<DemoScenario> {
+    const context = await tx.conversationContext.findUnique({
+      where: { id: contextId },
+      select: { demoScenario: true },
+    });
+    return demoScenarioOf(context?.demoScenario ?? null);
   }
 }

@@ -7,7 +7,7 @@ import {
 } from './prompts.js';
 
 const content = loadContent(DEFAULT_CONTENT_DIR);
-const { barbershop } = content;
+const { barbershop, insurance } = content;
 
 const botsuite: PromptProfile = {
   botName: 'BotSuite, IA de BotSuite46',
@@ -183,10 +183,31 @@ describe('prompt builders', () => {
     expect(prompt).not.toContain('save_lead');
   });
 
-  it('both: carry the shared safety and style rules', () => {
+  it('insurance demo: plans without prices, prices only from quote_insurance', () => {
+    const prompt = buildDemoInstructions(insurance);
+
+    expect(prompt).toContain('VAL-RAM Seguros');
+    expect(prompt).toContain('DEMO');
+    expect(prompt).toContain('Volkswagen Gol Trend: versiones Trendline');
+    expect(prompt).toContain('### Todo Riesgo');
+    expect(prompt).toContain('Granizo sin límite de eventos');
+    expect(prompt).toContain('Franquicia: $ 400.000');
+    expect(prompt).toContain('Es la ÚNICA fuente de precios');
+    expect(prompt).toContain('"Cotización simulada para demostración"');
+    expect(prompt).toContain('preguntá solo lo que falta');
+    expect(prompt).toContain('volvé a llamar a quote_insurance');
+    expect(prompt).toContain('lo confirma un asesor');
+    // Monthly prices are not in the prompt: the model cannot quote alone.
+    expect(prompt).not.toContain('18.000');
+    expect(prompt).not.toContain(barbershop.name);
+    expect(prompt).not.toContain('save_lead');
+  });
+
+  it('all: carry the shared safety and style rules', () => {
     for (const prompt of [
       buildCommercialInstructions(salon, {}),
       buildDemoInstructions(barbershop),
+      buildDemoInstructions(insurance),
     ]) {
       expect(prompt).toContain('voseo');
       expect(prompt).toContain(

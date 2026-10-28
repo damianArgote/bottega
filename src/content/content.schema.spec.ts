@@ -12,8 +12,24 @@ const barbershop = () =>
     readFileSync(join(DEFAULT_CONTENT_DIR, 'demos', 'barbershop.json'), 'utf8'),
   ) as Record<string, unknown>;
 
-const parse = (shop: unknown, commercialInfo = '# Bottega\n\nInfo') =>
-  parseContent({ commercialInfo, barbershop: JSON.stringify(shop) });
+const insurance = () =>
+  JSON.parse(
+    readFileSync(join(DEFAULT_CONTENT_DIR, 'demos', 'insurance.json'), 'utf8'),
+  ) as Record<string, unknown>;
+
+const first = (list: unknown) =>
+  (list as Record<string, unknown>[])[0] as Record<string, unknown>;
+
+const parse = (
+  shop: unknown,
+  commercialInfo = '# Bottega\n\nInfo',
+  insuranceDemo: unknown = insurance(),
+) =>
+  parseContent({
+    commercialInfo,
+    barbershop: JSON.stringify(shop),
+    insurance: JSON.stringify(insuranceDemo),
+  });
 
 describe('content files', () => {
   it('loads the shipped content files', () => {
@@ -21,6 +37,8 @@ describe('content files', () => {
 
     expect(content.barbershop.fictitious).toBe(true);
     expect(content.barbershop.services.length).toBeGreaterThan(0);
+    expect(content.insurance.fictitious).toBe(true);
+    expect(content.insurance.plans).toHaveLength(3);
     expect(content.commercialInfo).toContain('[COMPLETAR]');
     // Editing notes (HTML comment) are not passed to the bot.
     expect(content.commercialInfo).not.toContain('<!--');
@@ -63,9 +81,40 @@ describe('content files', () => {
     expect(() => parse(shop)).toThrow('demos/barbershop.json');
   });
 
+  it.each([
+    [
+      'more than three plans',
+      (s: Record<string, unknown>) =>
+        (s.plans = [...(s.plans as unknown[]), ...(s.plans as unknown[])]),
+      'plans',
+    ],
+    [
+      'an unknown vehicle category',
+      (s: Record<string, unknown>) => (first(s.vehicles).category = 'Z'),
+      'vehicles.0.category',
+    ],
+    [
+      'a plan price missing a category',
+      (s: Record<string, unknown>) => (first(s.plans).monthlyArs = { A: 1 }),
+      'plans.0.monthlyArs.B',
+    ],
+  ])('rejects the insurance file with %s', (_label, mutate, path) => {
+    const demo = insurance();
+    mutate(demo);
+
+    expect(() => parse(barbershop(), undefined, demo)).toThrow(`${path}:`);
+    expect(() => parse(barbershop(), undefined, demo)).toThrow(
+      'demos/insurance.json',
+    );
+  });
+
   it('rejects invalid JSON', () => {
     expect(() =>
-      parseContent({ commercialInfo: 'x', barbershop: '{ nope' }),
+      parseContent({
+        commercialInfo: 'x',
+        barbershop: '{ nope',
+        insurance: JSON.stringify(insurance()),
+      }),
     ).toThrow('is not valid JSON');
   });
 

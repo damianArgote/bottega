@@ -25,6 +25,7 @@ const USER = '5491100001234';
 const content = new ContentService();
 const vars = {
   demoBusinessName: content.getBarbershop().name,
+  demoScenario: 'barbershop' as const,
   // resetDb seeds the profile with the test business's botName.
   botName: 'Bot de botsuite46',
 };
@@ -90,7 +91,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     await say('hola');
     const commercial = (await conversation()).activeContextId!;
 
-    await say('Demo');
+    await say('Barbería');
     const afterDemo = await conversation();
     const demo = afterDemo.activeContextId!;
     expect(afterDemo.mode).toBe('DEMO');
@@ -130,7 +131,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     expect((await history(commercial)).map((m) => m.content)).toEqual([
       'hola',
       expect.stringContaining('"hola"'),
-      'Demo',
+      'Barbería',
     ]);
     expect((await history(demo)).map((m) => m.content)).toEqual([
       renderReply('ENTER_DEMO', vars),
@@ -146,7 +147,7 @@ describe('Deterministic commands and contexts (integration)', () => {
   it('moves a message received before a switch into the context that answers it', async () => {
     await say('hola');
     // "demo" and the next message arrive before the worker runs.
-    await conversations.recordInbound(textEvent('wamid.a', USER, 'demo'));
+    await conversations.recordInbound(textEvent('wamid.a', USER, 'Barbería'));
     await conversations.recordInbound(textEvent('wamid.b', USER, 'precios?'));
     await worker.drain();
 
@@ -165,8 +166,8 @@ describe('Deterministic commands and contexts (integration)', () => {
     const first = await conversation();
     expect(lastSent()).toBe(renderReply('NOT_IN_DEMO', vars));
 
-    await say('demo');
-    await say('demo');
+    await say('Barbería');
+    await say('Barbería');
     expect(lastSent()).toBe(renderReply('ALREADY_IN_DEMO', vars));
     const after = await conversation();
     expect(after.contexts).toHaveLength(2);
@@ -203,7 +204,7 @@ describe('Deterministic commands and contexts (integration)', () => {
   });
 
   it('reiniciar inside the demo stays in demo mode', async () => {
-    await say('demo');
+    await say('Barbería');
     await say('reiniciar');
 
     const after = await conversation();
@@ -225,7 +226,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
     const sends = sendText.mock.calls.length;
 
-    await say('demo');
+    await say('Barbería');
     await say('sigo acá?');
 
     expect(sendText).toHaveBeenCalledTimes(sends);
@@ -234,7 +235,10 @@ describe('Deterministic commands and contexts (integration)', () => {
     expect(after.contexts).toHaveLength(1);
     expect(await prisma.handoffRequest.count()).toBe(1);
     const inbound = await prisma.message.findMany({
-      where: { direction: 'INBOUND', content: { in: ['demo', 'sigo acá?'] } },
+      where: {
+        direction: 'INBOUND',
+        content: { in: ['Barbería', 'sigo acá?'] },
+      },
     });
     expect(inbound.map((m) => m.status)).toEqual(['PROCESSED', 'PROCESSED']);
   });
@@ -247,7 +251,7 @@ describe('Deterministic commands and contexts (integration)', () => {
       message: 'rate limited',
       retryable: true,
     });
-    await say('demo');
+    await say('Barbería');
     const job = await prisma.processingJob.findFirstOrThrow();
     expect(job.status).toBe('PENDING');
 
@@ -304,7 +308,7 @@ describe('Deterministic commands and contexts (integration)', () => {
       new QueueSignal(),
     );
 
-    await say('demo');
+    await say('Barbería');
 
     expect(aiGenerate).not.toHaveBeenCalled();
     expect(lastSent()).toBe(renderReply('ENTER_DEMO', vars));
@@ -342,13 +346,13 @@ describe('Deterministic commands and contexts (integration)', () => {
 
   describe('DemosService', () => {
     it('stores a fictitious request in the demo context', async () => {
-      await say('demo');
+      await say('Barbería');
       const { id, activeContextId } = await conversation();
 
       const request = await new DemosService(
         prisma,
         content,
-      ).registerDemoRequest(id, activeContextId!, {
+      ).registerDemoRequest(id, activeContextId!, 'barbershop', {
         customerName: 'Juan',
         service: 'Corte de pelo',
         preferredDate: 'sábado',

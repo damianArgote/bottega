@@ -12,7 +12,7 @@ import {
 } from './registry.js';
 import type { PlannedEffect, ToolContext } from './tool.js';
 
-const barbershop = loadContent(DEFAULT_CONTENT_DIR).barbershop;
+const { barbershop, insurance } = loadContent(DEFAULT_CONTENT_DIR);
 
 const ctx = (
   mode: ToolContext['mode'],
@@ -20,7 +20,7 @@ const ctx = (
   demoEnabled = true,
 ): ToolContext => ({
   mode,
-  barbershop,
+  ...(mode === 'DEMO' ? { demo: barbershop } : {}),
   planned,
   demoEnabled,
   leadFields: DEFAULT_LEAD_FIELDS,
@@ -95,16 +95,38 @@ describe('tool registry', () => {
 
   it('offers each mode exactly its allowed tools, consistent with allowedModes', () => {
     for (const profile of Object.values(MODE_PROFILES)) {
-      const names = toolDefinitionsFor(profile.mode, options).map(
+      const withDemo = { ...options, demo: insurance };
+      const names = toolDefinitionsFor(profile.mode, withDemo).map(
         (t) => t.name,
       );
       expect(names).toEqual(profile.allowedTools);
       for (const name of names) {
         expect(
-          toolHandlerFor(name as ToolName, options).allowedModes,
+          toolHandlerFor(name as ToolName, withDemo).allowedModes,
         ).toContain(profile.mode);
       }
     }
+  });
+
+  it('offers quote_insurance only in the insurance demo', () => {
+    const names = (demo?: ToolOptions['demo']) =>
+      toolDefinitionsFor('DEMO', { ...options, ...(demo ? { demo } : {}) }).map(
+        (t) => t.name,
+      );
+
+    expect(names(insurance)).toContain('quote_insurance');
+    expect(names(barbershop)).not.toContain('quote_insurance');
+    expect(
+      planToolCall(
+        call('quote_insurance', {
+          model: 'Gol Trend',
+          year: 2018,
+          zone: 'CABA',
+          gnc: false,
+        }),
+        ctx('DEMO'),
+      ),
+    ).toMatchObject({ ok: false, reason: 'tool_not_allowed' });
   });
 
   it('rejects unknown tools, invalid JSON and tools outside the mode', () => {
@@ -238,7 +260,13 @@ describe('tool registry', () => {
       expectRejected(
         planToolCall(
           call('register_demo_request', booking()),
-          ctx('DEMO', [{ kind: 'register_demo_request', request: {} }]),
+          ctx('DEMO', [
+            {
+              kind: 'register_demo_request',
+              scenario: 'barbershop',
+              request: {},
+            },
+          ]),
         ),
         'plan_rejected',
       );
