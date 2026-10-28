@@ -1,6 +1,6 @@
 # Prompt 07 · Turnos con seña por Mercado Pago y eventos para n8n
 
-> Correlo después de la primera etapa (00 a 05b), salvo que un cliente pague turnos antes: en ese caso puede ir después del 02b. Objetivo: que el agente agende turnos (peluquería, barbería, estética, consultorio) y cobre una seña, y que Bottega avise a n8n de cada evento. Son tres PRs: 07a, 07b y 07c.
+> Correlo después de la primera etapa (00 a 05b) y del 08, salvo que un cliente pague turnos antes: en ese caso puede ir después del 02b. Objetivo: que el agente agende turnos (peluquería, barbería, estética, consultorio) y cobre una seña, y que Bottega avise a n8n de cada evento. Son tres PRs: 07a, 07b y 07c.
 
 Regla de todo el prompt: **el modelo nunca decide un horario libre, un precio ni si algo se pagó.** La IA marca la intención con herramientas; el código valida, calcula y confirma.
 
