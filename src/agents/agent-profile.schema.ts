@@ -60,7 +60,7 @@ export const agentProfileSchema = z
     openingHours: openingHoursSchema.nullable().default(null),
     /** OpenAI model id; null uses OPENAI_MODEL. */
     model: text(100).nullable(),
-    /** Offers the fictitious barbershop demo ("demo" command). */
+    /** Offers the demos ("demo" command shows the picker). */
     demoEnabled: z.boolean(),
   })
   .strict();

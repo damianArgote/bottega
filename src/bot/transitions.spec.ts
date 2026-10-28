@@ -24,9 +24,9 @@ describe('planTransition', () => {
     ],
     [
       DEMO,
-      CommandId.START_BARBERSHOP_DEMO,
+      CommandId.START_AESTHETICS_DEMO,
       {
-        effect: { kind: 'start_demo', scenario: 'barbershop' },
+        effect: { kind: 'start_demo', scenario: 'aesthetics' },
         reply: 'ENTER_DEMO',
       },
     ],
@@ -130,18 +130,21 @@ describe('renderReply', () => {
     expect(text).not.toContain('X');
   });
 
-  it('states the demo is fictitious, how to leave, and names the business', () => {
+  it('the aesthetics demo is a fictitious virtual receptionist that says how to leave', () => {
     const text = renderReply('ENTER_DEMO', {
       ...vars,
-      demoBusinessName: 'Barbería X',
+      demoBusinessName: 'Zentara',
+      demoScenario: 'aesthetics',
     });
 
     expect(text).toContain('DEMO');
+    expect(text).toContain('recepcionista virtual de "Zentara"');
     expect(text).toContain('ficticios');
-    expect(text).toContain('no se hacen reservas ni pagos reales');
+    expect(text).toContain('no se reservan turnos ni se cobran pagos');
     expect(text).toContain('tocá el botón');
     expect(text).not.toContain('"salir"');
-    expect(text).toContain('Barbería X');
+    // At most one emoji per message (the DEMO notice's).
+    expect(text.match(/\p{Extended_Pictographic}/gu)).toHaveLength(1);
   });
 });
 
@@ -151,11 +154,11 @@ describe('demo picker', () => {
 
     expect(buttons).toEqual([
       DEMO_SCENARIO_BUTTONS.insurance,
-      DEMO_SCENARIO_BUTTONS.barbershop,
+      DEMO_SCENARIO_BUTTONS.aesthetics,
     ]);
     expect(buttons.map((b) => matchCommand(b.title))).toEqual([
       CommandId.START_INSURANCE_DEMO,
-      CommandId.START_BARBERSHOP_DEMO,
+      CommandId.START_AESTHETICS_DEMO,
     ]);
   });
 
@@ -172,7 +175,7 @@ describe('demo picker', () => {
     expect(text).toContain(
       '¿Querés asegurar un auto o comparar lo que estás pagando?',
     );
-    expect(text).not.toContain('barbería');
+    expect(text).not.toContain('Zentara');
   });
 
   it('RESET_DEMO names the demo business it stays in', () => {

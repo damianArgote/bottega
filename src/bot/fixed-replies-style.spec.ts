@@ -20,7 +20,7 @@ const KEYS: ReplyKey[] = [
 
 // Emojis only where there are buttons, so those messages stand out.
 describe('fixed replies style', () => {
-  const vars = { demoBusinessName: 'Barbería X', botName: 'Lola' };
+  const vars = { demoBusinessName: 'Zentara', botName: 'Lola' };
 
   it.each(KEYS)('%s has an emoji exactly when it has buttons', (key) => {
     const text = renderReply(key, vars);

@@ -1,7 +1,6 @@
 import type { AiToolCall, AiToolDefinition } from '../../ai/ai.provider.js';
 import type { ConversationMode } from '../../generated/prisma/client.js';
 import { MODE_PROFILES, type ToolName } from '../mode-profiles.js';
-import { registerDemoRequestTool } from './register-demo-request.tool.js';
 import { registerInsuranceRequestTool } from './register-insurance-request.tool.js';
 import { quoteInsuranceTool } from './quote-insurance.tool.js';
 import { requestHandoffTool } from './request-handoff.tool.js';
@@ -12,6 +11,7 @@ import { saveLeadToolFor } from './save-lead.tool.js';
 import type { PlannedEffect, ToolContext, ToolHandler } from './tool.js';
 
 const STATIC_HANDLERS = {
+  register_demo_request: registerInsuranceRequestTool,
   quote_insurance: quoteInsuranceTool,
   request_handoff: requestHandoffTool,
   offer_options: offerOptionsTool,
@@ -38,25 +38,21 @@ export interface ToolOptions {
   demo?: DemoContent;
 }
 
-/**
- * The handler of `name` for this business (save_lead is generated) and,
- * for register_demo_request, the active demo's scenario.
- */
+/** The handler of `name` for this business (save_lead is generated). */
 export function toolHandlerFor(
   name: ToolName,
-  { leadFields, demo }: ToolOptions,
+  { leadFields }: ToolOptions,
 ): ToolHandler {
-  switch (name) {
-    case 'save_lead':
-      return saveLeadToolFor(leadFields);
-    case 'register_demo_request':
-      return demo?.scenario === 'insurance'
-        ? registerInsuranceRequestTool
-        : registerDemoRequestTool;
-    default:
-      return STATIC_HANDLERS[name];
-  }
+  return name === 'save_lead'
+    ? saveLeadToolFor(leadFields)
+    : STATIC_HANDLERS[name];
 }
+
+/** Tools only the insurance demo has (the quote and its close). */
+const INSURANCE_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
+  'register_demo_request',
+  'quote_insurance',
+]);
 
 /** Tools allowed in `mode` for this business (and active demo). */
 function offeredTools(
@@ -67,7 +63,7 @@ function offeredTools(
     (name) =>
       (demoEnabled || name !== 'register_demo_request') &&
       (leadFields.length > 0 || name !== 'save_lead') &&
-      (demo?.scenario === 'insurance' || name !== 'quote_insurance'),
+      (demo?.scenario === 'insurance' || !INSURANCE_TOOLS.has(name)),
   );
 }
 

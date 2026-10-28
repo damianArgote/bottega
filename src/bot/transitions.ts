@@ -49,7 +49,7 @@ export function planTransition(
   }
   switch (command) {
     case CommandId.START_INSURANCE_DEMO:
-    case CommandId.START_BARBERSHOP_DEMO:
+    case CommandId.START_AESTHETICS_DEMO:
       // Also from inside a demo: switches to the chosen one, from scratch.
       return {
         effect: { kind: 'start_demo', scenario: DEMO_START_COMMANDS[command] },

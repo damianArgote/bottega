@@ -25,7 +25,7 @@ export const DEMO_SCENARIO_BUTTONS: Readonly<
   Record<DemoScenario, ReplyButton>
 > = {
   insurance: { id: 'demo_seguro', title: '🚗 Seguro de auto' },
-  barbershop: { id: 'demo_barberia', title: '💈 Barbería' },
+  aesthetics: { id: 'demo_estetica', title: '💆 Estética' },
 };
 
 const storedSchema = z

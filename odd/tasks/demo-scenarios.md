@@ -23,9 +23,9 @@ Branch: feat/insurance-demo (from develop), PR to develop. Delivery: ask-on-risk
 
 ## Tasks
 
-- [x] T1 S2: demo scenario on the context + picker (inline). Unit + e2e green; int not run (no Postgres here).
-- [x] T2 S3-S7, S9: insurance scenario: content, quote tool, register + handoff (inline). Same checks.
-- [ ] T3 S8: aesthetics replaces barbershop (inline, after user feedback on T2).
+- [x] T1 S2: demo scenario on the context + picker (inline). PR #59 merged, CI green (int included).
+- [x] T2 S3-S7, S9: insurance scenario: content, quote tool, register + handoff (inline). PR #59.
+- [x] T3 S8: aesthetics (Zentara receptionist) replaces barbershop (inline). Branch feat/aesthetics-demo.
 
 ## Log
 
@@ -40,3 +40,4 @@ Branch: feat/insurance-demo (from develop), PR to develop. Delivery: ask-on-risk
   > LÍMITES: No inventes promociones, medios de pago, servicios ni condiciones. Si falta información, decilo y ofrecé consultar con el equipo. No diagnostiques ni garantices resultados. Las consultas sobre contraindicaciones, embarazo, lesiones o condiciones de la piel deben revisarse con el profesional antes de elegir un tratamiento.
   > INICIO: Si la persona solo saluda, presentate brevemente y preguntá en qué podés ayudar. Si ya hizo una consulta, respondela directamente.
 - L5 (2026-10-28) T1+T2 done: lint ok, unit 440/440, e2e 86/86. test:int NOT run: no Docker in WSL and no Postgres on :5432. Next: user tries insurance demo; then T3.
+- L6 (2026-10-28) user: "empeza con la demo zentara". T3: content/demos/aesthetics.json (Zentara, 11 services in 4 categories, hours, policies, example address/Instagram, bookingUrl https://example.com/zentara/reservas as placeholder); receptionist prompt from the L4 brief; no booking tool (sends the booking link; request_handoff + offer_options only); barbershop content, booking tool and summary removed; legacy/null DEMO contexts continue in aesthetics. Lint ok, unit 440/440, e2e 86/86; test:int pending (CI).

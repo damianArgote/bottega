@@ -29,8 +29,8 @@ const USER = '5491100001234';
 const MODEL = 'test-model';
 const content = new ContentService();
 const vars = {
-  demoBusinessName: content.getBarbershop().name,
-  demoScenario: 'barbershop' as const,
+  demoBusinessName: content.getDemo('insurance').name,
+  demoScenario: 'insurance' as const,
   // resetDb seeds the profile with the test business's botName.
   botName: 'Bot de botsuite46',
 };
@@ -62,12 +62,18 @@ const lead = (fields: Record<string, string>) => ({
   ...fields,
 });
 
+/** The insurance demo's close (register_demo_request). */
 const booking = {
   customerName: 'Juan',
-  service: 'corte de pelo',
-  preferredDate: 'sábado',
-  preferredTime: '11:00',
-  notes: null,
+  model: 'Gol Trend',
+  version: 'Trendline',
+  year: 2018,
+  location: 'Caballito',
+  zone: 'CABA',
+  gnc: false,
+  priority: 'pagar menos',
+  plan: 'Terceros Completo',
+  contactPreference: null,
 };
 
 /** Message items of a model request, as [role, content] pairs. */
@@ -229,7 +235,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await prisma.agentProfile.deleteMany();
 
     await say('hola');
-    await say('Barbería');
+    await say('Seguro de auto');
 
     expect(respond).not.toHaveBeenCalled();
     expect(sendText).toHaveBeenCalledTimes(1);
@@ -239,7 +245,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   it('with demoEnabled false, "demo" answers that there is no demo', async () => {
     await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
 
-    await say('Barbería');
+    await say('Seguro de auto');
 
     expect(respond).not.toHaveBeenCalled();
     expect(lastSent()).toBe(renderReply('DEMO_UNAVAILABLE', vars));
@@ -247,7 +253,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   });
 
   it('does not offer register_demo_request once the demo is disabled', async () => {
-    await say('Barbería');
+    await say('Seguro de auto');
     await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
     respond.mockResolvedValueOnce(text('Hola'));
 
@@ -255,6 +261,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
 
     expect((await conversation()).mode).toBe('DEMO');
     expect(request(0)?.tools.map((t) => t.name)).toEqual([
+      'quote_insurance',
       'request_handoff',
       'offer_options',
     ]);
@@ -315,37 +322,55 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     );
   });
 
-  it('register_demo_request stores a fictitious request and the reply carries a backend summary', async () => {
-    await say('Barbería');
-    respond
-      .mockResolvedValueOnce(tool('register_demo_request', booking))
-      .mockResolvedValueOnce(text('¡Listo, Juan!'));
-    await say('Soy Juan, quiero un corte el sábado a las 11');
+  it('register_demo_request stores the fictitious quote request and hands off with a backend summary', async () => {
+    await say('Seguro de auto');
+    respond.mockResolvedValueOnce(tool('register_demo_request', booking));
+    const sends = sendText.mock.calls.length;
+    await say('Me quedo con Terceros Completo, soy Juan');
 
-    const { activeContextId } = await conversation();
+    const { activeContextId, paused } = await conversation();
     expect(await prisma.demoRequest.findMany()).toEqual([
       expect.objectContaining({
         contextId: activeContextId,
-        scenario: 'barbershop',
+        scenario: 'insurance',
         isFictitious: true,
         customerName: 'Juan',
-        service: 'Corte de pelo',
-        preferredDate: 'sábado',
-        preferredTime: '11:00',
+        service: 'Terceros Completo',
+        details: {
+          vehicle: 'Volkswagen Gol Trend Trendline',
+          year: 2018,
+          location: 'Caballito',
+          zone: 'CABA',
+          gnc: false,
+          monthlyArs: 36800,
+          priority: 'pagar menos',
+        },
       }),
     ]);
-    const reply = lastSent()!;
-    expect(reply).toContain('¡Listo, Juan!');
-    expect(reply).toContain('• Servicio: Corte de pelo');
-    expect(reply).toContain('FICTICIA');
-    expect(reply).toContain('no es una reserva real');
-    // Demo prompt: barbershop data, no lead or commercial info.
+    // The close ends the turn: one model call, then the handoff.
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(paused).toBe(true);
+    expect(await prisma.handoffRequest.findFirstOrThrow()).toMatchObject({
+      reason:
+        'ai_tool: demo seguro: Terceros Completo, Volkswagen Gol Trend Trendline 2018',
+    });
+    const replies = sendText.mock.calls.slice(sends).map((c) => c[1]);
+    expect(replies).toHaveLength(2);
+    expect(replies[0]).toContain(
+      'Consulta lista para un asesor de VAL-RAM Seguros',
+    );
+    expect(replies[0]).toContain(
+      '• Plan elegido: Terceros Completo – $ 36.800 por mes',
+    );
+    expect(replies[0]).toContain('Cotización simulada para demostración');
+    expect(replies[1]).toBe(renderReply('HUMAN_REQUESTED', vars));
+    // Demo prompt: the demo business, no lead or commercial info.
     expect(request(0)?.instructions).toContain(vars.demoBusinessName);
     expect(request(0)?.instructions).not.toContain('Datos ya conocidos');
   });
 
   it('rejects save_lead in demo mode: nothing written and the model is told it failed', async () => {
-    await say('Barbería');
+    await say('Seguro de auto');
     respond
       .mockResolvedValueOnce(tool('save_lead', lead({ name: 'Ana' })))
       .mockResolvedValueOnce(text('Contame qué servicio querés.'));
@@ -422,11 +447,19 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   });
 
   it('retries a retryable AI error and regenerates without duplicating effects', async () => {
-    await say('Barbería');
+    await say('Seguro de auto');
+    const quote = {
+      model: 'Gol Trend',
+      year: 2018,
+      zone: 'CABA',
+      gnc: false,
+    };
     respond
-      .mockResolvedValueOnce(tool('register_demo_request', booking))
+      .mockResolvedValueOnce(tool('quote_insurance', quote))
       .mockRejectedValueOnce(new AiProviderError('openai_http_503', true));
-    await say('turno sábado 11 para Juan, corte');
+    await say(
+      'Gol Trend 2018 Trendline, Caballito, sin GNC; soy Juan y quiero Terceros Completo',
+    );
 
     const job = await prisma.processingJob.findFirstOrThrow({
       where: { status: 'PENDING' },
@@ -437,14 +470,16 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     const sends = sendText.mock.calls.length;
 
     respond
-      .mockResolvedValueOnce(tool('register_demo_request', booking))
-      .mockResolvedValueOnce(text('¡Listo!'));
+      .mockResolvedValueOnce(tool('quote_insurance', quote))
+      .mockResolvedValueOnce(tool('register_demo_request', booking));
     await makeRunnable();
     await worker.drain();
 
     expect(await prisma.demoRequest.count()).toBe(1);
-    expect(sendText).toHaveBeenCalledTimes(sends + 1);
-    expect(lastSent()).toContain('¡Listo!');
+    expect(await prisma.handoffRequest.count()).toBe(1);
+    // The request summary and the handoff confirmation.
+    expect(sendText).toHaveBeenCalledTimes(sends + 2);
+    expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
     expect(
       await prisma.processingJob.findUniqueOrThrow({ where: { id: job.id } }),
     ).toMatchObject({ status: 'COMPLETED', attempts: 2 });
@@ -491,7 +526,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await say('hola comercial');
     expect(messages(request(-1))).toEqual([['user', 'hola comercial']]);
 
-    await say('Barbería');
+    await say('Seguro de auto');
     await say('precios?');
     expect(messages(request(-1))).toEqual([
       ['assistant', renderReply('ENTER_DEMO', vars)],
@@ -504,7 +539,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(messages(request(-1))).toEqual([
       ['user', 'hola comercial'],
       ['assistant', 'respuesta'],
-      ['user', 'Barbería'],
+      ['user', 'Seguro de auto'],
       ['assistant', renderReply('EXIT_DEMO', vars)],
       ['user', 'sigo'],
     ]);
@@ -513,7 +548,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(messages(request(-1))).toEqual([
       ['user', 'hola comercial'],
       ['assistant', 'respuesta'],
-      ['user', 'Barbería'],
+      ['user', 'Seguro de auto'],
       ['assistant', renderReply('EXIT_DEMO', vars)],
       ['user', 'sigo'],
       ['assistant', 'respuesta'],
@@ -599,7 +634,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     it('does not add the notice inside the demo', async () => {
       await setHours();
       now = MONDAY_NIGHT;
-      await say('Barbería');
+      await say('Seguro de auto');
       respond.mockResolvedValueOnce(text('¡Hola! Bienvenido.'));
 
       await say('hola');
@@ -651,7 +686,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     });
 
     it('inside the demo every model reply carries the exit button; outside it, none', async () => {
-      await say('Barbería');
+      await say('Seguro de auto');
       respond.mockResolvedValueOnce(text('Tenemos corte y barba.'));
 
       await say('¿qué servicios tienen?');
@@ -681,7 +716,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     });
 
     it('entering the demo sends the "Salir de la demo" button, and its title works as the command', async () => {
-      await say('Barbería');
+      await say('Seguro de auto');
 
       expect(sendText).toHaveBeenLastCalledWith(
         USER,

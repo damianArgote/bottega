@@ -7,9 +7,9 @@ import {
 } from './content.schema.js';
 import { DEFAULT_CONTENT_DIR } from './content.service.js';
 
-const barbershop = () =>
+const aesthetics = () =>
   JSON.parse(
-    readFileSync(join(DEFAULT_CONTENT_DIR, 'demos', 'barbershop.json'), 'utf8'),
+    readFileSync(join(DEFAULT_CONTENT_DIR, 'demos', 'aesthetics.json'), 'utf8'),
   ) as Record<string, unknown>;
 
 const insurance = () =>
@@ -21,13 +21,13 @@ const first = (list: unknown) =>
   (list as Record<string, unknown>[])[0] as Record<string, unknown>;
 
 const parse = (
-  shop: unknown,
+  center: unknown,
   commercialInfo = '# Bottega\n\nInfo',
   insuranceDemo: unknown = insurance(),
 ) =>
   parseContent({
     commercialInfo,
-    barbershop: JSON.stringify(shop),
+    aesthetics: JSON.stringify(center),
     insurance: JSON.stringify(insuranceDemo),
   });
 
@@ -35,8 +35,8 @@ describe('content files', () => {
   it('loads the shipped content files', () => {
     const content = loadContent(DEFAULT_CONTENT_DIR);
 
-    expect(content.barbershop.fictitious).toBe(true);
-    expect(content.barbershop.services.length).toBeGreaterThan(0);
+    expect(content.aesthetics.fictitious).toBe(true);
+    expect(content.aesthetics.services.length).toBeGreaterThan(0);
     expect(content.insurance.fictitious).toBe(true);
     expect(content.insurance.plans).toHaveLength(3);
     expect(content.commercialInfo).toContain('[COMPLETAR]');
@@ -62,23 +62,22 @@ describe('content files', () => {
     ],
     [
       'a negative price',
-      (s: Record<string, unknown>) =>
-        (s.services = [{ name: 'Corte', priceArs: -1, durationMinutes: 30 }]),
+      (s: Record<string, unknown>) => (first(s.services).priceArs = -1),
       'services.0.priceArs',
     ],
     [
-      'an unknown booking field',
-      (s: Record<string, unknown>) => (s.bookingFields = ['dni']),
-      'bookingFields.0',
+      'a booking link that is not a URL',
+      (s: Record<string, unknown>) => (s.bookingUrl = 'agenda online'),
+      'bookingUrl',
     ],
     ['an unknown key', (s: Record<string, unknown>) => (s.extra = 1), '(root)'],
-  ])('rejects the barbershop file with %s', (_label, mutate, path) => {
-    const shop = barbershop();
-    mutate(shop);
+  ])('rejects the aesthetics file with %s', (_label, mutate, path) => {
+    const center = aesthetics();
+    mutate(center);
 
-    expect(() => parse(shop)).toThrow(ContentValidationError);
-    expect(() => parse(shop)).toThrow(`${path}:`);
-    expect(() => parse(shop)).toThrow('demos/barbershop.json');
+    expect(() => parse(center)).toThrow(ContentValidationError);
+    expect(() => parse(center)).toThrow(`${path}:`);
+    expect(() => parse(center)).toThrow('demos/aesthetics.json');
   });
 
   it.each([
@@ -102,8 +101,8 @@ describe('content files', () => {
     const demo = insurance();
     mutate(demo);
 
-    expect(() => parse(barbershop(), undefined, demo)).toThrow(`${path}:`);
-    expect(() => parse(barbershop(), undefined, demo)).toThrow(
+    expect(() => parse(aesthetics(), undefined, demo)).toThrow(`${path}:`);
+    expect(() => parse(aesthetics(), undefined, demo)).toThrow(
       'demos/insurance.json',
     );
   });
@@ -112,14 +111,14 @@ describe('content files', () => {
     expect(() =>
       parseContent({
         commercialInfo: 'x',
-        barbershop: '{ nope',
+        aesthetics: '{ nope',
         insurance: JSON.stringify(insurance()),
       }),
     ).toThrow('is not valid JSON');
   });
 
   it('rejects a commercial info file with only comments', () => {
-    expect(() => parse(barbershop(), '<!-- notes -->\n  \n')).toThrow(
+    expect(() => parse(aesthetics(), '<!-- notes -->\n  \n')).toThrow(
       'commercial-info.md',
     );
   });

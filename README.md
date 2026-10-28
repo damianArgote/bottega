@@ -1,8 +1,8 @@
 # bottega-api
 
 Backend del bot comercial de WhatsApp de Bottega y de sus demos interactivas.
-Atiende prospectos, toma sus datos, muestra demos (un productor de seguros y una
-barbería, con datos de ejemplo) y
+Atiende prospectos, toma sus datos, muestra demos (un productor de seguros y un
+centro de estética, con datos de ejemplo) y
 deriva a una persona del equipo cuando hace falta. Usa la **API oficial de
 WhatsApp Cloud** (sin BuilderBot ni librerías por QR), OpenAI y PostgreSQL.
 
@@ -421,9 +421,9 @@ Guion de prueba:
 | - | -------- | -------- |
 | 1 | `hola` | Saludo del asistente de Bottega. |
 | 2 | `demo` | Pregunta qué demo querés probar, con un botón por demo. |
-| 3 | `Barbería` (botón) | Entra a la demo de la barbería ficticia, con aviso de que es ficticia. |
-| 4 | `¿cuánto sale un corte?` | Precio tomado de `content/demos/barbershop.json`. |
-| 5 | Pedí un turno (nombre, servicio, día, hora) | Resumen de la solicitud, marcada como **ficticia**. |
+| 3 | `Estética` (botón) | Entra a la demo de Zentara, la recepcionista virtual de un centro de estética ficticio, con aviso de que es ficticio. |
+| 4 | `quiero hacerme las uñas` | Pregunta qué tipo de servicio busca; precio y duración salen de `content/demos/aesthetics.json`. |
+| 5 | `quiero reservar` | Pasa el enlace de la agenda online; no inventa turnos ni confirma reservas. |
 | 6 | `salir` | Vuelve al asistente de Bottega. |
 | 7 | `reiniciar` | Empieza la charla de cero (los datos del lead se conservan). |
 | 8 | `humano` | Aviso de que una persona va a responder; el bot queda en pausa. |
@@ -489,7 +489,9 @@ de la demo funcionan como los comandos (escribirlos a mano también funciona).
   conversación. BotSuite46 arranca con lunes a viernes de 9 a 18.
 - **Demo:** `demo` muestra un botón por demo; cada contexto de demo guarda su
   escenario (`ConversationContext.demoScenario`) y `reiniciar` lo conserva.
-  La barbería atiende consultas y pide turnos; el productor de seguros cotiza
+  La recepcionista de Zentara (estética) responde servicios, precios,
+  duración, horarios y políticas, y para reservar pasa el enlace de la agenda
+  online (no ve disponibilidad ni registra turnos); el productor de seguros cotiza
   con `quote_insurance` (los precios salen de la tabla, nunca del modelo) y,
   cuando el cliente elige un plan, deja la consulta en `DemoRequest.details` y
   pasa la conversación a la bandeja con el resumen. Lo que se registra ahí es
@@ -746,7 +748,7 @@ Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404
 | Archivo | Para qué |
 | ------- | -------- |
 | `content/commercial-info.md` | Texto inicial de la información del negocio de BotSuite46. Solo se usa la primera vez, cuando `seed:default-line` crea el perfil del agente; después el bot lee el perfil de la base y editar este archivo no lo cambia. Donde dice `[COMPLETAR]`, el bot responde que el equipo lo confirma. |
-| `content/demos/barbershop.json` | Datos de la barbería ficticia: servicios, precios, horarios, preguntas frecuentes. |
+| `content/demos/aesthetics.json` | Datos de Zentara, el centro de estética ficticio: servicios por categoría (precio, duración, descripción), horarios, políticas, dirección, Instagram y enlace de reservas. |
 | `content/demos/insurance.json` | Demo de seguros de autos: autos de ejemplo, zonas, recargo por GNC y los tres planes (coberturas, franquicia, precio mensual por categoría de auto). |
 
 - Después de editar, **reiniciá la app**.

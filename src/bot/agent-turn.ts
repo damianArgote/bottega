@@ -1,10 +1,6 @@
 import type { AiInputItem, AiRequest, AiResponse } from '../ai/ai.provider.js';
 import { AI_MAX_MODEL_ROUNDS } from '../ai/ai-limits.js';
-import {
-  demoRequestSummary,
-  insuranceRequestSummary,
-  LEAD_SAVED_ACK,
-} from './ai-replies.js';
+import { insuranceRequestSummary, LEAD_SAVED_ACK } from './ai-replies.js';
 import { planToolCall } from './tools/registry.js';
 import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 import type { PlannedEffect, ToolContext } from './tools/tool.js';
@@ -114,20 +110,11 @@ export function demoRequestReplies(
   effects: readonly PlannedEffect[],
   names: { demoBusinessName: string; botName: string },
 ): string[] {
-  return effects.flatMap((effect) => {
-    if (effect.kind !== 'register_demo_request') {
-      return [];
-    }
-    return effect.scenario === 'insurance'
+  return effects.flatMap((effect) =>
+    effect.kind === 'register_demo_request'
       ? [insuranceRequestSummary(effect.request, names.demoBusinessName)]
-      : [
-          demoRequestSummary(
-            effect.request,
-            names.demoBusinessName,
-            names.botName,
-          ),
-        ];
-  });
+      : [],
+  );
 }
 
 /** The buttons offer_options planned for this reply (the last call wins). */

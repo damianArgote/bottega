@@ -1,13 +1,14 @@
 /** Fictitious demo businesses the user can pick (content/demos/<scenario>.json). */
-export const DEMO_SCENARIOS = ['insurance', 'barbershop'] as const;
+export const DEMO_SCENARIOS = ['insurance', 'aesthetics'] as const;
 
 export type DemoScenario = (typeof DEMO_SCENARIOS)[number];
 
 /**
  * Scenario of a DEMO context created before contexts stored one
- * (ConversationContext.demoScenario null).
+ * (ConversationContext.demoScenario null) or running a retired demo (the
+ * barbershop): both continue in the closest one.
  */
-export const LEGACY_DEMO_SCENARIO: DemoScenario = 'barbershop';
+export const LEGACY_DEMO_SCENARIO: DemoScenario = 'aesthetics';
 
 export function isDemoScenario(value: unknown): value is DemoScenario {
   return (DEMO_SCENARIOS as readonly unknown[]).includes(value);

@@ -26,41 +26,50 @@ function setup(
 }
 
 describe('DemosService.registerDemoRequest', () => {
-  it('stores a trimmed, fictitious barbershop request', async () => {
-    const { service, create } = setup({ conversationId: 'c1', mode: 'DEMO' });
+  const insuranceContext = {
+    conversationId: 'c1',
+    mode: 'DEMO',
+    demoScenario: 'insurance',
+  };
 
-    await service.registerDemoRequest('c1', 'ctx1', 'barbershop', {
+  it('stores a trimmed, fictitious request', async () => {
+    const { service, create } = setup(insuranceContext);
+
+    await service.registerDemoRequest('c1', 'ctx1', 'insurance', {
       customerName: '  Juan ',
-      service: 'Corte de pelo',
-      preferredDate: 'sábado',
+      service: 'Terceros Completo',
     });
 
     expect(create).toHaveBeenCalledWith({
       data: {
         conversationId: 'c1',
         contextId: 'ctx1',
-        scenario: 'barbershop',
+        scenario: 'insurance',
         isFictitious: true,
         customerName: 'Juan',
-        service: 'Corte de pelo',
-        preferredDate: 'sábado',
+        service: 'Terceros Completo',
       },
     });
   });
 
   it.each([
     ['a commercial context', { conversationId: 'c1', mode: 'COMMERCIAL' }],
-    ['another conversation context', { conversationId: 'c2', mode: 'DEMO' }],
+    [
+      'another conversation context',
+      { ...insuranceContext, conversationId: 'c2' },
+    ],
     ['a missing context', null],
     [
       'a context running another demo',
-      { conversationId: 'c1', mode: 'DEMO', demoScenario: 'insurance' },
+      { conversationId: 'c1', mode: 'DEMO', demoScenario: 'aesthetics' },
     ],
+    // Contexts from before the scenarios continue in the aesthetics demo.
+    ['a legacy demo context', { conversationId: 'c1', mode: 'DEMO' }],
   ])('refuses %s', async (_label, context) => {
     const { service, create } = setup(context);
 
     await expect(
-      service.registerDemoRequest('c1', 'ctx1', 'barbershop', {
+      service.registerDemoRequest('c1', 'ctx1', 'insurance', {
         customerName: 'Juan',
       }),
     ).rejects.toThrow(DemoContextError);
@@ -97,15 +106,15 @@ describe('DemosService.registerDemoRequest', () => {
   });
 
   it('rejects unknown fields and empty values', async () => {
-    const { service, create } = setup({ conversationId: 'c1', mode: 'DEMO' });
+    const { service, create } = setup(insuranceContext);
 
     await expect(
-      service.registerDemoRequest('c1', 'ctx1', 'barbershop', {
+      service.registerDemoRequest('c1', 'ctx1', 'insurance', {
         dni: '123',
       } as unknown as { customerName: string }),
     ).rejects.toThrow(ZodError);
     await expect(
-      service.registerDemoRequest('c1', 'ctx1', 'barbershop', {
+      service.registerDemoRequest('c1', 'ctx1', 'insurance', {
         customerName: '  ',
       }),
     ).rejects.toThrow(ZodError);

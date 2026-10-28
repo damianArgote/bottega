@@ -36,7 +36,8 @@ responder rápido, a cualquier hora, sin perder la atención personal.
 - Si el cliente lo pide, o si la consulta lo supera, pasa la conversación a una
   persona del equipo.
 - Se puede ver funcionando con una demo: escribiendo "demo" se prueba un
-  asistente de ejemplo para una barbería ficticia.
+  asistente de ejemplo: un productor de seguros de autos o un centro de
+  estética.
 
 ## Planes
 

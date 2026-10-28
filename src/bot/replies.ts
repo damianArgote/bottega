@@ -29,11 +29,11 @@ const DEMO_INTROS: Record<DemoScenario, (name: string) => string[]> = {
     '',
     `¡Hola! Soy el asistente de ${name} 🚗 ¿Querés asegurar un auto o comparar lo que estás pagando? Si querés, contame de una qué auto tenés, de qué año y de dónde sos.`,
   ],
-  barbershop: (name) => [
-    `Ahora vas a hablar con el asistente de "${name}", una barbería inventada para mostrarte cómo funciona el bot. El negocio, sus precios y todos sus datos son ficticios: no se hacen reservas ni pagos reales.`,
+  aesthetics: (name) => [
+    `Ahora vas a hablar con la recepcionista virtual de "${name}", un centro de estética inventado para mostrarte cómo funciona el bot. El negocio, sus precios y todos sus datos son ficticios: no se reservan turnos ni se cobran pagos.`,
     'Para volver cuando quieras, tocá el botón de abajo.',
     '',
-    `¡Hola! Bienvenido a ${name} 💈 ¿En qué te puedo ayudar? Podés consultar servicios, precios u horarios, o pedir un turno.`,
+    `¡Hola! Soy la recepcionista virtual de ${name}. ¿En qué te puedo ayudar? Podés consultar servicios, precios, duración u horarios.`,
   ],
 };
 

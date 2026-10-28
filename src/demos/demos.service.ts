@@ -6,7 +6,6 @@ import {
   type Prisma,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { BarbershopDemo } from '../content/content.schema.js';
 import { ContentService } from '../content/content.service.js';
 import { type DemoScenario, demoScenarioOf } from './demo-scenarios.js';
 
@@ -49,10 +48,6 @@ export class DemosService {
     private readonly prisma: PrismaService,
     private readonly content: ContentService,
   ) {}
-
-  getBarbershop(): BarbershopDemo {
-    return this.content.getBarbershop();
-  }
 
   /**
    * Stores a fictitious request (isFictitious=true) of a demo scenario.
