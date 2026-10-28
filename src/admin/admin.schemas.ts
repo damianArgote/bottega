@@ -27,6 +27,8 @@ const digits = (name: string) =>
 
 export const businessIdSchema = z.uuid();
 
+export const lineIdSchema = z.uuid();
+
 export const createBusinessBodySchema = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -70,6 +72,11 @@ export const createLineBodySchema = z
     accessToken: z.string().trim().min(20).max(2000),
     displayPhone: z.string().trim().min(1).max(30).optional(),
   })
+  .strict();
+
+/** Meta credentials of a line being onboarded (no number yet). */
+export const lineCredentialsBodySchema = createLineBodySchema
+  .pick({ wabaId: true, appId: true, appSecret: true, accessToken: true })
   .strict();
 
 export const leadsQuerySchema = z.object({

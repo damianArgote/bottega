@@ -7,16 +7,22 @@ import { InMemoryLoginRateLimiter } from '../auth/login-rate-limiter.js';
 import { AgentPreviewService } from '../bot/agent-preview.service.js';
 import { ContentModule } from '../content/content.module.js';
 import { LeadsQueryService } from '../leads/leads-query.service.js';
+import { OnboardingModule } from '../onboarding/onboarding.module.js';
 import { LeadsController } from './leads.controller.js';
+import { WhatsAppSettingsController } from './whatsapp-settings.controller.js';
 import {
   PREVIEW_RATE_LIMITER,
   SettingsController,
 } from './settings.controller.js';
 
-/** The backoffice API (business OWNERs): agent settings and leads. */
+/** The backoffice API (business OWNERs): agent, leads and WhatsApp connection. */
 @Module({
-  imports: [AiModule, AuthModule, ContentModule],
-  controllers: [SettingsController, LeadsController],
+  imports: [AiModule, AuthModule, ContentModule, OnboardingModule],
+  controllers: [
+    SettingsController,
+    LeadsController,
+    WhatsAppSettingsController,
+  ],
   providers: [
     AgentsService,
     AgentPreviewService,

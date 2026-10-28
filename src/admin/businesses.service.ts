@@ -7,6 +7,7 @@ import {
 import { AppConfigService } from '../config/app-config.service.js';
 import { newVerifyToken, newWebhookKey } from '../lines/default-line.seed.js';
 import { LineCredentialsService } from '../lines/line-credentials.service.js';
+import { lineView } from '../lines/line-view.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { isUniqueViolation } from '../prisma/sql.js';
 import {
@@ -28,18 +29,6 @@ export interface CreateLineInput {
   accessToken: string;
   displayPhone?: string;
 }
-
-/** Public view of a line: never includes secrets. */
-const lineView = {
-  id: true,
-  businessId: true,
-  phoneNumberId: true,
-  wabaId: true,
-  appId: true,
-  displayPhone: true,
-  active: true,
-  createdAt: true,
-} as const;
 
 /**
  * Onboards businesses and their lines (admin API). Each line brings its own

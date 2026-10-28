@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service.js';
 import { ConversationsModule } from '../conversations/conversations.module.js';
 import { LinesModule } from '../lines/lines.module.js';
+import { GraphOnboardingClient } from './graph-onboarding.client.js';
 import { GraphWhatsAppClient } from './graph-whatsapp.client.js';
 import { LineSignatureGuard } from './line-signature.guard.js';
 import { WhatsAppSignatureGuard } from './signature.guard.js';
@@ -30,8 +31,21 @@ import { WHATSAPP_CLIENT_FACTORY } from './whatsapp.client.js';
           timeoutMs: config.get('WHATSAPP_HTTP_TIMEOUT_MS'),
         }),
     },
+    {
+      provide: GraphOnboardingClient,
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService) =>
+        new GraphOnboardingClient({
+          apiVersion: config.get('WHATSAPP_GRAPH_API_VERSION'),
+          timeoutMs: config.get('WHATSAPP_HTTP_TIMEOUT_MS'),
+        }),
+    },
     { provide: WHATSAPP_CLIENT_FACTORY, useClass: LineWhatsAppClientFactory },
   ],
-  exports: [WHATSAPP_CLIENT_FACTORY, GraphWhatsAppClient],
+  exports: [
+    WHATSAPP_CLIENT_FACTORY,
+    GraphWhatsAppClient,
+    GraphOnboardingClient,
+  ],
 })
 export class WhatsAppModule {}
