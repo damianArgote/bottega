@@ -29,6 +29,7 @@ import {
   handoffsQuerySchema,
   humanReplyBodySchema,
   idempotencyKeySchema,
+  isEmptyBody,
   leadsQuerySchema,
   messagesQuerySchema,
   parseOrBadRequest,
@@ -101,13 +102,20 @@ export class AdminController {
     );
   }
 
-  /** Returns the webhook URL and verify token to paste in the Meta app. */
+  /**
+   * Returns the webhook URL and verify token to paste in the Meta app. An
+   * empty body creates a draft line, onboarded later step by step.
+   */
   @Post('businesses/:id/lines')
   @HttpCode(HttpStatus.CREATED)
   createLine(@Param('id') id: string, @Body() body: unknown) {
+    const businessId = parseOrBadRequest(businessIdSchema, id, 'id');
+    if (isEmptyBody(body)) {
+      return this.businesses.createDraftLine(businessId);
+    }
     return this.businesses.createLine(
-      parseOrBadRequest(businessIdSchema, id, 'id'),
-      parseOrBadRequest(createLineBodySchema, body ?? {}, 'body'),
+      businessId,
+      parseOrBadRequest(createLineBodySchema, body, 'body'),
     );
   }
 

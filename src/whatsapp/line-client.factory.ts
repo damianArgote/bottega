@@ -48,6 +48,11 @@ export class LineWhatsAppClientFactory implements WhatsAppClientFactory {
       this.logger.warn(`Line ${lineId} has no access token: sends rejected`);
       return unavailableClient('line has no access token');
     }
+    if (!line.phoneNumberId) {
+      this.logger.warn(`Line ${lineId} has no phone number yet: sends rejected`);
+      return unavailableClient('line has no phone number');
+    }
+    const phoneNumberId = line.phoneNumberId;
     let accessToken: string;
     try {
       accessToken = this.credentials.decrypt(line.accessTokenEncrypted);
@@ -60,7 +65,7 @@ export class LineWhatsAppClientFactory implements WhatsAppClientFactory {
       );
       return unavailableClient('line access token cannot be decrypted');
     }
-    const credentials = { phoneNumberId: line.phoneNumberId, accessToken };
+    const credentials = { phoneNumberId, accessToken };
     return {
       sendText: (to, body, options) =>
         this.graph.sendText(credentials, to, body, options),
