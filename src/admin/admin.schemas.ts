@@ -79,6 +79,13 @@ export const lineCredentialsBodySchema = createLineBodySchema
   .pick({ wabaId: true, appId: true, appSecret: true, accessToken: true })
   .strict();
 
+export const registerNumberBodySchema = z
+  .object({
+    phoneNumberId: digits('phoneNumberId'),
+    pin: z.string().regex(/^\d{6}$/, 'pin must be 6 digits'),
+  })
+  .strict();
+
 export const leadsQuerySchema = z.object({
   status: z.enum(LeadStatus).optional(),
   limit,

@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { type INestApplication } from '@nestjs/common';
+import { type INestApplication, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { type App } from 'supertest/types.js';
@@ -19,6 +19,8 @@ const ADMIN_KEY = 'int-admin-api-key-0123456789abcdef';
 const BASE_URL = 'https://bottega.example.com';
 const GRAPH = 'https://graph.facebook.com/v26.0';
 const PASSWORD = 'una clave larga';
+const PHONE_ID = '700000000000001';
+const PIN = '482915';
 
 const credentialsBody = {
   wabaId: '800000000000001',
@@ -43,6 +45,37 @@ function metaOk(url: string, init?: RequestInit): Promise<Response> {
   }
   if (url.startsWith(`${GRAPH}/${credentialsBody.appId}?`)) {
     return json({ id: credentialsBody.appId });
+  }
+  if (url.startsWith(`${GRAPH}/${credentialsBody.wabaId}/phone_numbers?`)) {
+    return json({
+      data: [
+        {
+          id: PHONE_ID,
+          display_phone_number: '+54 9 11 5555-0001',
+          verified_name: 'Peluquería Ana',
+          code_verification_status: 'VERIFIED',
+          name_status: 'APPROVED',
+          quality_rating: 'GREEN',
+        },
+      ],
+    });
+  }
+  if (url === `${GRAPH}/${PHONE_ID}/register` && method === 'POST') {
+    return json({ success: true });
+  }
+  if (url === `${GRAPH}/${credentialsBody.wabaId}/subscribed_apps`) {
+    return method === 'POST'
+      ? json({ success: true })
+      : json({
+          data: [
+            {
+              whatsapp_business_api_data: {
+                id: credentialsBody.appId,
+                name: 'Bottega Ana',
+              },
+            },
+          ],
+        });
   }
   throw new Error(`unexpected Meta call: ${method} ${url}`);
 }
@@ -410,6 +443,305 @@ describe('Line onboarding (integration)', () => {
         .expect(403);
 
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('number and app', () => {
+    const withCredentials = async (slug = 'peluqueria-ana') => {
+      const draft = await createDraft(slug);
+      await adminPut(
+        `/lines/${draft.lineId}/credentials`,
+        credentialsBody,
+      ).expect(200);
+      fetchMock.mockClear();
+      return draft;
+    };
+
+    it('asks for the credentials first', async () => {
+      const { lineId } = await createDraft();
+
+      await http()
+        .get(`/admin/lines/${lineId}/phone-numbers`)
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .expect(409);
+      await adminPost(`/lines/${lineId}/register`, {
+        phoneNumberId: PHONE_ID,
+        pin: PIN,
+      }).expect(409);
+      await adminPost(`/lines/${lineId}/subscribe`).expect(409);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("lists the numbers of the line's WhatsApp account", async () => {
+      const { lineId } = await withCredentials();
+
+      const res = await http()
+        .get(`/admin/lines/${lineId}/phone-numbers`)
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .expect(200);
+
+      expect(res.body).toEqual({
+        phoneNumbers: [
+          {
+            id: PHONE_ID,
+            displayPhoneNumber: '+54 9 11 5555-0001',
+            verifiedName: 'Peluquería Ana',
+            codeVerificationStatus: 'VERIFIED',
+            nameStatus: 'APPROVED',
+            qualityRating: 'GREEN',
+          },
+        ],
+      });
+      expectNoSecrets(res.body);
+    });
+
+    it('registers the number with the PIN and never stores or echoes it', async () => {
+      const logged: string[] = [];
+      vi.spyOn(Logger.prototype, 'log').mockImplementation((m: unknown) => {
+        logged.push(String(m));
+      });
+      const { lineId } = await withCredentials();
+
+      const res = await adminPost(`/lines/${lineId}/register`, {
+        phoneNumberId: PHONE_ID,
+        pin: PIN,
+      }).expect(200);
+
+      expect(res.body).toMatchObject({
+        line: {
+          id: lineId,
+          phoneNumberId: PHONE_ID,
+          displayPhone: '+54 9 11 5555-0001',
+        },
+      });
+      const register = fetchMock.mock.calls.find(
+        ([url]) => url === `${GRAPH}/${PHONE_ID}/register`,
+      )!;
+      expect(JSON.parse(register[1]!.body as string)).toEqual({
+        messaging_product: 'whatsapp',
+        pin: PIN,
+      });
+      const line = await prisma.line.findUniqueOrThrow({
+        where: { id: lineId },
+      });
+      expect(JSON.stringify(line)).not.toContain(PIN);
+      expect(JSON.stringify(res.body)).not.toContain(PIN);
+      expect(logged.join('\n')).not.toContain(PIN);
+      vi.restoreAllMocks();
+    });
+
+    it('rejects a number of another WhatsApp account without calling register', async () => {
+      const { lineId } = await withCredentials();
+
+      const res = await adminPost(`/lines/${lineId}/register`, {
+        phoneNumberId: '700000000000999',
+        pin: PIN,
+      }).expect(400);
+
+      expect((res.body as { message: string }).message).toContain(
+        'no es de la cuenta de WhatsApp de esta línea',
+      );
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          (url as string).endsWith('/register'),
+        ),
+      ).toBe(false);
+      const line = await prisma.line.findUniqueOrThrow({
+        where: { id: lineId },
+      });
+      expect(line.phoneNumberId).toBeNull();
+    });
+
+    it.each([
+      ['a 5-digit PIN', { phoneNumberId: PHONE_ID, pin: '12345' }],
+      ['a PIN with letters', { phoneNumberId: PHONE_ID, pin: '12a456' }],
+      ['no PIN', { phoneNumberId: PHONE_ID }],
+    ])('answers 400 to %s and echoes nothing', async (_label, body) => {
+      const { lineId } = await withCredentials();
+
+      const res = await adminPost(`/lines/${lineId}/register`, body).expect(
+        400,
+      );
+
+      expect(JSON.stringify(res.body)).not.toContain('12345');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('explains a PIN Meta rejects and keeps the line without a number', async () => {
+      const { lineId } = await withCredentials();
+      fetchMock.mockImplementation((input, init) =>
+        (input as string).endsWith('/register')
+          ? metaError(133005)
+          : metaOk(input as string, init),
+      );
+
+      const res = await adminPost(`/lines/${lineId}/register`, {
+        phoneNumberId: PHONE_ID,
+        pin: PIN,
+      }).expect(400);
+
+      expect(res.body).toMatchObject({ metaCode: 133005 });
+      expect((res.body as { message: string }).message).toContain(
+        'El PIN no coincide',
+      );
+      const line = await prisma.line.findUniqueOrThrow({
+        where: { id: lineId },
+      });
+      expect(line.phoneNumberId).toBeNull();
+    });
+
+    it('answers 409 to a number another line already has', async () => {
+      const first = await withCredentials('lola');
+      await adminPost(`/lines/${first.lineId}/register`, {
+        phoneNumberId: PHONE_ID,
+        pin: PIN,
+      }).expect(200);
+      const second = await withCredentials('kubbo');
+
+      await adminPost(`/lines/${second.lineId}/register`, {
+        phoneNumberId: PHONE_ID,
+        pin: PIN,
+      }).expect(409);
+    });
+
+    it('the registered line receives webhooks signed with its app secret', async () => {
+      const { lineId, businessId } = await withCredentials();
+      await adminPost(`/lines/${lineId}/register`, {
+        phoneNumberId: PHONE_ID,
+        pin: PIN,
+      }).expect(200);
+      const { webhookKey } = await prisma.line.findUniqueOrThrow({
+        where: { id: lineId },
+      });
+      const raw = JSON.stringify({
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: credentialsBody.wabaId,
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: {
+                    display_phone_number: '5491155550001',
+                    phone_number_id: PHONE_ID,
+                  },
+                  messages: [
+                    {
+                      from: '5491100001234',
+                      id: 'wamid.onboarded.1',
+                      timestamp: '1760140800',
+                      type: 'text',
+                      text: { body: 'hola' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      });
+      const signature = `sha256=${createHmac('sha256', credentialsBody.appSecret).update(raw).digest('hex')}`;
+
+      await http()
+        .post(`/webhooks/whatsapp/${webhookKey}`)
+        .set('Content-Type', 'application/json')
+        .set('X-Hub-Signature-256', signature)
+        .send(raw)
+        .expect(200);
+
+      const contact = await prisma.contact.findFirstOrThrow({
+        where: { waId: '5491100001234' },
+      });
+      expect(contact.businessId).toBe(businessId);
+    });
+
+    it('subscribes the app and reads the subscriptions back', async () => {
+      const { lineId } = await withCredentials();
+
+      const res = await adminPost(`/lines/${lineId}/subscribe`).expect(200);
+
+      expect(res.body).toEqual({
+        subscribed: true,
+        apps: [{ id: credentialsBody.appId, name: 'Bottega Ana' }],
+        otherApps: false,
+      });
+      expect(
+        fetchMock.mock.calls.map(([url, init]) => [url, init?.method]),
+      ).toEqual([
+        [`${GRAPH}/${credentialsBody.wabaId}/subscribed_apps`, 'POST'],
+        [`${GRAPH}/${credentialsBody.wabaId}/subscribed_apps`, 'GET'],
+      ]);
+    });
+
+    it('warns when another app is also subscribed (two bots would answer)', async () => {
+      const { lineId } = await withCredentials();
+      fetchMock.mockImplementation((input, init) =>
+        (init?.method ?? 'GET') === 'GET' &&
+        (input as string).endsWith('/subscribed_apps')
+          ? json({
+              data: [
+                { whatsapp_business_api_data: { id: credentialsBody.appId } },
+                {
+                  whatsapp_business_api_data: {
+                    id: '111111111111111',
+                    name: 'Otro proveedor',
+                  },
+                },
+              ],
+            })
+          : metaOk(input as string, init),
+      );
+
+      const res = await adminPost(`/lines/${lineId}/subscribe`).expect(200);
+
+      expect(res.body).toMatchObject({ subscribed: true, otherApps: true });
+    });
+
+    it('explains a failed subscription', async () => {
+      const { lineId } = await withCredentials();
+      fetchMock.mockImplementation(() => metaError(200, 403));
+
+      const res = await adminPost(`/lines/${lineId}/subscribe`).expect(400);
+
+      expect(res.body).toMatchObject({ metaCode: 200 });
+    });
+
+    it('records the first confirmation that the app is published', async () => {
+      const { lineId } = await createDraft();
+
+      const first = await adminPost(`/lines/${lineId}/app-published`).expect(
+        200,
+      );
+      const second = await adminPost(`/lines/${lineId}/app-published`).expect(
+        200,
+      );
+
+      const { appPublishedAt } = first.body as { appPublishedAt: string };
+      expect(typeof appPublishedAt).toBe('string');
+      expect(second.body).toEqual({ appPublishedAt });
+      const line = await prisma.line.findUniqueOrThrow({
+        where: { id: lineId },
+      });
+      expect(line.appPublishedAt?.toISOString()).toBe(appPublishedAt);
+      await adminPost(
+        '/lines/00000000-0000-4000-8000-000000000000/app-published',
+      ).expect(404);
+    });
+
+    it('requires the admin key on every line route', async () => {
+      const { lineId } = await createDraft();
+      for (const send of [
+        () => http().put(`/admin/lines/${lineId}/credentials`).send({}),
+        () => http().get(`/admin/lines/${lineId}/phone-numbers`),
+        () => http().post(`/admin/lines/${lineId}/register`).send({}),
+        () => http().post(`/admin/lines/${lineId}/subscribe`),
+        () => http().post(`/admin/lines/${lineId}/app-published`),
+      ]) {
+        await send().expect(401);
+      }
     });
   });
 });

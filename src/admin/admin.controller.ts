@@ -35,6 +35,7 @@ import {
   lineIdSchema,
   messagesQuerySchema,
   parseOrBadRequest,
+  registerNumberBodySchema,
   resumeBodySchema,
   waIdSchema,
 } from './admin.schemas.js';
@@ -129,6 +130,41 @@ export class AdminController {
     return this.onboarding.setCredentials(
       parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
       parseOrBadRequest(lineCredentialsBodySchema, body ?? {}, 'body'),
+    );
+  }
+
+  /** The numbers of the line's WhatsApp account. */
+  @Get('lines/:lineId/phone-numbers')
+  linePhoneNumbers(@Param('lineId') lineId: string) {
+    return this.onboarding.phoneNumbers(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+    );
+  }
+
+  /** `{ phoneNumberId, pin }`: registers the number; the PIN is not stored. */
+  @Post('lines/:lineId/register')
+  @HttpCode(HttpStatus.OK)
+  registerLineNumber(@Param('lineId') lineId: string, @Body() body: unknown) {
+    return this.onboarding.register(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+      parseOrBadRequest(registerNumberBodySchema, body ?? {}, 'body'),
+    );
+  }
+
+  @Post('lines/:lineId/subscribe')
+  @HttpCode(HttpStatus.OK)
+  subscribeLineApp(@Param('lineId') lineId: string) {
+    return this.onboarding.subscribe(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+    );
+  }
+
+  /** The team confirms the line's Meta app is in Live mode. */
+  @Post('lines/:lineId/app-published')
+  @HttpCode(HttpStatus.OK)
+  markLineAppPublished(@Param('lineId') lineId: string) {
+    return this.onboarding.markAppPublished(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
     );
   }
 
