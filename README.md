@@ -741,6 +741,21 @@ suscripción falla, la línea queda creada igual y el motivo viene en
 El `appSecret` y el `accessToken` se guardan cifrados y **nunca** se devuelven.
 Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404`.
 
+#### Alta paso a paso (línea en borrador)
+
+Cuando todavía no hay número (la guía de conexión verifica el webhook antes),
+la línea se crea vacía:
+
+```bash
+curl -X POST "$API/admin/businesses/<businessId>/lines" -H "X-Admin-Api-Key: $KEY"
+# → 201 {"line":{"id":"<lineId>","phoneNumberId":null,...},"webhookUrl":"...","webhookPath":"...","verifyToken":"..."}
+```
+
+Un borrador responde la verificación del webhook de Meta (`GET`), pero
+rechaza toda entrega (`POST`, `401`: no tiene App Secret para validar la firma),
+no envía mensajes y no aparece en `GET /inbox/.../lines`. Un body con algunos
+campos pero no todos da `400`.
+
 ---
 
 ## Editar contenido

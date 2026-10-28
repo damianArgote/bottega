@@ -284,10 +284,13 @@ export class InboxQueriesService {
     };
   }
 
-  /** GET /lines: the business's WhatsApp lines (never their credentials). */
+  /**
+   * GET /lines: the business's WhatsApp lines (never their credentials).
+   * Draft lines (no number yet) are left out: they have nothing to show.
+   */
   async lines(access: BusinessAccess) {
     const lines = await this.prisma.line.findMany({
-      where: { businessId: access.businessId },
+      where: { businessId: access.businessId, phoneNumberId: { not: null } },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,

@@ -78,18 +78,32 @@ export class BusinessesService {
   }
 
   /**
+   * Creates a draft line: only its webhook route and verify token, to paste
+   * in the Meta app before the number exists. It cannot receive webhooks
+   * (no app secret to check signatures) nor send until it is onboarded.
+   */
+  async createDraftLine(businessId: string) {
+    await this.assertBusinessExists(businessId);
+    const line = await this.prisma.line.create({
+      data: {
+        businessId,
+        verifyToken: newVerifyToken(),
+        webhookKey: newWebhookKey(),
+      },
+      select: { ...lineView, verifyToken: true, webhookKey: true },
+    });
+    this.logger.log(`Draft line ${line.id} created for business ${businessId}`);
+    const { verifyToken, webhookKey, ...view } = line;
+    return { line: view, ...this.webhook(webhookKey), verifyToken };
+  }
+
+  /**
    * Creates the line and subscribes its Meta app to the WhatsApp account's
    * events. A failed subscription does not undo the line: the result says so
    * and the subscription can be done by hand in the Meta App Dashboard.
    */
   async createLine(businessId: string, input: CreateLineInput) {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { id: true },
-    });
-    if (!business) {
-      throw new NotFoundException('Business not found');
-    }
+    await this.assertBusinessExists(businessId);
 
     let line;
     try {
@@ -123,16 +137,33 @@ export class BusinessesService {
     );
 
     const { verifyToken, webhookKey, ...view } = line;
+    return {
+      line: view,
+      ...this.webhook(webhookKey),
+      verifyToken,
+      subscription,
+    };
+  }
+
+  private async assertBusinessExists(businessId: string): Promise<void> {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true },
+    });
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+  }
+
+  /** The line's webhook route; the URL needs a known public base URL. */
+  private webhook(webhookKey: string) {
     const webhookPath = `/webhooks/whatsapp/${webhookKey}`;
     const baseUrl =
       this.config.get('PUBLIC_BASE_URL') ??
       this.config.get('RENDER_EXTERNAL_URL');
     return {
-      line: view,
       webhookUrl: baseUrl ? `${baseUrl}${webhookPath}` : null,
       webhookPath,
-      verifyToken,
-      subscription,
     };
   }
 }

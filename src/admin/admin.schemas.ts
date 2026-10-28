@@ -134,6 +134,17 @@ export const agentPreviewBodySchema = z
   })
   .strict();
 
+/** No body, or `{}`: the request carries no fields. */
+export function isEmptyBody(body: unknown): boolean {
+  return (
+    body === undefined ||
+    body === null ||
+    (typeof body === 'object' &&
+      !Array.isArray(body) &&
+      Object.keys(body).length === 0)
+  );
+}
+
 export function parseOrBadRequest<T extends z.ZodType>(
   schema: T,
   value: unknown,

@@ -13,7 +13,10 @@ const cipher = new CredentialsCipher(randomBytes(32));
 const credentials = cipher as unknown as LineCredentialsService;
 
 function setup(
-  line: { phoneNumberId: string; accessTokenEncrypted: string | null } | null,
+  line: {
+    phoneNumberId: string | null;
+    accessTokenEncrypted: string | null;
+  } | null,
 ) {
   const findUnique = vi.fn().mockResolvedValue(line);
   const prisma = { line: { findUnique } } as unknown as PrismaService;
@@ -87,6 +90,14 @@ describe('LineWhatsAppClientFactory', () => {
       'a line without access token',
       'line-1',
       { phoneNumberId: '111', accessTokenEncrypted: null },
+    ],
+    [
+      'a draft line (token, no phone number yet)',
+      'line-1',
+      {
+        phoneNumberId: null,
+        accessTokenEncrypted: cipher.encrypt('line-token-secret'),
+      },
     ],
     [
       'a token encrypted with another key',
