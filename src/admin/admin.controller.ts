@@ -133,6 +133,14 @@ export class AdminController {
     );
   }
 
+  /** What is missing to finish onboarding the line (Meta cached 60 s). */
+  @Get('lines/:lineId/status')
+  lineStatus(@Param('lineId') lineId: string) {
+    return this.onboarding.status(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+    );
+  }
+
   /** The numbers of the line's WhatsApp account. */
   @Get('lines/:lineId/phone-numbers')
   linePhoneNumbers(@Param('lineId') lineId: string) {

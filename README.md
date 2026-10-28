@@ -788,6 +788,27 @@ Sin credenciales, `phone-numbers`, `register` y `subscribe` dan `409`. Los
 errores de Meta vuelven como `400` (o `502` si Meta no responde) con el motivo
 en castellano.
 
+#### Estado de la conexión
+
+`GET /admin/lines/:lineId/status` (equipo) y
+`GET /inbox/businesses/:businessId/settings/whatsapp` (dueño, `OWNER`: todas
+las líneas de su negocio, borradores incluidos) dicen qué falta:
+
+| Campo | Qué es |
+| ----- | ------ |
+| `step` | `draft` (sin credenciales), `credentials` (sin número) o `registered`. |
+| `number` | Lo que dice Meta del número: `verifiedName`, `nameStatus` (aprobación del nombre visible), `codeVerificationStatus`, `qualityRating`. |
+| `appSubscribed` / `otherApps` | Si la app está suscripta y si hay otra app en la misma cuenta. `null` si no se pudo preguntar. |
+| `appPublishedAt` | Cuándo el equipo confirmó que la app está en Live. |
+| `lastInboundAt` | El último mensaje que llegó a la línea. |
+| `metaError` | El motivo en castellano si Meta no respondió bien; el resto del estado se muestra igual. |
+| `pending` | Lo que falta, en orden: `credentials`, `number`, `subscription`, `app_published`, `first_message`. |
+
+Lo que se le pregunta a Meta se reutiliza 60 segundos por línea (para no
+gastar el límite de Meta con el polling de la web) y se vuelve a pedir después
+de cargar credenciales, registrar o suscribir. Nunca incluye el token, el App
+Secret, el verify token ni la clave del webhook.
+
 ---
 
 ## Editar contenido

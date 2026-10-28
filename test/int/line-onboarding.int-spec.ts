@@ -12,7 +12,7 @@ import { LineCredentialsService } from '../../src/lines/line-credentials.service
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { GraphOnboardingClient } from '../../src/whatsapp/graph-onboarding.client.js';
 import { GraphWhatsAppClient } from '../../src/whatsapp/graph-whatsapp.client.js';
-import { resetDb, testConfig } from './helpers.js';
+import { createLine, resetDb, testConfig } from './helpers.js';
 
 // Must match ADMIN_API_KEY in vitest.config.int.ts.
 const ADMIN_KEY = 'int-admin-api-key-0123456789abcdef';
@@ -58,6 +58,16 @@ function metaOk(url: string, init?: RequestInit): Promise<Response> {
           quality_rating: 'GREEN',
         },
       ],
+    });
+  }
+  if (url.startsWith(`${GRAPH}/${PHONE_ID}?`)) {
+    return json({
+      id: PHONE_ID,
+      display_phone_number: '+54 9 11 5555-0001',
+      verified_name: 'Peluquería Ana',
+      code_verification_status: 'VERIFIED',
+      name_status: 'APPROVED',
+      quality_rating: 'GREEN',
     });
   }
   if (url === `${GRAPH}/${PHONE_ID}/register` && method === 'POST') {
@@ -407,6 +417,35 @@ describe('Line onboarding (integration)', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('on a line that already has a number, only accepts the account that holds it', async () => {
+      // Like the seeded default line: a number, no WABA stored.
+      const other = await createLine(prisma, {
+        slug: 'otro',
+        phoneNumberId: '700000000000999',
+      });
+      const same = await createLine(prisma, {
+        slug: 'linea-env',
+        phoneNumberId: PHONE_ID,
+      });
+
+      const res = await adminPut(
+        `/lines/${other.lineId}/credentials`,
+        credentialsBody,
+      ).expect(400);
+      expect((res.body as { message: string }).message).toContain(
+        'no está en esa cuenta de WhatsApp',
+      );
+      const untouched = await prisma.line.findUniqueOrThrow({
+        where: { id: other.lineId },
+      });
+      expect(untouched.accessTokenEncrypted).toBeNull();
+
+      await adminPut(
+        `/lines/${same.lineId}/credentials`,
+        credentialsBody,
+      ).expect(200);
+    });
+
     it('lets an OWNER set them on a line of their business only', async () => {
       const a = await createDraft('lola');
       const b = await createDraft('kubbo');
@@ -742,6 +781,178 @@ describe('Line onboarding (integration)', () => {
       ]) {
         await send().expect(401);
       }
+    });
+  });
+
+  describe('status', () => {
+    const adminGet = (path: string) =>
+      http().get(`/admin${path}`).set('X-Admin-Api-Key', ADMIN_KEY);
+
+    const registered = async (slug = 'peluqueria-ana') => {
+      const draft = await createDraft(slug);
+      await adminPut(
+        `/lines/${draft.lineId}/credentials`,
+        credentialsBody,
+      ).expect(200);
+      await adminPost(`/lines/${draft.lineId}/register`, {
+        phoneNumberId: PHONE_ID,
+        pin: PIN,
+      }).expect(200);
+      fetchMock.mockClear();
+      return draft;
+    };
+
+    const expectNoRouteSecrets = async (lineId: string, body: unknown) => {
+      const line = await prisma.line.findUniqueOrThrow({
+        where: { id: lineId },
+      });
+      const raw = JSON.stringify(body);
+      expect(raw).not.toContain(line.verifyToken);
+      expect(raw).not.toContain(line.webhookKey);
+      expectNoSecrets(body);
+    };
+
+    it('shows everything pending for a draft, without asking Meta', async () => {
+      const { lineId } = await createDraft();
+
+      const res = await adminGet(`/lines/${lineId}/status`).expect(200);
+
+      expect(res.body).toEqual({
+        lineId,
+        step: 'draft',
+        phoneNumberId: null,
+        displayPhone: null,
+        appPublishedAt: null,
+        lastInboundAt: null,
+        number: null,
+        appSubscribed: null,
+        otherApps: null,
+        metaError: null,
+        pending: [
+          'credentials',
+          'number',
+          'subscription',
+          'app_published',
+          'first_message',
+        ],
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      await expectNoRouteSecrets(lineId, res.body);
+    });
+
+    it("shows Meta's view of a registered line and what is left", async () => {
+      const { lineId } = await registered();
+
+      const res = await adminGet(`/lines/${lineId}/status`).expect(200);
+
+      expect(res.body).toMatchObject({
+        step: 'registered',
+        phoneNumberId: PHONE_ID,
+        number: {
+          id: PHONE_ID,
+          verifiedName: 'Peluquería Ana',
+          nameStatus: 'APPROVED',
+          codeVerificationStatus: 'VERIFIED',
+          qualityRating: 'GREEN',
+        },
+        appSubscribed: true,
+        otherApps: false,
+        metaError: null,
+        pending: ['app_published', 'first_message'],
+      });
+      await expectNoRouteSecrets(lineId, res.body);
+    });
+
+    it('stops listing the app as pending once the team confirms it is published', async () => {
+      const { lineId } = await registered();
+      await adminPost(`/lines/${lineId}/app-published`).expect(200);
+
+      const res = await adminGet(`/lines/${lineId}/status`).expect(200);
+
+      expect((res.body as { pending: string[] }).pending).toEqual([
+        'first_message',
+      ]);
+    });
+
+    it('reuses the Meta lookups for 60 seconds', async () => {
+      const { lineId } = await registered();
+
+      await adminGet(`/lines/${lineId}/status`).expect(200);
+      const calls = fetchMock.mock.calls.length;
+      await adminGet(`/lines/${lineId}/status`).expect(200);
+
+      expect(calls).toBe(2);
+      expect(fetchMock.mock.calls.length).toBe(calls);
+    });
+
+    it('does not cache a lookup that started before the credentials changed', async () => {
+      const { lineId } = await registered();
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        if ((input as string).startsWith(`${GRAPH}/${PHONE_ID}?`)) {
+          await held;
+        }
+        return metaOk(input as string, init);
+      });
+
+      const slow = adminGet(`/lines/${lineId}/status`).then((r) => r);
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            (url as string).startsWith(`${GRAPH}/${PHONE_ID}?`),
+          ),
+        ).toBe(true),
+      );
+      await adminPut(`/lines/${lineId}/credentials`, credentialsBody).expect(
+        200,
+      );
+      release();
+      expect((await slow).status).toBe(200);
+      fetchMock.mockClear();
+
+      await adminGet(`/lines/${lineId}/status`).expect(200);
+
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    it('explains a failed Meta lookup and keeps the stored state', async () => {
+      const { lineId } = await registered();
+      fetchMock.mockImplementation(() => metaError(190, 401));
+
+      const res = await adminGet(`/lines/${lineId}/status`).expect(200);
+
+      expect(res.body).toMatchObject({
+        step: 'registered',
+        number: null,
+        appSubscribed: null,
+        pending: ['subscription', 'app_published', 'first_message'],
+      });
+      expect((res.body as { metaError: string }).metaError).toContain(
+        'El token no es válido o venció',
+      );
+    });
+
+    it("shows an OWNER only their business's lines; an AGENT gets 403", async () => {
+      const a = await registered('lola');
+      const b = await createDraft('kubbo');
+      const owner = await sessionOf(a.businessId, 'olga@example.com', 'OWNER');
+      const agent = await sessionOf(a.businessId, 'ana@example.com', 'AGENT');
+      const status = (businessId: string) =>
+        http().get(`/inbox/businesses/${businessId}/settings/whatsapp`);
+
+      const res = await status(a.businessId).set('Cookie', owner).expect(200);
+
+      const lines = (res.body as { lines: Array<{ lineId: string }> }).lines;
+      expect(lines.map((l) => l.lineId)).toEqual([a.lineId]);
+      await expectNoRouteSecrets(a.lineId, res.body);
+      await status(b.businessId).set('Cookie', owner).expect(403);
+      await status(a.businessId).set('Cookie', agent).expect(403);
+      await adminGet(
+        '/lines/00000000-0000-4000-8000-000000000000/status',
+      ).expect(404);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import {
   lineCredentialsBodySchema,
   lineIdSchema,
@@ -22,6 +22,12 @@ import { LineOnboardingService } from '../onboarding/line-onboarding.service.js'
 @UseGuards(SessionGuard, BusinessAccessGuard, RoleGuard('OWNER'))
 export class WhatsAppSettingsController {
   constructor(private readonly onboarding: LineOnboardingService) {}
+
+  /** The connection state of each line of the business, drafts included. */
+  @Get()
+  status(@CurrentBusiness() access: BusinessAccess) {
+    return this.onboarding.businessStatus(access.businessId);
+  }
 
   /** Same checks as the admin route; a line of another business is 404. */
   @Put('lines/:lineId/credentials')
