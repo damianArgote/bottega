@@ -5,7 +5,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export interface WebhookLine {
   id: string;
   businessId: string;
-  phoneNumberId: string;
+  /** Null for a draft line (being onboarded, no number yet). */
+  phoneNumberId: string | null;
   active: boolean;
   verifyToken: string;
   appSecretEncrypted: string | null;

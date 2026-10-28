@@ -30,9 +30,12 @@ export interface LineRef {
   businessId: string;
 }
 
-/** A line with the phone number id its events must carry. */
+/**
+ * A line with the phone number id its events must carry. Null for a draft
+ * line: no event matches it, so every event is discarded.
+ */
 export interface RoutedLine extends LineRef {
-  phoneNumberId: string;
+  phoneNumberId: string | null;
 }
 
 export type ApplyStatusResult = 'updated' | 'ignored';

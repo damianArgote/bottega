@@ -494,8 +494,11 @@ describe('Inbox reads (integration)', () => {
     });
   });
 
-  it('lines lists only the lines of the business', async () => {
+  it('lines lists only the lines of the business, without drafts', async () => {
     await createLine(prisma, { slug: 'lola', phoneNumberId: '222' });
+    await prisma.line.create({
+      data: { businessId, verifyToken: 'draft', webhookKey: 'draft-key' },
+    });
 
     expect(await queries.lines(access)).toEqual({
       lines: [

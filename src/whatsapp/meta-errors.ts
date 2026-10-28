@@ -23,3 +23,33 @@ const KINDS = new Map<number, MetaErrorKind>([
 export function metaErrorKind(code: number | string): MetaErrorKind {
   return (typeof code === 'number' && KINDS.get(code)) || 'other';
 }
+
+/**
+ * Text for the user (Rioplatense Spanish) for a Graph error while onboarding
+ * a line: checking credentials, registering a number or subscribing the app.
+ */
+export function onboardingErrorMessage(error: {
+  code: number | string;
+  subcode: number | null;
+}): string {
+  if (error.code === 133005 || error.subcode === 2388023) {
+    return 'El PIN no coincide con el que tiene el número.';
+  }
+  switch (error.code) {
+    case 190:
+      return 'El token no es válido o venció. Generá uno nuevo desde el usuario del sistema.';
+    case 200:
+    case 10:
+      return 'El token no tiene permiso sobre esta cuenta. Revisá que el usuario del sistema tenga asignadas la app y la cuenta de WhatsApp con control total.';
+    case 100:
+      return 'Algún ID está mal o no corresponde a esta cuenta. Revisá el WABA ID y el Phone Number ID.';
+    case 133006:
+      return 'El número todavía no está verificado. Primero hay que verificarlo con el código SMS en WhatsApp Manager.';
+    case 133016:
+      return 'Demasiados intentos de registro. Esperá antes de volver a probar.';
+    case 'network_error':
+      return 'No pudimos conectar con Meta. Probá de nuevo en unos minutos.';
+    default:
+      return `Meta rechazó el pedido (código ${error.code}).`;
+  }
+}

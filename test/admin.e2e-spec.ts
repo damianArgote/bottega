@@ -25,7 +25,11 @@ describe('Admin API (e2e)', () => {
     resume: vi.fn(),
     sendHumanReply: vi.fn(),
   };
-  const businesses = { createBusiness: vi.fn(), createLine: vi.fn() };
+  const businesses = {
+    createBusiness: vi.fn(),
+    createLine: vi.fn(),
+    createDraftLine: vi.fn(),
+  };
   const agents = { get: vi.fn(), put: vi.fn() };
   const preview = { run: vi.fn() };
   const users = { addToBusiness: vi.fn() };
@@ -378,6 +382,22 @@ describe('Admin API (e2e)', () => {
         .expect(201, { webhookPath: '/x' });
 
       expect(businesses.createLine).toHaveBeenCalledWith(BUSINESS_ID, lineBody);
+    });
+
+    it.each([
+      ['no body', undefined],
+      ['an empty body', {}],
+    ])('creates a draft line for %s', async (_label, body) => {
+      businesses.createDraftLine.mockResolvedValue({ webhookPath: '/draft' });
+
+      await http()
+        .post(`/admin/businesses/${BUSINESS_ID}/lines`)
+        .set(auth)
+        .send(body as object)
+        .expect(201, { webhookPath: '/draft' });
+
+      expect(businesses.createDraftLine).toHaveBeenCalledWith(BUSINESS_ID);
+      expect(businesses.createLine).not.toHaveBeenCalled();
     });
 
     it.each([
