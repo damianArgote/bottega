@@ -30,6 +30,7 @@ const MODEL = 'test-model';
 const content = new ContentService();
 const vars = {
   demoBusinessName: content.getBarbershop().name,
+  demoScenario: 'barbershop' as const,
   // resetDb seeds the profile with the test business's botName.
   botName: 'Bot de botsuite46',
 };
@@ -228,7 +229,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await prisma.agentProfile.deleteMany();
 
     await say('hola');
-    await say('demo');
+    await say('Barbería');
 
     expect(respond).not.toHaveBeenCalled();
     expect(sendText).toHaveBeenCalledTimes(1);
@@ -238,7 +239,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   it('with demoEnabled false, "demo" answers that there is no demo', async () => {
     await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
 
-    await say('demo');
+    await say('Barbería');
 
     expect(respond).not.toHaveBeenCalled();
     expect(lastSent()).toBe(renderReply('DEMO_UNAVAILABLE', vars));
@@ -246,7 +247,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   });
 
   it('does not offer register_demo_request once the demo is disabled', async () => {
-    await say('demo');
+    await say('Barbería');
     await prisma.agentProfile.updateMany({ data: { demoEnabled: false } });
     respond.mockResolvedValueOnce(text('Hola'));
 
@@ -315,7 +316,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   });
 
   it('register_demo_request stores a fictitious request and the reply carries a backend summary', async () => {
-    await say('demo');
+    await say('Barbería');
     respond
       .mockResolvedValueOnce(tool('register_demo_request', booking))
       .mockResolvedValueOnce(text('¡Listo, Juan!'));
@@ -344,7 +345,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   });
 
   it('rejects save_lead in demo mode: nothing written and the model is told it failed', async () => {
-    await say('demo');
+    await say('Barbería');
     respond
       .mockResolvedValueOnce(tool('save_lead', lead({ name: 'Ana' })))
       .mockResolvedValueOnce(text('Contame qué servicio querés.'));
@@ -421,7 +422,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
   });
 
   it('retries a retryable AI error and regenerates without duplicating effects', async () => {
-    await say('demo');
+    await say('Barbería');
     respond
       .mockResolvedValueOnce(tool('register_demo_request', booking))
       .mockRejectedValueOnce(new AiProviderError('openai_http_503', true));
@@ -490,7 +491,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     await say('hola comercial');
     expect(messages(request(-1))).toEqual([['user', 'hola comercial']]);
 
-    await say('demo');
+    await say('Barbería');
     await say('precios?');
     expect(messages(request(-1))).toEqual([
       ['assistant', renderReply('ENTER_DEMO', vars)],
@@ -503,7 +504,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(messages(request(-1))).toEqual([
       ['user', 'hola comercial'],
       ['assistant', 'respuesta'],
-      ['user', 'demo'],
+      ['user', 'Barbería'],
       ['assistant', renderReply('EXIT_DEMO', vars)],
       ['user', 'sigo'],
     ]);
@@ -512,7 +513,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(messages(request(-1))).toEqual([
       ['user', 'hola comercial'],
       ['assistant', 'respuesta'],
-      ['user', 'demo'],
+      ['user', 'Barbería'],
       ['assistant', renderReply('EXIT_DEMO', vars)],
       ['user', 'sigo'],
       ['assistant', 'respuesta'],
@@ -598,7 +599,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     it('does not add the notice inside the demo', async () => {
       await setHours();
       now = MONDAY_NIGHT;
-      await say('demo');
+      await say('Barbería');
       respond.mockResolvedValueOnce(text('¡Hola! Bienvenido.'));
 
       await say('hola');
@@ -650,7 +651,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     });
 
     it('inside the demo every model reply carries the exit button; outside it, none', async () => {
-      await say('demo');
+      await say('Barbería');
       respond.mockResolvedValueOnce(text('Tenemos corte y barba.'));
 
       await say('¿qué servicios tienen?');
@@ -680,7 +681,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     });
 
     it('entering the demo sends the "Salir de la demo" button, and its title works as the command', async () => {
-      await say('demo');
+      await say('Barbería');
 
       expect(sendText).toHaveBeenLastCalledWith(
         USER,

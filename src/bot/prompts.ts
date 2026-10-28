@@ -1,4 +1,9 @@
-import type { BarbershopDemo } from '../content/content.schema.js';
+import type {
+  BarbershopDemo,
+  DemoContent,
+  InsuranceDemo,
+} from '../content/content.schema.js';
+import { INSURANCE_DISCLAIMER } from '../demos/insurance-quote.js';
 import type {
   AgentProfileInput,
   LeadField,
@@ -130,14 +135,20 @@ export function buildCommercialInstructions(
     .trim();
 }
 
-const ars = new Intl.NumberFormat('es-AR');
+const arsFormat = new Intl.NumberFormat('es-AR');
 
-/** Instructions for the fictitious barbershop demo (no lead or commercial data). */
-export function buildDemoInstructions(barbershop: BarbershopDemo): string {
+/** Instructions for a fictitious demo (no lead or commercial data). */
+export function buildDemoInstructions(demo: DemoContent): string {
+  return demo.scenario === 'insurance'
+    ? buildInsuranceInstructions(demo)
+    : buildBarbershopInstructions(demo);
+}
+
+function buildBarbershopInstructions(barbershop: BarbershopDemo): string {
   const services = barbershop.services
     .map(
       (s) =>
-        `- ${s.name}: $${ars.format(s.priceArs)} ${barbershop.currency} (${s.durationMinutes} min)`,
+        `- ${s.name}: $${arsFormat.format(s.priceArs)} ${barbershop.currency} (${s.durationMinutes} min)`,
     )
     .join('\n');
   const hours = barbershop.openingHours
@@ -170,5 +181,67 @@ ${hours}
 
 Preguntas frecuentes:
 ${faq}
+`.trim();
+}
+
+function buildInsuranceInstructions(insurance: InsuranceDemo): string {
+  const ars = (value: number) => `$ ${arsFormat.format(value)}`;
+  const vehicles = insurance.vehicles
+    .map((v) => `- ${v.make} ${v.model}: versiones ${v.versions.join(', ')}`)
+    .join('\n');
+  const zones = insurance.zones.map((z) => z.name).join(', ');
+  const plans = insurance.plans
+    .map((p) =>
+      [
+        `### ${p.name}`,
+        p.summary,
+        `Incluye: ${p.coverages.join('; ')}.`,
+        p.notIncluded.length > 0
+          ? `No incluye: ${p.notIncluded.join('; ')}.`
+          : '',
+        p.deductibleArs !== null
+          ? `Franquicia: ${ars(p.deductibleArs)} por siniestro de daños parciales.`
+          : 'Sin franquicia.',
+        p.conditions.length > 0
+          ? `Condiciones: ${p.conditions.join('; ')}.`
+          : '',
+        p.maxVehicleAgeYears !== null
+          ? `Solo para autos de hasta ${p.maxVehicleAgeYears} años.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .join('\n\n');
+
+  return `
+Sos la IA que atiende el WhatsApp de "${insurance.name}", un productor de seguros de autos, en una DEMO que muestra cómo funciona un asistente de WhatsApp. Los planes, las coberturas y los precios de abajo son de ejemplo, no son reales.
+
+${COMMON_RULES}
+
+## Cómo trabajar
+- Tu objetivo: que la persona pase de "quiero asegurar mi auto" a una consulta completa, con las opciones entendidas, lista para que un asesor la continúe.
+- Si no lo dijo, preguntá primero si quiere asegurar un auto o comparar lo que está pagando.
+- Datos para cotizar: marca y modelo, año, versión, localidad o código postal, uso y si tiene GNC. Pueden venir mezclados en un mismo mensaje (por ejemplo, "Tengo un Gol Trend 2018, soy de Caballito y quiero pagar menos"): reconocé todo lo que ya dijo y preguntá solo lo que falta, de a un dato por vez. Nunca vuelvas a preguntar algo que ya dijo.
+- La zona sale de la localidad (zonas: ${zones}). Si no sabés a qué zona corresponde, preguntá. Si dice el código postal, deducí la zona solo si estás seguro.
+- La versión tiene que ser una de la tabla: si no la dijo o no coincide, mostrale las versiones de su modelo y que elija.
+- Solo se cotizan autos particulares de la tabla. Si es de uso comercial, otro vehículo u otro auto que no figura, decile que eso lo cotiza un asesor y ofrecé derivarlo con request_handoff.
+- Preguntá qué prioriza: pagar menos, mejorar la cobertura o comparar ambas.
+- Con el modelo, el año, la zona y el GNC, llamá a quote_insurance. Es la ÚNICA fuente de precios: nunca escribas un precio ni una franquicia que no venga de quote_insurance o de esta información. Si cambia el auto, el año, la localidad o el GNC (aunque sea a mitad de la charla), volvé a llamar a quote_insurance y usá solo los precios nuevos.
+- Mostrá hasta tres alternativas, empezando por la que mejor encaja con su prioridad: nombre, precio mensual, principales coberturas, franquicia si tiene y condiciones relevantes. Siempre aclarale que es una "${INSURANCE_DISCLAIMER}". Ofrecé los planes como botones con offer_options.
+- Respondé dudas sobre los planes (qué es la franquicia, cuál incluye granizo, qué cambia con el más económico) solo con los datos de abajo. Si pregunta algo que no está acá (por ejemplo, otra cobertura, descuentos, formas de pago o un caso puntual), no lo confirmes: decí que lo confirma un asesor y ofrecé derivarlo.
+- Cuando elija un plan, pedile su nombre y cómo y cuándo prefiere que lo contacte el asesor. Con eso, llamá a register_demo_request con todos los datos: deja la consulta lista y pasa la conversación al equipo. Nunca digas que hay una póliza emitida, un seguro vigente ni un pago.
+- Recordá de vez en cuando que es una demo y que puede volver con el botón "Salir de la demo", que va debajo de cada mensaje; no le pidas que escriba nada.
+
+## Datos del productor
+${insurance.description}
+
+Autos que se pueden cotizar:
+${vehicles}
+
+Modelos desde el año ${insurance.minYear}. El GNC suma un recargo.
+
+## Planes (ficticios)
+${plans}
 `.trim();
 }

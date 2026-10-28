@@ -63,13 +63,17 @@ export const registerDemoRequestTool: ToolHandler<DemoArgs> = {
   }),
   schema,
   plan(args, ctx) {
+    const barbershop = ctx.demo;
+    if (barbershop?.scenario !== 'barbershop') {
+      return { ok: false, error: 'No hay una barbería en esta demo.' };
+    }
     if (ctx.planned.some((e) => e.kind === 'register_demo_request')) {
       return {
         ok: false,
         error: 'Ya se registró una solicitud en este mensaje.',
       };
     }
-    const missing = ctx.barbershop.bookingFields.filter((f) => !args[f]);
+    const missing = barbershop.bookingFields.filter((f) => !args[f]);
     if (missing.length > 0) {
       return {
         ok: false,
@@ -78,11 +82,11 @@ export const registerDemoRequestTool: ToolHandler<DemoArgs> = {
     }
     let service: string | null = null;
     if (args.service) {
-      service = findService(ctx.barbershop, args.service);
+      service = findService(barbershop, args.service);
       if (!service) {
         return {
           ok: false,
-          error: `"${args.service}" no es un servicio de la barbería. Servicios: ${ctx.barbershop.services.map((s) => s.name).join(', ')}.`,
+          error: `"${args.service}" no es un servicio de la barbería. Servicios: ${barbershop.services.map((s) => s.name).join(', ')}.`,
         };
       }
     }
@@ -94,7 +98,11 @@ export const registerDemoRequestTool: ToolHandler<DemoArgs> = {
     if (args.notes) request.notes = args.notes;
     return {
       ok: true,
-      effect: { kind: 'register_demo_request', request },
+      effect: {
+        kind: 'register_demo_request',
+        scenario: 'barbershop',
+        request,
+      },
       output: {
         registered: request,
         fictitious: true,

@@ -67,7 +67,6 @@ async function main(): Promise<void> {
           profile,
           defaultModel: env.OPENAI_MODEL ?? '',
           maxOutputTokens: env.OPENAI_MAX_OUTPUT_TOKENS,
-          barbershop: content.barbershop,
           messages,
           known,
         });

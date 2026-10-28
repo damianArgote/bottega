@@ -1,6 +1,8 @@
 import { ConversationMode } from '../generated/prisma/client.js';
 import { CommandId } from './commands.js';
-import { renderReply } from './replies.js';
+import { DEMO_SCENARIO_BUTTONS } from './reply-buttons.js';
+import { renderReply, replyButtons } from './replies.js';
+import { matchCommand } from './commands.js';
 import { planTransition, type TransitionPlan } from './transitions.js';
 
 const { COMMERCIAL, DEMO } = ConversationMode;
@@ -10,7 +12,23 @@ describe('planTransition', () => {
     [
       COMMERCIAL,
       CommandId.ENTER_DEMO,
-      { effect: { kind: 'switch_mode', to: DEMO }, reply: 'ENTER_DEMO' },
+      { effect: { kind: 'none' }, reply: 'CHOOSE_DEMO' },
+    ],
+    [
+      COMMERCIAL,
+      CommandId.START_INSURANCE_DEMO,
+      {
+        effect: { kind: 'start_demo', scenario: 'insurance' },
+        reply: 'ENTER_DEMO',
+      },
+    ],
+    [
+      DEMO,
+      CommandId.START_BARBERSHOP_DEMO,
+      {
+        effect: { kind: 'start_demo', scenario: 'barbershop' },
+        reply: 'ENTER_DEMO',
+      },
     ],
     [
       DEMO,
@@ -55,15 +73,16 @@ describe('planTransition', () => {
 describe('planTransition without the demo (demoEnabled false)', () => {
   const state = { mode: COMMERCIAL, demoEnabled: false };
 
-  it.each([CommandId.ENTER_DEMO, CommandId.EXIT_DEMO])(
-    '%s answers that there is no demo and changes nothing',
-    (command) => {
-      expect(planTransition(state, command)).toEqual({
-        effect: { kind: 'none' },
-        reply: 'DEMO_UNAVAILABLE',
-      });
-    },
-  );
+  it.each([
+    CommandId.ENTER_DEMO,
+    CommandId.START_INSURANCE_DEMO,
+    CommandId.EXIT_DEMO,
+  ])('%s answers that there is no demo and changes nothing', (command) => {
+    expect(planTransition(state, command)).toEqual({
+      effect: { kind: 'none' },
+      reply: 'DEMO_UNAVAILABLE',
+    });
+  });
 
   it('still lets a conversation already in the demo leave it', () => {
     expect(
@@ -123,5 +142,45 @@ describe('renderReply', () => {
     expect(text).toContain('tocá el botón');
     expect(text).not.toContain('"salir"');
     expect(text).toContain('Barbería X');
+  });
+});
+
+describe('demo picker', () => {
+  it('CHOOSE_DEMO offers one button per scenario, each a start command', () => {
+    const buttons = replyButtons('CHOOSE_DEMO');
+
+    expect(buttons).toEqual([
+      DEMO_SCENARIO_BUTTONS.insurance,
+      DEMO_SCENARIO_BUTTONS.barbershop,
+    ]);
+    expect(buttons.map((b) => matchCommand(b.title))).toEqual([
+      CommandId.START_INSURANCE_DEMO,
+      CommandId.START_BARBERSHOP_DEMO,
+    ]);
+  });
+
+  it('the insurance demo says quotes are simulated and asks what they want', () => {
+    const text = renderReply('ENTER_DEMO', {
+      demoBusinessName: 'VAL-RAM Seguros',
+      demoScenario: 'insurance',
+      botName: 'Lola',
+    });
+
+    expect(text).toContain('VAL-RAM Seguros');
+    expect(text).toContain('cotizaciones son simulados');
+    expect(text).toContain('no se emiten pólizas ni se cobran pagos');
+    expect(text).toContain(
+      '¿Querés asegurar un auto o comparar lo que estás pagando?',
+    );
+    expect(text).not.toContain('barbería');
+  });
+
+  it('RESET_DEMO names the demo business it stays in', () => {
+    expect(
+      renderReply('RESET_DEMO', {
+        demoBusinessName: 'VAL-RAM Seguros',
+        botName: 'Lola',
+      }),
+    ).toContain('VAL-RAM Seguros');
   });
 });

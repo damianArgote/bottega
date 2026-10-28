@@ -307,6 +307,8 @@ model ConversationContext {
   id             String            @id @default(uuid()) @db.Uuid
   conversationId String            @map("conversation_id") @db.Uuid
   mode           ConversationMode
+  /// Fictitious business of a DEMO context ("insurance", "barbershop"); null in COMMERCIAL (and in DEMO contexts older than the scenarios: barbershop).
+  demoScenario   String?           @map("demo_scenario")
   startedAt      DateTime          @default(now()) @map("started_at")
   endedAt        DateTime?         @map("ended_at")
   endReason      ContextEndReason? @map("end_reason")
@@ -383,6 +385,8 @@ model DemoRequest {
   preferredDate  String?  @map("preferred_date")
   preferredTime  String?  @map("preferred_time")
   notes          String?
+  /// Scenario-specific data (e.g. the insurance quote: vehicle, zone, plan, price).
+  details        Json?
   isFictitious   Boolean  @default(true) @map("is_fictitious")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")

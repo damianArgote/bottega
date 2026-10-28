@@ -3,11 +3,17 @@ import type { ReplyKey } from './replies.js';
 
 /** Tools the model may call (see tools/registry.ts). */
 export type ToolName =
-  'save_lead' | 'register_demo_request' | 'request_handoff' | 'offer_options';
+  | 'save_lead'
+  | 'register_demo_request'
+  | 'quote_insurance'
+  | 'request_handoff'
+  | 'offer_options';
 
-/** Which editable content (see ContentService) feeds the mode's prompt. */
-export type KnowledgeRef =
-  { kind: 'commercial-info' } | { kind: 'demo'; scenario: 'barbershop' };
+/**
+ * Which editable content (see ContentService) feeds the mode's prompt. The
+ * demo's scenario is the active context's (ConversationContext.demoScenario).
+ */
+export type KnowledgeRef = { kind: 'commercial-info' } | { kind: 'demo' };
 
 /** Per-mode behavior, as data. Prompts are built in prompts.ts. */
 export interface ModeProfile {
@@ -32,7 +38,12 @@ export const MODE_PROFILES: Readonly<Record<ConversationMode, ModeProfile>> = {
     mode: ConversationMode.DEMO,
     enterReply: 'ENTER_DEMO',
     resetReply: 'RESET_DEMO',
-    allowedTools: ['register_demo_request', 'request_handoff', 'offer_options'],
-    knowledge: { kind: 'demo', scenario: 'barbershop' },
+    allowedTools: [
+      'register_demo_request',
+      'quote_insurance',
+      'request_handoff',
+      'offer_options',
+    ],
+    knowledge: { kind: 'demo' },
   },
 };

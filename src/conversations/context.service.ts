@@ -11,6 +11,7 @@ import {
   type Prisma,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { DemoScenario } from '../demos/demo-scenarios.js';
 
 export type Tx = Prisma.TransactionClient;
 
@@ -65,11 +66,15 @@ export class ContextService {
     return row;
   }
 
-  /** Closes the active context and opens a fresh one of mode `to`. */
+  /**
+   * Closes the active context and opens a fresh one of mode `to` (a DEMO
+   * context carries the demo's scenario).
+   */
   switchMode(
     conversationId: string,
     to: ConversationMode,
     tx?: Tx,
+    demoScenario: DemoScenario | null = null,
   ): Promise<string> {
     return this.inTx(tx, async (t) => {
       await this.lock(t, conversationId);
@@ -78,19 +83,30 @@ export class ContextService {
         conversationId,
         to,
         ContextEndReason.MODE_SWITCH,
+        to === ConversationMode.DEMO ? demoScenario : null,
       );
     });
   }
 
-  /** Closes the active context and opens a new one of the same mode. */
+  /**
+   * Closes the active context and opens a new one of the same mode (and the
+   * same demo scenario).
+   */
   resetContext(conversationId: string, tx?: Tx): Promise<string> {
     return this.inTx(tx, async (t) => {
-      const { mode } = await this.lock(t, conversationId);
+      const { mode, activeContextId } = await this.lock(t, conversationId);
+      const active = activeContextId
+        ? await t.conversationContext.findUnique({
+            where: { id: activeContextId },
+            select: { demoScenario: true },
+          })
+        : null;
       return this.replaceContext(
         t,
         conversationId,
         mode,
         ContextEndReason.RESET,
+        active?.demoScenario ?? null,
       );
     });
   }
@@ -194,13 +210,14 @@ export class ContextService {
     conversationId: string,
     mode: ConversationMode,
     endReason: ContextEndReason,
+    demoScenario: string | null = null,
   ): Promise<string> {
     await tx.conversationContext.updateMany({
       where: { conversationId, endedAt: null },
       data: { endedAt: new Date(), endReason },
     });
     const context = await tx.conversationContext.create({
-      data: { conversationId, mode },
+      data: { conversationId, mode, demoScenario },
     });
     await tx.conversation.update({
       where: { id: conversationId },

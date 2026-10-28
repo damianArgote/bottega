@@ -12,6 +12,8 @@ describe('matchCommand', () => {
     // The titles of the reply buttons (reply-buttons.ts).
     ['🧪 Probar la demo', CommandId.ENTER_DEMO],
     ['👋 Salir de la demo', CommandId.EXIT_DEMO],
+    ['🚗 Seguro de auto', CommandId.START_INSURANCE_DEMO],
+    ['💈 Barbería', CommandId.START_BARBERSHOP_DEMO],
     ['Reiniciar', CommandId.RESET],
     ['reinicíar', CommandId.RESET],
     ['HUMANO?', CommandId.REQUEST_HUMAN],
@@ -32,6 +34,7 @@ describe('matchCommand', () => {
     'humanos',
     'hablar con persona',
     'salir, de la demo',
+    'quiero un seguro de auto',
     '',
     '   ',
     '🚀',

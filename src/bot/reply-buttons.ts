@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DemoScenario } from '../demos/demo-scenarios.js';
 import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 
 /** WhatsApp's limit for a reply button title. */
@@ -17,6 +18,14 @@ export const DEMO_BUTTON: ReplyButton = {
 export const EXIT_DEMO_BUTTON: ReplyButton = {
   id: 'salir',
   title: '👋 Salir de la demo',
+};
+
+/** The demo picker: one button per scenario, in DEMO_SCENARIOS order. */
+export const DEMO_SCENARIO_BUTTONS: Readonly<
+  Record<DemoScenario, ReplyButton>
+> = {
+  insurance: { id: 'demo_seguro', title: '🚗 Seguro de auto' },
+  barbershop: { id: 'demo_barberia', title: '💈 Barbería' },
 };
 
 const storedSchema = z

@@ -8,12 +8,10 @@ import type { AgentProfileInput } from '../../src/agents/agent-profile.schema.js
 import { AgentsService } from '../../src/agents/agents.service.js';
 import { AgentPreviewService } from '../../src/bot/agent-preview.service.js';
 import { renderReply } from '../../src/bot/replies.js';
-import { ContentService } from '../../src/content/content.service.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import { connectPrisma, createLine, resetDb, testConfig } from './helpers.js';
 
 const MODEL = 'env-model';
-const content = new ContentService();
 
 const profile: AgentProfileInput = {
   enabled: false,
@@ -63,7 +61,6 @@ describe('Admin agent profile and preview (integration)', () => {
       prisma,
       { respond },
       testConfig({ OPENAI_MODEL: MODEL }),
-      content,
     );
   });
 
@@ -239,7 +236,7 @@ describe('Admin agent profile and preview (integration)', () => {
 
       expect(result.reply).toBe(
         renderReply('HUMAN_REQUESTED', {
-          demoBusinessName: content.getBarbershop().name,
+          demoBusinessName: '',
           botName: profile.botName,
         }),
       );

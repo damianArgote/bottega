@@ -12,7 +12,6 @@ import {
 } from '../ai/ai.provider.js';
 import { loadBusinessAgentProfile } from '../agents/agent-profile.js';
 import { AppConfigService } from '../config/app-config.service.js';
-import { ContentService } from '../content/content.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   runCommercialTurn,
@@ -50,7 +49,6 @@ export class AgentPreviewService {
     private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
     private readonly config: AppConfigService,
-    private readonly content: ContentService,
   ) {}
 
   async run(
@@ -71,7 +69,6 @@ export class AgentPreviewService {
         profile,
         defaultModel: this.config.get('OPENAI_MODEL') ?? '',
         maxOutputTokens: this.config.get('OPENAI_MAX_OUTPUT_TOKENS'),
-        barbershop: this.content.getBarbershop(),
         messages,
         onCall: (response, latencyMs) =>
           this.logger.log(

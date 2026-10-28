@@ -17,7 +17,14 @@ import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from './ai-replies.js';
-import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
+import {
+  demoRequestReplies,
+  finalReply,
+  offeredButtons,
+  runAgentTurn,
+} from './agent-turn.js';
+import type { DemoContent } from '../content/content.schema.js';
+import { demoScenarioOf } from '../demos/demo-scenarios.js';
 import { EXIT_DEMO_BUTTON } from './reply-buttons.js';
 import { UNSUPPORTED_REPLY } from './echo-replies.js';
 import { historyContextIds, historyWhere, toHistoryItems } from './history.js';
@@ -118,22 +125,27 @@ export class AiReplyGenerator implements ReplyGenerator {
       ...(await this.history(input)),
       { kind: 'message', role: 'user', content: input.message.content },
     ];
+    const demo = await this.demoOf(input);
     const toolOptions = {
       demoEnabled: profile.demoEnabled,
       leadFields: profile.leadFields,
+      ...(demo ? { demo } : {}),
     };
     const request = {
       model: turn.model,
-      instructions: await this.instructions(input, profile),
+      instructions: await this.instructions(input, profile, demo),
       tools: toolDefinitionsFor(input.mode, toolOptions),
       maxOutputTokens: config.get('OPENAI_MAX_OUTPUT_TOKENS'),
     };
-    const barbershop = this.deps.content.getBarbershop();
+    const names = {
+      demoBusinessName: demo?.name ?? '',
+      botName: profile.botName,
+    };
     const outcome = await runAgentTurn(
       {
         request,
         input: items,
-        tools: { mode: input.mode, barbershop, ...toolOptions },
+        tools: { mode: input.mode, ...toolOptions },
       },
       (r) => this.call(turn, r),
       (rejected) => {
@@ -152,13 +164,14 @@ export class AiReplyGenerator implements ReplyGenerator {
         );
         return fallback();
       case 'handoff':
-        // The handoff transition supplies the fixed confirmation reply.
-        return { replies: [], effects: outcome.effects };
+        // The handoff transition supplies the fixed confirmation reply,
+        // after the demo request's summary (the insurance demo's close).
+        return {
+          replies: demoRequestReplies(outcome.effects, names),
+          effects: outcome.effects,
+        };
       case 'text': {
-        const reply = finalReply(outcome.text, outcome.effects, {
-          demoBusinessName: barbershop.name,
-          botName: profile.botName,
-        });
+        const reply = finalReply(outcome.text, outcome.effects, names);
         if (!reply) {
           return fallback();
         }
@@ -276,14 +289,29 @@ export class AiReplyGenerator implements ReplyGenerator {
     return response;
   }
 
+  /** The fictitious business of the active DEMO context. */
+  private async demoOf(input: ReplyInput): Promise<DemoContent | undefined> {
+    if (input.mode !== ConversationMode.DEMO) {
+      return undefined;
+    }
+    const context = await this.deps.prisma.conversationContext.findUnique({
+      where: { id: input.contextId },
+      select: { demoScenario: true },
+    });
+    return this.deps.content.getDemo(
+      demoScenarioOf(context?.demoScenario ?? null),
+    );
+  }
+
   private async instructions(
     input: ReplyInput,
     profile: AgentProfile,
+    demo: DemoContent | undefined,
   ): Promise<string> {
-    const { content, prisma } = this.deps;
-    if (input.mode === ConversationMode.DEMO) {
+    const { prisma } = this.deps;
+    if (demo) {
       // Isolation: no lead data and no business info in the demo prompt.
-      return buildDemoInstructions(content.getBarbershop());
+      return buildDemoInstructions(demo);
     }
     const lead = await prisma.lead.findUnique({
       where: { conversationId: input.conversationId },
