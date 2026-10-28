@@ -31,8 +31,11 @@ import {
   idempotencyKeySchema,
   isEmptyBody,
   leadsQuerySchema,
+  lineCredentialsBodySchema,
+  lineIdSchema,
   messagesQuerySchema,
   parseOrBadRequest,
+  registerNumberBodySchema,
   resumeBodySchema,
   waIdSchema,
 } from './admin.schemas.js';
@@ -42,6 +45,7 @@ import {
 } from '../inbox/human-replies.service.js';
 import { AdminService } from './admin.service.js';
 import { BusinessesService } from './businesses.service.js';
+import { LineOnboardingService } from '../onboarding/line-onboarding.service.js';
 
 /** Team operations. Every route requires the admin API key. */
 @Controller('admin')
@@ -53,6 +57,7 @@ export class AdminController {
     private readonly agents: AgentsService,
     private readonly preview: AgentPreviewService,
     private readonly users: UsersService,
+    private readonly onboarding: LineOnboardingService,
   ) {}
 
   /** Adds an operator to the business (creates the user if new). */
@@ -116,6 +121,58 @@ export class AdminController {
     return this.businesses.createLine(
       businessId,
       parseOrBadRequest(createLineBodySchema, body, 'body'),
+    );
+  }
+
+  /** Stores the line's Meta credentials after checking them with Meta. */
+  @Put('lines/:lineId/credentials')
+  setLineCredentials(@Param('lineId') lineId: string, @Body() body: unknown) {
+    return this.onboarding.setCredentials(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+      parseOrBadRequest(lineCredentialsBodySchema, body ?? {}, 'body'),
+    );
+  }
+
+  /** What is missing to finish onboarding the line (Meta cached 60 s). */
+  @Get('lines/:lineId/status')
+  lineStatus(@Param('lineId') lineId: string) {
+    return this.onboarding.status(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+    );
+  }
+
+  /** The numbers of the line's WhatsApp account. */
+  @Get('lines/:lineId/phone-numbers')
+  linePhoneNumbers(@Param('lineId') lineId: string) {
+    return this.onboarding.phoneNumbers(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+    );
+  }
+
+  /** `{ phoneNumberId, pin }`: registers the number; the PIN is not stored. */
+  @Post('lines/:lineId/register')
+  @HttpCode(HttpStatus.OK)
+  registerLineNumber(@Param('lineId') lineId: string, @Body() body: unknown) {
+    return this.onboarding.register(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+      parseOrBadRequest(registerNumberBodySchema, body ?? {}, 'body'),
+    );
+  }
+
+  @Post('lines/:lineId/subscribe')
+  @HttpCode(HttpStatus.OK)
+  subscribeLineApp(@Param('lineId') lineId: string) {
+    return this.onboarding.subscribe(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+    );
+  }
+
+  /** The team confirms the line's Meta app is in Live mode. */
+  @Post('lines/:lineId/app-published')
+  @HttpCode(HttpStatus.OK)
+  markLineAppPublished(@Param('lineId') lineId: string) {
+    return this.onboarding.markAppPublished(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
     );
   }
 

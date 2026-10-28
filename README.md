@@ -756,6 +756,59 @@ rechaza toda entrega (`POST`, `401`: no tiene App Secret para validar la firma),
 no envía mensajes y no aparece en `GET /inbox/.../lines`. Un body con algunos
 campos pero no todos da `400`.
 
+Después se cargan las credenciales de la app de Meta. Antes de guardarlas,
+Bottega comprueba con Meta que el token ve esa cuenta de WhatsApp
+(`GET /{wabaId}`) y que el App Secret es de esa app:
+
+```bash
+curl -X PUT "$API/admin/lines/<lineId>/credentials" -H "X-Admin-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"wabaId":"...","appId":"...","appSecret":"...","accessToken":"..."}'
+# → 200 {"line":{...},"wabaName":"..."}
+```
+
+Si Meta los rechaza, no se guarda nada y la respuesta es `400` con el motivo en
+castellano (`message`) y el código de Meta (`metaCode`); si Meta no responde,
+`502`. Un dueño (`OWNER`) puede cargar las de su propio negocio desde la
+bandeja (`PUT /inbox/businesses/:businessId/settings/whatsapp/lines/:lineId/credentials`,
+mismas validaciones), para cuando el negocio arma la app sin darle acceso al
+equipo.
+
+Con las credenciales cargadas, el resto del alta se hace con el token
+guardado (nunca pasa por el navegador):
+
+| Ruta (`/admin/lines/:lineId/...`) | Qué hace |
+| --------------------------------- | -------- |
+| `GET phone-numbers` | Los números de la cuenta de WhatsApp, con su `id` y su estado, para elegir cuál registrar. |
+| `POST register` `{"phoneNumberId","pin"}` | Registra el número con el PIN de 6 dígitos y lo asocia a la línea. El número tiene que ser de esa cuenta (si no, `400`); otro número en la misma línea o un número que ya tiene otra línea dan `409`. **El PIN no se guarda ni se loguea.** |
+| `POST subscribe` | Suscribe la app a la cuenta de WhatsApp y devuelve las apps suscriptas; `otherApps: true` avisa que hay otra app (dos bots responderían). |
+| `POST app-published` | El equipo confirma que la app de Meta está en modo **Live** (en modo desarrollo Meta no manda algunos webhooks). Guarda la primera fecha (`appPublishedAt`). |
+
+Sin credenciales, `phone-numbers`, `register` y `subscribe` dan `409`. Los
+errores de Meta vuelven como `400` (o `502` si Meta no responde) con el motivo
+en castellano.
+
+#### Estado de la conexión
+
+`GET /admin/lines/:lineId/status` (equipo) y
+`GET /inbox/businesses/:businessId/settings/whatsapp` (dueño, `OWNER`: todas
+las líneas de su negocio, borradores incluidos) dicen qué falta:
+
+| Campo | Qué es |
+| ----- | ------ |
+| `step` | `draft` (sin credenciales), `credentials` (sin número) o `registered`. |
+| `number` | Lo que dice Meta del número: `verifiedName`, `nameStatus` (aprobación del nombre visible), `codeVerificationStatus`, `qualityRating`. |
+| `appSubscribed` / `otherApps` | Si la app está suscripta y si hay otra app en la misma cuenta. `null` si no se pudo preguntar. |
+| `appPublishedAt` | Cuándo el equipo confirmó que la app está en Live. |
+| `lastInboundAt` | El último mensaje que llegó a la línea. |
+| `metaError` | El motivo en castellano si Meta no respondió bien; el resto del estado se muestra igual. |
+| `pending` | Lo que falta, en orden: `credentials`, `number`, `subscription`, `app_published`, `first_message`. |
+
+Lo que se le pregunta a Meta se reutiliza 60 segundos por línea (para no
+gastar el límite de Meta con el polling de la web) y se vuelve a pedir después
+de cargar credenciales, registrar o suscribir. Nunca incluye el token, el App
+Secret, el verify token ni la clave del webhook.
+
 ---
 
 ## Editar contenido

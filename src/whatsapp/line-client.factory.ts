@@ -49,7 +49,9 @@ export class LineWhatsAppClientFactory implements WhatsAppClientFactory {
       return unavailableClient('line has no access token');
     }
     if (!line.phoneNumberId) {
-      this.logger.warn(`Line ${lineId} has no phone number yet: sends rejected`);
+      this.logger.warn(
+        `Line ${lineId} has no phone number yet: sends rejected`,
+      );
       return unavailableClient('line has no phone number');
     }
     const phoneNumberId = line.phoneNumberId;

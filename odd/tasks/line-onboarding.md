@@ -19,9 +19,9 @@ Source: `docs/prompts/08-alta-de-clientes.md`, section 08a (PR #62), quoted verb
 ## Tasks
 
 - T1 S1, S2: migration (nullable phone_number_id, app_published_at), draft create, null-safe routing/sending, inbox `/lines` hides drafts. Route: inline. Status: done (e2e RED observed on the old controller; int runs in CI, no local Postgres).
-- T2 S3, S6: Graph onboarding client, Meta error texts, credentials endpoints (admin + inbox). Route: inline. Status: pending.
-- T3 S4, S5: phone-numbers, register, subscribe, app-published. Route: inline. Status: pending.
-- T4 S7: status endpoints with 60 s cache. Route: inline. Status: pending.
+- T2 S3, S6: Graph onboarding client, Meta error texts, credentials endpoints (admin + inbox). Route: inline. Status: done (unit RED observed for the error texts; routes were new, int green locally on embedded Postgres).
+- T3 S4, S5: phone-numbers, register, subscribe, app-published. Route: inline. Status: done (routes were new; int green locally on embedded Postgres).
+- T4 S7: status endpoints with 60 s cache. Route: inline. Status: done (unit RED observed for the pending-step rules; int green locally).
 
 Route evidence: one behavior chain sharing the same service and files; no Writer trigger (no parallel independent units), so inline.
 
@@ -29,3 +29,5 @@ Route evidence: one behavior chain sharing the same service and files; no Writer
 
 - L1 (2026-10-28) user: "arrancá con el 08a"
 - L2 (2026-10-28) implementation decisions: the step is derived (draft = no token, credentials = token without number, registered = number) instead of an `onboardingStatus` column; "live" is derived from the last WebhookEvent, so no write on the webhook hot path. A draft POST keeps the guard's existing 401. The App Secret is also validated (`GET /{appId}` with the app token) because a wrong secret makes every webhook 401 silently.
+- L3 (2026-10-28) T4: "last WebhookEvent" is reported as `lastInboundAt` (max `conversation.last_inbound_at` of the line): webhook_event has no line index and statuses are not "a message received". Failed Meta lookups are not cached. Local int runs use an embedded Postgres in the session scratchpad (no Docker in WSL).
+- L4 (2026-10-28) independent verifier: no blockers, S1-S8 met. Fixed two advisories: a status lookup racing with a credentials change could cache stale Meta data (generation counter; RED observed by disabling it), and a line that already has a number (seeded default line, no WABA stored) accepted credentials of any WABA (now the number must be in that WABA). Other advisories accepted: 401 vs 403 (L2), no Spanish "Falta publicar la app" text in the API (08b renders `pending`), no LIVE column (L2).
