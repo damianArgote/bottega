@@ -774,6 +774,20 @@ bandeja (`PUT /inbox/businesses/:businessId/settings/whatsapp/lines/:lineId/cred
 mismas validaciones), para cuando el negocio arma la app sin darle acceso al
 equipo.
 
+Con las credenciales cargadas, el resto del alta se hace con el token
+guardado (nunca pasa por el navegador):
+
+| Ruta (`/admin/lines/:lineId/...`) | Qué hace |
+| --------------------------------- | -------- |
+| `GET phone-numbers` | Los números de la cuenta de WhatsApp, con su `id` y su estado, para elegir cuál registrar. |
+| `POST register` `{"phoneNumberId","pin"}` | Registra el número con el PIN de 6 dígitos y lo asocia a la línea. El número tiene que ser de esa cuenta (si no, `400`); otro número en la misma línea o un número que ya tiene otra línea dan `409`. **El PIN no se guarda ni se loguea.** |
+| `POST subscribe` | Suscribe la app a la cuenta de WhatsApp y devuelve las apps suscriptas; `otherApps: true` avisa que hay otra app (dos bots responderían). |
+| `POST app-published` | El equipo confirma que la app de Meta está en modo **Live** (en modo desarrollo Meta no manda algunos webhooks). Guarda la primera fecha (`appPublishedAt`). |
+
+Sin credenciales, `phone-numbers`, `register` y `subscribe` dan `409`. Los
+errores de Meta vuelven como `400` (o `502` si Meta no responde) con el motivo
+en castellano.
+
 ---
 
 ## Editar contenido
