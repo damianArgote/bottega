@@ -166,8 +166,13 @@ describe('Deterministic commands and contexts (integration)', () => {
     const first = await conversation();
     expect(lastSent()).toBe(renderReply('NOT_IN_DEMO', vars));
 
+    // "demo" only shows the picker: no context change yet.
+    await say('demo');
+    expect(lastSent()).toBe(renderReply('CHOOSE_DEMO', vars));
+    expect((await conversation()).mode).toBe('COMMERCIAL');
+
     await say('Barbería');
-    await say('Barbería');
+    await say('demo');
     expect(lastSent()).toBe(renderReply('ALREADY_IN_DEMO', vars));
     const after = await conversation();
     expect(after.contexts).toHaveLength(2);
