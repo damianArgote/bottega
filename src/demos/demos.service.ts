@@ -6,12 +6,16 @@ import {
   type Prisma,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { BarbershopDemo } from '../content/content.schema.js';
 import { ContentService } from '../content/content.service.js';
+import { type DemoScenario, demoScenarioOf } from './demo-scenarios.js';
 
 const field = z.string().trim().min(1).max(200).optional();
 
-/** Fictitious booking data collected in the demo. Unknown keys rejected. */
+/**
+ * Fictitious request collected in a demo (a booking, or the quote the user
+ * chose in the insurance demo, whose data goes in `details`). Unknown keys
+ * rejected.
+ */
 export const demoRequestInputSchema = z
   .object({
     customerName: field,
@@ -19,6 +23,12 @@ export const demoRequestInputSchema = z
     preferredDate: field,
     preferredTime: field,
     notes: z.string().trim().min(1).max(500).optional(),
+    details: z
+      .record(
+        z.string().max(50),
+        z.union([z.string().max(200), z.number(), z.boolean()]),
+      )
+      .optional(),
   })
   .strict();
 
@@ -39,19 +49,16 @@ export class DemosService {
     private readonly content: ContentService,
   ) {}
 
-  getBarbershop(): BarbershopDemo {
-    return this.content.getBarbershop();
-  }
-
   /**
-   * Stores a fictitious booking (isFictitious=true) for the barbershop demo.
+   * Stores a fictitious request (isFictitious=true) of a demo scenario.
    * Validates the input (ZodError) and that `contextId` is a DEMO context of
-   * the conversation (DemoContextError), so demo data never lands in a
-   * commercial context.
+   * the conversation running that scenario (DemoContextError), so demo data
+   * never lands in a commercial context or another demo.
    */
   async registerDemoRequest(
     conversationId: string,
     contextId: string,
+    scenario: DemoScenario,
     data: DemoRequestInput,
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<DemoRequest> {
@@ -61,7 +68,8 @@ export class DemosService {
     });
     if (
       context?.conversationId !== conversationId ||
-      context.mode !== ConversationMode.DEMO
+      context.mode !== ConversationMode.DEMO ||
+      demoScenarioOf(context.demoScenario) !== scenario
     ) {
       throw new DemoContextError();
     }
@@ -69,7 +77,7 @@ export class DemosService {
       data: {
         conversationId,
         contextId,
-        scenario: this.content.getBarbershop().scenario,
+        scenario,
         isFictitious: true,
         ...input,
       },

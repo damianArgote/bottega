@@ -12,7 +12,7 @@ import {
 } from './registry.js';
 import type { PlannedEffect, ToolContext } from './tool.js';
 
-const barbershop = loadContent(DEFAULT_CONTENT_DIR).barbershop;
+const { aesthetics, insurance } = loadContent(DEFAULT_CONTENT_DIR);
 
 const ctx = (
   mode: ToolContext['mode'],
@@ -20,7 +20,7 @@ const ctx = (
   demoEnabled = true,
 ): ToolContext => ({
   mode,
-  barbershop,
+  ...(mode === 'DEMO' ? { demo: insurance } : {}),
   planned,
   demoEnabled,
   leadFields: DEFAULT_LEAD_FIELDS,
@@ -35,6 +35,7 @@ const options: ToolOptions = {
 const TOOL_NAMES: ToolName[] = [
   'save_lead',
   'register_demo_request',
+  'quote_insurance',
   'request_handoff',
 ];
 
@@ -53,12 +54,18 @@ const lead = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/** The insurance demo's close (see insurance-tools.spec.ts). */
 const booking = (overrides: Record<string, unknown> = {}) => ({
   customerName: 'Juan',
-  service: 'corte de pelo',
-  preferredDate: 'sábado',
-  preferredTime: '11:00',
-  notes: null,
+  model: 'Gol Trend',
+  version: 'Trendline',
+  year: 2018,
+  location: 'Caballito',
+  zone: 'CABA',
+  gnc: false,
+  priority: null,
+  plan: 'Terceros Completo',
+  contactPreference: null,
   ...overrides,
 });
 
@@ -81,8 +88,9 @@ describe('tool registry', () => {
       };
       expect(schema.additionalProperties).toBe(false);
       expect(schema.required).toEqual(Object.keys(schema.properties));
+      // Strict mode: every argument is required, so all are nullable.
       for (const prop of Object.values(schema.properties)) {
-        expect(prop.type).toEqual(['string', 'null']);
+        expect(prop.type).toContain('null');
       }
       // All-null arguments parse (every key accepted), extra keys do not.
       const nulls = Object.fromEntries(schema.required.map((k) => [k, null]));
@@ -95,16 +103,40 @@ describe('tool registry', () => {
 
   it('offers each mode exactly its allowed tools, consistent with allowedModes', () => {
     for (const profile of Object.values(MODE_PROFILES)) {
-      const names = toolDefinitionsFor(profile.mode, options).map(
+      const withDemo = { ...options, demo: insurance };
+      const names = toolDefinitionsFor(profile.mode, withDemo).map(
         (t) => t.name,
       );
       expect(names).toEqual(profile.allowedTools);
       for (const name of names) {
         expect(
-          toolHandlerFor(name as ToolName, options).allowedModes,
+          toolHandlerFor(name as ToolName, withDemo).allowedModes,
         ).toContain(profile.mode);
       }
     }
+  });
+
+  it('offers the quote and its close only in the insurance demo', () => {
+    const names = (demo?: ToolOptions['demo']) =>
+      toolDefinitionsFor('DEMO', { ...options, ...(demo ? { demo } : {}) }).map(
+        (t) => t.name,
+      );
+
+    expect(names(insurance)).toContain('quote_insurance');
+    expect(names(aesthetics)).not.toContain('quote_insurance');
+    expect(names(aesthetics)).not.toContain('register_demo_request');
+    expect(names(aesthetics)).toEqual(['request_handoff', 'offer_options']);
+    expect(
+      planToolCall(
+        call('quote_insurance', {
+          model: 'Gol Trend',
+          year: 2018,
+          zone: 'CABA',
+          gnc: false,
+        }),
+        { ...ctx('DEMO'), demo: aesthetics },
+      ),
+    ).toMatchObject({ ok: false, reason: 'tool_not_allowed' });
   });
 
   it('rejects unknown tools, invalid JSON and tools outside the mode', () => {
@@ -197,48 +229,17 @@ describe('tool registry', () => {
   });
 
   describe('register_demo_request', () => {
-    it('plans a request with the canonical service name', () => {
-      const result = planToolCall(
-        call('register_demo_request', booking({ service: 'CORTE + BARBA' })),
-        ctx('DEMO'),
-      );
-      expect(result).toMatchObject({
-        ok: true,
-        effect: {
-          kind: 'register_demo_request',
-          request: {
-            customerName: 'Juan',
-            service: 'Corte + barba',
-            preferredDate: 'sábado',
-            preferredTime: '11:00',
-          },
-        },
-      });
-      expect(JSON.parse(result.output)).toMatchObject({
-        ok: true,
-        fictitious: true,
-      });
-    });
-
-    it('rejects unknown services, missing booking fields and duplicates', () => {
-      expectRejected(
-        planToolCall(
-          call('register_demo_request', booking({ service: 'Tintura' })),
-          ctx('DEMO'),
-        ),
-        'plan_rejected',
-      );
-      expectRejected(
-        planToolCall(
-          call('register_demo_request', booking({ preferredTime: null })),
-          ctx('DEMO'),
-        ),
-        'plan_rejected',
-      );
+    it('rejects a second request in the same message', () => {
       expectRejected(
         planToolCall(
           call('register_demo_request', booking()),
-          ctx('DEMO', [{ kind: 'register_demo_request', request: {} }]),
+          ctx('DEMO', [
+            {
+              kind: 'register_demo_request',
+              scenario: 'insurance',
+              request: {},
+            },
+          ]),
         ),
         'plan_rejected',
       );
@@ -343,9 +344,11 @@ describe('tool registry', () => {
   describe('without the demo (demoEnabled false)', () => {
     it('register_demo_request is not offered', () => {
       const names = (mode: ToolContext['mode'], demoEnabled: boolean) =>
-        toolDefinitionsFor(mode, { ...options, demoEnabled }).map(
-          (t) => t.name,
-        );
+        toolDefinitionsFor(mode, {
+          ...options,
+          demoEnabled,
+          ...(mode === 'DEMO' ? { demo: insurance } : {}),
+        }).map((t) => t.name);
 
       expect(names('DEMO', false)).not.toContain('register_demo_request');
       expect(names('DEMO', false)).toContain('request_handoff');

@@ -1,6 +1,6 @@
 import type { AiInputItem, AiRequest, AiResponse } from '../ai/ai.provider.js';
 import { AI_MAX_MODEL_ROUNDS } from '../ai/ai-limits.js';
-import { demoRequestSummary, LEAD_SAVED_ACK } from './ai-replies.js';
+import { insuranceRequestSummary, LEAD_SAVED_ACK } from './ai-replies.js';
 import { planToolCall } from './tools/registry.js';
 import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 import type { PlannedEffect, ToolContext } from './tools/tool.js';
@@ -90,11 +90,31 @@ export async function runAgentTurn(
         onRejected?.(trace);
       }
     }
-    if (effects.some((e) => e.kind === 'request_handoff')) {
+    if (effects.some(handsOff)) {
       return { kind: 'handoff', effects, calls };
     }
   }
   return { kind: 'rounds_exceeded', calls };
+}
+
+/** request_handoff, or a demo request that closes with a handoff. */
+function handsOff(effect: PlannedEffect): boolean {
+  return (
+    effect.kind === 'request_handoff' ||
+    (effect.kind === 'register_demo_request' && !!effect.handoffReason)
+  );
+}
+
+/** Backend-built confirmations of the demo requests planned this turn. */
+export function demoRequestReplies(
+  effects: readonly PlannedEffect[],
+  names: { demoBusinessName: string; botName: string },
+): string[] {
+  return effects.flatMap((effect) =>
+    effect.kind === 'register_demo_request'
+      ? [insuranceRequestSummary(effect.request, names.demoBusinessName)]
+      : [],
+  );
 }
 
 /** The buttons offer_options planned for this reply (the last call wins). */
@@ -123,17 +143,7 @@ export function finalReply(
         : chars.join(''),
     );
   }
-  for (const effect of effects) {
-    if (effect.kind === 'register_demo_request') {
-      parts.push(
-        demoRequestSummary(
-          effect.request,
-          names.demoBusinessName,
-          names.botName,
-        ),
-      );
-    }
-  }
+  parts.push(...demoRequestReplies(effects, names));
   if (parts.length === 0) {
     if (!effects.some((e) => e.kind === 'save_lead')) {
       return null;

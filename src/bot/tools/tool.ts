@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import type { BarbershopDemo } from '../../content/content.schema.js';
+import type { DemoContent } from '../../content/content.schema.js';
+import type { DemoScenario } from '../../demos/demo-scenarios.js';
 import type { DemoRequestInput } from '../../demos/demos.service.js';
+import type { Quote } from '../../demos/insurance-quote.js';
 import type { ConversationMode } from '../../generated/prisma/client.js';
 import type { LeadField } from '../../agents/agent-profile.schema.js';
 import type { LeadValues } from '../../leads/lead-values.js';
@@ -13,7 +15,15 @@ import type { ToolName } from '../mode-profiles.js';
  */
 export type PlannedEffect =
   | { kind: 'save_lead'; values: LeadValues }
-  | { kind: 'register_demo_request'; request: DemoRequestInput }
+  | {
+      kind: 'register_demo_request';
+      scenario: DemoScenario;
+      request: DemoRequestInput;
+      /** Also hands the conversation off (the insurance demo's close). */
+      handoffReason?: string;
+    }
+  /** Simulated prices (quote_insurance); nothing to apply. */
+  | { kind: 'insurance_quote'; quote: Quote }
   | { kind: 'request_handoff'; reason: string | null }
   /** Reply buttons under the reply (offer_options); nothing to apply. */
   | { kind: 'reply_buttons'; buttons: ReplyButton[] }
@@ -23,7 +33,8 @@ export type PlannedEffect =
 /** What a tool may read while planning. */
 export interface ToolContext {
   mode: ConversationMode;
-  barbershop: BarbershopDemo;
+  /** The fictitious business of the active demo (DEMO mode only). */
+  demo?: DemoContent;
   /** Effects already planned for this message (to reject duplicates). */
   planned: readonly PlannedEffect[];
   /** The business's profile offers the demo (register_demo_request). */

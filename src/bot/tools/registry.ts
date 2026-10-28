@@ -1,15 +1,18 @@
 import type { AiToolCall, AiToolDefinition } from '../../ai/ai.provider.js';
 import type { ConversationMode } from '../../generated/prisma/client.js';
 import { MODE_PROFILES, type ToolName } from '../mode-profiles.js';
-import { registerDemoRequestTool } from './register-demo-request.tool.js';
+import { registerInsuranceRequestTool } from './register-insurance-request.tool.js';
+import { quoteInsuranceTool } from './quote-insurance.tool.js';
 import { requestHandoffTool } from './request-handoff.tool.js';
 import type { LeadField } from '../../agents/agent-profile.schema.js';
+import type { DemoContent } from '../../content/content.schema.js';
 import { offerOptionsTool } from './offer-options.tool.js';
 import { saveLeadToolFor } from './save-lead.tool.js';
 import type { PlannedEffect, ToolContext, ToolHandler } from './tool.js';
 
 const STATIC_HANDLERS = {
-  register_demo_request: registerDemoRequestTool,
+  register_demo_request: registerInsuranceRequestTool,
+  quote_insurance: quoteInsuranceTool,
   request_handoff: requestHandoffTool,
   offer_options: offerOptionsTool,
 } satisfies Partial<Record<ToolName, ToolHandler>>;
@@ -17,6 +20,7 @@ const STATIC_HANDLERS = {
 const TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
   'save_lead',
   'register_demo_request',
+  'quote_insurance',
   'request_handoff',
   'offer_options',
 ]);
@@ -30,6 +34,8 @@ export function isToolName(name: string): name is ToolName {
 export interface ToolOptions {
   demoEnabled: boolean;
   leadFields: readonly LeadField[];
+  /** The fictitious business of the active demo (DEMO mode only). */
+  demo?: DemoContent;
 }
 
 /** The handler of `name` for this business (save_lead is generated). */
@@ -42,15 +48,22 @@ export function toolHandlerFor(
     : STATIC_HANDLERS[name];
 }
 
-/** Tools allowed in `mode` for this business. */
+/** Tools only the insurance demo has (the quote and its close). */
+const INSURANCE_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
+  'register_demo_request',
+  'quote_insurance',
+]);
+
+/** Tools allowed in `mode` for this business (and active demo). */
 function offeredTools(
   mode: ConversationMode,
-  { demoEnabled, leadFields }: ToolOptions,
+  { demoEnabled, leadFields, demo }: ToolOptions,
 ): readonly ToolName[] {
   return MODE_PROFILES[mode].allowedTools.filter(
     (name) =>
       (demoEnabled || name !== 'register_demo_request') &&
-      (leadFields.length > 0 || name !== 'save_lead'),
+      (leadFields.length > 0 || name !== 'save_lead') &&
+      (demo?.scenario === 'insurance' || !INSURANCE_TOOLS.has(name)),
   );
 }
 

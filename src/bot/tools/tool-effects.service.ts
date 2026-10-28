@@ -38,8 +38,7 @@ export class ToolEffectsService {
     generated: GeneratedOutcome,
   ): Promise<CommandOutcome> {
     const lead: LeadValues = {};
-    let handoff: Extract<PlannedEffect, { kind: 'request_handoff' }> | null =
-      null;
+    let handoff: { reason: string | null } | null = null;
     for (const effect of generated.effects) {
       switch (effect.kind) {
         case 'save_lead':
@@ -49,9 +48,16 @@ export class ToolEffectsService {
           await this.demos.registerDemoRequest(
             conversationId,
             generated.contextId,
+            effect.scenario,
             effect.request,
             tx,
           );
+          if (effect.handoffReason) {
+            handoff = { reason: effect.handoffReason };
+          }
+          break;
+        case 'insurance_quote':
+          // Prices for the reply only: nothing to store.
           break;
         case 'request_handoff':
           handoff = effect;
@@ -72,12 +78,22 @@ export class ToolEffectsService {
     }
 
     if (handoff) {
-      // Same transition and fixed confirmation as the "humano" command.
-      return this.commands.apply(tx, conversationId, CommandId.REQUEST_HUMAN, {
-        handoffReason: handoff.reason
-          ? `${HANDOFF_REASON_AI_TOOL}: ${handoff.reason}`
-          : HANDOFF_REASON_AI_TOOL,
-      });
+      // Same transition and fixed confirmation as the "humano" command,
+      // after the backend-built replies (the demo's request summary).
+      const outcome = await this.commands.apply(
+        tx,
+        conversationId,
+        CommandId.REQUEST_HUMAN,
+        {
+          handoffReason: handoff.reason
+            ? `${HANDOFF_REASON_AI_TOOL}: ${handoff.reason}`
+            : HANDOFF_REASON_AI_TOOL,
+        },
+      );
+      return {
+        ...outcome,
+        replies: [...generated.replies, ...outcome.replies],
+      };
     }
     return {
       contextId: generated.contextId,

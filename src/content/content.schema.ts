@@ -4,29 +4,27 @@ import { z } from 'zod';
 
 const text = z.string().trim().min(1);
 
-export const BOOKING_FIELDS = [
-  'customerName',
-  'service',
-  'preferredDate',
-  'preferredTime',
-] as const;
-
-export const barbershopDemoSchema = z
+export const aestheticsDemoSchema = z
   .object({
-    scenario: z.literal('barbershop'),
+    scenario: z.literal('aesthetics'),
     // Demo data must always be declared fictitious.
     fictitious: z.literal(true),
     name: text,
     description: text,
     address: text,
+    instagram: text,
+    /** Online booking page the receptionist sends (no live availability). */
+    bookingUrl: z.url(),
     currency: z.literal('ARS'),
     services: z
       .array(
         z
           .object({
+            category: text,
             name: text,
             priceArs: z.number().int().positive(),
             durationMinutes: z.number().int().positive(),
+            description: text,
           })
           .strict(),
       )
@@ -34,12 +32,75 @@ export const barbershopDemoSchema = z
     openingHours: z
       .array(z.object({ days: text, hours: text }).strict())
       .min(1),
-    faq: z.array(z.object({ question: text, answer: text }).strict()),
-    bookingFields: z.array(z.enum(BOOKING_FIELDS)).min(1),
+    policies: z.array(z.object({ question: text, answer: text }).strict()),
   })
   .strict();
 
-export type BarbershopDemo = z.infer<typeof barbershopDemoSchema>;
+export type AestheticsDemo = z.infer<typeof aestheticsDemoSchema>;
+
+export const VEHICLE_CATEGORIES = ['A', 'B', 'C'] as const;
+
+const priceArs = z.number().int().positive();
+
+export const insuranceDemoSchema = z
+  .object({
+    scenario: z.literal('insurance'),
+    // Demo data must always be declared fictitious.
+    fictitious: z.literal(true),
+    name: text,
+    description: text,
+    currency: z.literal('ARS'),
+    /** Oldest model year the demo quotes. */
+    minYear: z.number().int().min(1990),
+    gncSurchargePercent: z.number().int().min(0).max(100),
+    zones: z
+      .array(
+        z
+          .object({
+            name: text,
+            factorPercent: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .min(1),
+    vehicles: z
+      .array(
+        z
+          .object({
+            make: text,
+            model: text,
+            versions: z.array(text).min(1),
+            category: z.enum(VEHICLE_CATEGORIES),
+          })
+          .strict(),
+      )
+      .min(1),
+    plans: z
+      .array(
+        z
+          .object({
+            name: text,
+            summary: text,
+            coverages: z.array(text).min(1),
+            notIncluded: z.array(text),
+            deductibleArs: priceArs.nullable(),
+            conditions: z.array(text),
+            monthlyArs: z
+              .object({ A: priceArs, B: priceArs, C: priceArs })
+              .strict(),
+            maxVehicleAgeYears: z.number().int().positive().nullable(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(3),
+  })
+  .strict();
+
+export type InsuranceDemo = z.infer<typeof insuranceDemoSchema>;
+
+/** Content of one fictitious demo business, by scenario. */
+export type DemoContent = AestheticsDemo | InsuranceDemo;
 
 /** Markdown knowledge with the editing-notes HTML comments removed. */
 export const commercialInfoSchema = z
@@ -49,12 +110,14 @@ export const commercialInfoSchema = z
 
 export interface Content {
   commercialInfo: string;
-  barbershop: BarbershopDemo;
+  aesthetics: AestheticsDemo;
+  insurance: InsuranceDemo;
 }
 
 export const CONTENT_FILES = {
   commercialInfo: 'commercial-info.md',
-  barbershop: join('demos', 'barbershop.json'),
+  aesthetics: join('demos', 'aesthetics.json'),
+  insurance: join('demos', 'insurance.json'),
 } as const;
 
 export class ContentValidationError extends Error {
@@ -90,29 +153,31 @@ function read(dir: string, file: string): string {
   }
 }
 
-/** Parses the content files. Throws {@link ContentValidationError}. */
-export function parseContent(files: {
-  commercialInfo: string;
-  barbershop: string;
-}): Content {
-  let barbershopJson: unknown;
+function json(file: string, raw: string): unknown {
   try {
-    barbershopJson = JSON.parse(files.barbershop);
+    return JSON.parse(raw);
   } catch {
-    throw new ContentValidationError(CONTENT_FILES.barbershop, [
-      'is not valid JSON',
-    ]);
+    throw new ContentValidationError(file, ['is not valid JSON']);
   }
+}
+
+/** Parses the content files. Throws {@link ContentValidationError}. */
+export function parseContent(files: Record<keyof Content, string>): Content {
   return {
     commercialInfo: check(
       CONTENT_FILES.commercialInfo,
       commercialInfoSchema,
       files.commercialInfo,
     ),
-    barbershop: check(
-      CONTENT_FILES.barbershop,
-      barbershopDemoSchema,
-      barbershopJson,
+    aesthetics: check(
+      CONTENT_FILES.aesthetics,
+      aestheticsDemoSchema,
+      json(CONTENT_FILES.aesthetics, files.aesthetics),
+    ),
+    insurance: check(
+      CONTENT_FILES.insurance,
+      insuranceDemoSchema,
+      json(CONTENT_FILES.insurance, files.insurance),
     ),
   };
 }
@@ -121,6 +186,7 @@ export function parseContent(files: {
 export function loadContent(dir: string): Content {
   return parseContent({
     commercialInfo: read(dir, CONTENT_FILES.commercialInfo),
-    barbershop: read(dir, CONTENT_FILES.barbershop),
+    aesthetics: read(dir, CONTENT_FILES.aesthetics),
+    insurance: read(dir, CONTENT_FILES.insurance),
   });
 }

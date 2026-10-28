@@ -1,0 +1,70 @@
+{
+  "scenario": "insurance",
+  "fictitious": true,
+  "name": "VAL-RAM Seguros",
+  "description": "Productor de seguros de autos. En esta demo los planes, coberturas y precios son de ejemplo: sirven para mostrar cómo un asistente cotiza y deja la consulta lista para un asesor.",
+  "currency": "ARS",
+  "minYear": 2010,
+  "gncSurchargePercent": 8,
+  "zones": [
+    { "name": "CABA", "factorPercent": 115 },
+    { "name": "GBA", "factorPercent": 105 },
+    { "name": "Interior", "factorPercent": 90 }
+  ],
+  "vehicles": [
+    { "make": "Volkswagen", "model": "Gol Trend", "versions": ["Trendline", "Comfortline", "Highline"], "category": "A" },
+    { "make": "Fiat", "model": "Cronos", "versions": ["Drive 1.3", "Drive 1.3 Pack Plus", "Precision 1.8"], "category": "A" },
+    { "make": "Toyota", "model": "Etios", "versions": ["X", "XS", "XLS"], "category": "A" },
+    { "make": "Chevrolet", "model": "Onix", "versions": ["LT", "LTZ", "Premier"], "category": "B" },
+    { "make": "Peugeot", "model": "208", "versions": ["Like", "Allure", "Feline"], "category": "B" },
+    { "make": "Toyota", "model": "Corolla", "versions": ["XLI", "XEI", "SEG"], "category": "C" },
+    { "make": "Ford", "model": "Ranger", "versions": ["XL", "XLT", "Limited"], "category": "C" }
+  ],
+  "plans": [
+    {
+      "name": "Responsabilidad Civil",
+      "summary": "Lo obligatorio para circular, al menor precio.",
+      "coverages": [
+        "Responsabilidad civil hasta $ 160.000.000 por daños a terceros",
+        "Grúa hasta 100 km"
+      ],
+      "notIncluded": ["Robo", "Incendio", "Granizo", "Daños al propio auto"],
+      "deductibleArs": null,
+      "conditions": ["Sin inspección previa"],
+      "monthlyArs": { "A": 18000, "B": 22000, "C": 30000 },
+      "maxVehicleAgeYears": null
+    },
+    {
+      "name": "Terceros Completo",
+      "summary": "El equilibrio entre precio y cobertura más elegido.",
+      "coverages": [
+        "Responsabilidad civil hasta $ 160.000.000",
+        "Robo e incendio total y parcial",
+        "Destrucción total por accidente",
+        "Cristales y cerraduras",
+        "Grúa hasta 300 km"
+      ],
+      "notIncluded": ["Granizo", "Daños parciales por accidente"],
+      "deductibleArs": null,
+      "conditions": ["Inspección con fotos desde el celular"],
+      "monthlyArs": { "A": 32000, "B": 39000, "C": 52000 },
+      "maxVehicleAgeYears": 20
+    },
+    {
+      "name": "Todo Riesgo",
+      "summary": "La cobertura más completa, con franquicia.",
+      "coverages": [
+        "Todo lo de Terceros Completo",
+        "Granizo sin límite de eventos",
+        "Daños parciales por accidente, con franquicia",
+        "Auto sustituto 10 días por siniestro",
+        "Grúa sin límite de km"
+      ],
+      "notIncluded": [],
+      "deductibleArs": 400000,
+      "conditions": ["Inspección presencial", "Auto de hasta 10 años de antigüedad"],
+      "monthlyArs": { "A": 58000, "B": 70000, "C": 95000 },
+      "maxVehicleAgeYears": 10
+    }
+  ]
+}

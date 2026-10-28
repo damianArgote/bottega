@@ -1,8 +1,9 @@
 import { fileURLToPath } from 'node:url';
 import { Injectable, Logger } from '@nestjs/common';
+import type { DemoScenario } from '../demos/demo-scenarios.js';
 import {
-  type BarbershopDemo,
   type Content,
+  type DemoContent,
   loadContent,
 } from './content.schema.js';
 
@@ -32,8 +33,8 @@ export class ContentService {
     return this.content.commercialInfo;
   }
 
-  /** Fictitious barbershop used by the demo mode. */
-  getBarbershop(): BarbershopDemo {
-    return this.content.barbershop;
+  /** Fictitious business of a demo scenario. */
+  getDemo(scenario: DemoScenario): DemoContent {
+    return this.content[scenario];
   }
 }

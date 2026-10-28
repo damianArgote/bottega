@@ -4,7 +4,13 @@ import { ContentService } from '../content/content.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { DemoContextError, DemosService } from './demos.service.js';
 
-function setup(context: { conversationId: string; mode: string } | null) {
+function setup(
+  context: {
+    conversationId: string;
+    mode: string;
+    demoScenario?: string | null;
+  } | null,
+) {
   const create = vi.fn((args: { data: unknown }) =>
     Promise.resolve({ id: 'd1', ...(args.data as object) }),
   );
@@ -20,51 +26,97 @@ function setup(context: { conversationId: string; mode: string } | null) {
 }
 
 describe('DemosService.registerDemoRequest', () => {
-  it('stores a trimmed, fictitious barbershop request', async () => {
-    const { service, create } = setup({ conversationId: 'c1', mode: 'DEMO' });
+  const insuranceContext = {
+    conversationId: 'c1',
+    mode: 'DEMO',
+    demoScenario: 'insurance',
+  };
 
-    await service.registerDemoRequest('c1', 'ctx1', {
+  it('stores a trimmed, fictitious request', async () => {
+    const { service, create } = setup(insuranceContext);
+
+    await service.registerDemoRequest('c1', 'ctx1', 'insurance', {
       customerName: '  Juan ',
-      service: 'Corte de pelo',
-      preferredDate: 'sábado',
+      service: 'Terceros Completo',
     });
 
     expect(create).toHaveBeenCalledWith({
       data: {
         conversationId: 'c1',
         contextId: 'ctx1',
-        scenario: 'barbershop',
+        scenario: 'insurance',
         isFictitious: true,
         customerName: 'Juan',
-        service: 'Corte de pelo',
-        preferredDate: 'sábado',
+        service: 'Terceros Completo',
       },
     });
   });
 
   it.each([
     ['a commercial context', { conversationId: 'c1', mode: 'COMMERCIAL' }],
-    ['another conversation context', { conversationId: 'c2', mode: 'DEMO' }],
+    [
+      'another conversation context',
+      { ...insuranceContext, conversationId: 'c2' },
+    ],
     ['a missing context', null],
+    [
+      'a context running another demo',
+      { conversationId: 'c1', mode: 'DEMO', demoScenario: 'aesthetics' },
+    ],
+    // Contexts from before the scenarios continue in the aesthetics demo.
+    ['a legacy demo context', { conversationId: 'c1', mode: 'DEMO' }],
   ])('refuses %s', async (_label, context) => {
     const { service, create } = setup(context);
 
     await expect(
-      service.registerDemoRequest('c1', 'ctx1', { customerName: 'Juan' }),
+      service.registerDemoRequest('c1', 'ctx1', 'insurance', {
+        customerName: 'Juan',
+      }),
     ).rejects.toThrow(DemoContextError);
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('stores the insurance quote details in its own scenario', async () => {
+    const { service, create } = setup({
+      conversationId: 'c1',
+      mode: 'DEMO',
+      demoScenario: 'insurance',
+    });
+
+    await service.registerDemoRequest('c1', 'ctx1', 'insurance', {
+      customerName: 'Ana',
+      service: 'Todo Riesgo',
+      details: { vehicle: 'Volkswagen Gol Trend Trendline', monthlyArs: 66700 },
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        conversationId: 'c1',
+        contextId: 'ctx1',
+        scenario: 'insurance',
+        isFictitious: true,
+        customerName: 'Ana',
+        service: 'Todo Riesgo',
+        details: {
+          vehicle: 'Volkswagen Gol Trend Trendline',
+          monthlyArs: 66700,
+        },
+      },
+    });
+  });
+
   it('rejects unknown fields and empty values', async () => {
-    const { service, create } = setup({ conversationId: 'c1', mode: 'DEMO' });
+    const { service, create } = setup(insuranceContext);
 
     await expect(
-      service.registerDemoRequest('c1', 'ctx1', {
+      service.registerDemoRequest('c1', 'ctx1', 'insurance', {
         dni: '123',
       } as unknown as { customerName: string }),
     ).rejects.toThrow(ZodError);
     await expect(
-      service.registerDemoRequest('c1', 'ctx1', { customerName: '  ' }),
+      service.registerDemoRequest('c1', 'ctx1', 'insurance', {
+        customerName: '  ',
+      }),
     ).rejects.toThrow(ZodError);
     expect(create).not.toHaveBeenCalled();
   });

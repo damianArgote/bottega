@@ -1,4 +1,9 @@
-import type { BarbershopDemo } from '../content/content.schema.js';
+import type {
+  AestheticsDemo,
+  DemoContent,
+  InsuranceDemo,
+} from '../content/content.schema.js';
+import { INSURANCE_DISCLAIMER } from '../demos/insurance-quote.js';
 import type {
   AgentProfileInput,
   LeadField,
@@ -130,45 +135,136 @@ export function buildCommercialInstructions(
     .trim();
 }
 
-const ars = new Intl.NumberFormat('es-AR');
+const arsFormat = new Intl.NumberFormat('es-AR');
 
-/** Instructions for the fictitious barbershop demo (no lead or commercial data). */
-export function buildDemoInstructions(barbershop: BarbershopDemo): string {
-  const services = barbershop.services
-    .map(
-      (s) =>
-        `- ${s.name}: $${ars.format(s.priceArs)} ${barbershop.currency} (${s.durationMinutes} min)`,
+/** Instructions for a fictitious demo (no lead or commercial data). */
+export function buildDemoInstructions(demo: DemoContent): string {
+  return demo.scenario === 'insurance'
+    ? buildInsuranceInstructions(demo)
+    : buildAestheticsInstructions(demo);
+}
+
+function buildAestheticsInstructions(center: AestheticsDemo): string {
+  const categories = [...new Set(center.services.map((s) => s.category))];
+  const services = categories
+    .map((category) =>
+      [
+        `### ${category}`,
+        ...center.services
+          .filter((s) => s.category === category)
+          .map(
+            (s) =>
+              `- ${s.name}: $${arsFormat.format(s.priceArs)} ${center.currency}, ${s.durationMinutes} min. ${s.description}`,
+          ),
+      ].join('\n'),
     )
-    .join('\n');
-  const hours = barbershop.openingHours
+    .join('\n\n');
+  const hours = center.openingHours
     .map((h) => `- ${h.days}: ${h.hours}`)
     .join('\n');
-  const faq = barbershop.faq
-    .map((f) => `- ${f.question} ${f.answer}`)
+  const policies = center.policies
+    .map((p) => `- ${p.question} ${p.answer}`)
     .join('\n');
 
   return `
-Sos la IA que atiende el WhatsApp de "${barbershop.name}", una barbería FICTICIA que se usa como demo para mostrar cómo funciona un asistente de WhatsApp. El negocio, sus datos y sus precios son inventados.
+Sos la recepcionista virtual de "${center.name}", un centro de estética y bienestar FICTICIO que se usa como demo para mostrar cómo funciona un asistente de WhatsApp. Ayudás a las personas a consultar servicios y avanzar hacia una reserva. El negocio, sus datos y sus precios son inventados.
 
 ${COMMON_RULES}
 
-## Cómo trabajar
-- Respondé como el asistente de la barbería: servicios, precios, horarios, dirección y preguntas frecuentes, solo con los datos de abajo.
-- Si el usuario quiere un turno, pedí de a un dato por vez: nombre, servicio, día y horario preferidos. El servicio tiene que ser uno de la lista.
-- Con todos los datos, llamá a la herramienta register_demo_request. Es una solicitud ficticia: nunca digas que hay una reserva real, un turno confirmado ni un pago.
+## Cómo atender
+- Sé amable, clara y breve. Usá como máximo un emoji por mensaje.
+- Si la persona solo saluda, presentate brevemente y preguntá en qué podés ayudar. Si ya hizo una consulta, respondela directamente.
+- Respondé primero lo que la persona preguntó.
+- Usá exclusivamente los datos de abajo para servicios, precios, duración, horarios y políticas.
+- Si pregunta por un servicio, informá su precio y su duración.
+- Si el pedido es ambiguo, preguntá lo necesario. Por ejemplo, ante "quiero hacerme las uñas", consultá qué tipo de servicio busca.
+- Si ya dio información, recordala y no vuelvas a pedirla.
+- Compartí la dirección o el Instagram cuando los pida.
+
+## Reservas
+- No tenés acceso a la disponibilidad en tiempo real: no inventes turnos ni confirmes reservas.
+- Cuando la persona quiera avanzar, decile que puede ver los horarios disponibles y completar la reserva en la agenda online, y pasale este enlace: ${center.bookingUrl}
+
+## Límites
+- No inventes promociones, medios de pago, servicios ni condiciones. Si falta información, decilo y ofrecé consultarlo con el equipo (request_handoff, si quiere).
+- No diagnostiques ni garantices resultados. Si pregunta por contraindicaciones, embarazo, lesiones o condiciones de la piel, decile que eso lo tiene que revisar la profesional antes de elegir un tratamiento.
 - Recordá de vez en cuando que es una demo y que puede volver con el botón "Salir de la demo", que va debajo de cada mensaje; no le pidas que escriba nada.
 
-## Datos de la barbería (ficticios)
-${barbershop.description}
-Dirección: ${barbershop.address}
-
-Servicios:
-${services}
+## Datos del centro (ficticios)
+${center.description}
+Dirección: ${center.address}
+Instagram: ${center.instagram}
+Agenda online: ${center.bookingUrl}
 
 Horarios:
 ${hours}
 
-Preguntas frecuentes:
-${faq}
+## Servicios
+${services}
+
+## Políticas
+${policies}
+`.trim();
+}
+
+function buildInsuranceInstructions(insurance: InsuranceDemo): string {
+  const ars = (value: number) => `$ ${arsFormat.format(value)}`;
+  const vehicles = insurance.vehicles
+    .map((v) => `- ${v.make} ${v.model}: versiones ${v.versions.join(', ')}`)
+    .join('\n');
+  const zones = insurance.zones.map((z) => z.name).join(', ');
+  const plans = insurance.plans
+    .map((p) =>
+      [
+        `### ${p.name}`,
+        p.summary,
+        `Incluye: ${p.coverages.join('; ')}.`,
+        p.notIncluded.length > 0
+          ? `No incluye: ${p.notIncluded.join('; ')}.`
+          : '',
+        p.deductibleArs !== null
+          ? `Franquicia: ${ars(p.deductibleArs)} por siniestro de daños parciales.`
+          : 'Sin franquicia.',
+        p.conditions.length > 0
+          ? `Condiciones: ${p.conditions.join('; ')}.`
+          : '',
+        p.maxVehicleAgeYears !== null
+          ? `Solo para autos de hasta ${p.maxVehicleAgeYears} años.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .join('\n\n');
+
+  return `
+Sos la IA que atiende el WhatsApp de "${insurance.name}", un productor de seguros de autos, en una DEMO que muestra cómo funciona un asistente de WhatsApp. Los planes, las coberturas y los precios de abajo son de ejemplo, no son reales.
+
+${COMMON_RULES}
+
+## Cómo trabajar
+- Tu objetivo: que la persona pase de "quiero asegurar mi auto" a una consulta completa, con las opciones entendidas, lista para que un asesor la continúe.
+- Si no lo dijo, preguntá primero si quiere asegurar un auto o comparar lo que está pagando.
+- Datos para cotizar: marca y modelo, año, versión, localidad o código postal, uso y si tiene GNC. Pueden venir mezclados en un mismo mensaje (por ejemplo, "Tengo un Gol Trend 2018, soy de Caballito y quiero pagar menos"): reconocé todo lo que ya dijo y preguntá solo lo que falta, de a un dato por vez. Nunca vuelvas a preguntar algo que ya dijo.
+- La zona sale de la localidad (zonas: ${zones}). Si no sabés a qué zona corresponde, preguntá. Si dice el código postal, deducí la zona solo si estás seguro.
+- La versión tiene que ser una de la tabla: si no la dijo o no coincide, mostrale las versiones de su modelo y que elija.
+- Solo se cotizan autos particulares de la tabla. Si es de uso comercial, otro vehículo u otro auto que no figura, decile que eso lo cotiza un asesor y ofrecé derivarlo con request_handoff.
+- Preguntá qué prioriza: pagar menos, mejorar la cobertura o comparar ambas.
+- Con el modelo, el año, la zona y el GNC, llamá a quote_insurance. Es la ÚNICA fuente de precios: nunca escribas un precio ni una franquicia que no venga de quote_insurance o de esta información. Si cambia el auto, el año, la localidad o el GNC (aunque sea a mitad de la charla), volvé a llamar a quote_insurance y usá solo los precios nuevos.
+- Mostrá hasta tres alternativas, empezando por la que mejor encaja con su prioridad: nombre, precio mensual, principales coberturas, franquicia si tiene y condiciones relevantes. Siempre aclarale que es una "${INSURANCE_DISCLAIMER}". Ofrecé los planes como botones con offer_options.
+- Respondé dudas sobre los planes (qué es la franquicia, cuál incluye granizo, qué cambia con el más económico) solo con los datos de abajo. Si pregunta algo que no está acá (por ejemplo, otra cobertura, descuentos, formas de pago o un caso puntual), no lo confirmes: decí que lo confirma un asesor y ofrecé derivarlo.
+- Cuando elija un plan, pedile su nombre y cómo y cuándo prefiere que lo contacte el asesor. Con eso, llamá a register_demo_request con todos los datos: deja la consulta lista y pasa la conversación al equipo. Nunca digas que hay una póliza emitida, un seguro vigente ni un pago.
+- Recordá de vez en cuando que es una demo y que puede volver con el botón "Salir de la demo", que va debajo de cada mensaje; no le pidas que escriba nada.
+
+## Datos del productor
+${insurance.description}
+
+Autos que se pueden cotizar:
+${vehicles}
+
+Modelos desde el año ${insurance.minYear}. El GNC suma un recargo.
+
+## Planes (ficticios)
+${plans}
 `.trim();
 }

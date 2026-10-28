@@ -1,4 +1,5 @@
 import type { DemoRequestInput } from '../demos/demos.service.js';
+import { INSURANCE_DISCLAIMER } from '../demos/insurance-quote.js';
 
 /** Controlled reply when the model failed or answered nothing usable. */
 export const AI_FALLBACK_REPLY =
@@ -11,26 +12,34 @@ export const AI_LIMIT_REPLY =
 /** Used when the model saved lead data but wrote no text. */
 export const LEAD_SAVED_ACK = '¡Gracias! Ya lo anoté.';
 
+const arsFormat = new Intl.NumberFormat('es-AR');
+
 /**
- * Backend-built confirmation of a fictitious demo request: lists exactly what
- * was registered, so it never depends on the model's wording.
+ * Backend-built brief of the insurance demo's close: what the advisor needs,
+ * from the stored request (the price comes from the demo table).
  */
-export function demoRequestSummary(
+export function insuranceRequestSummary(
   request: DemoRequestInput,
   businessName: string,
-  botName: string,
 ): string {
+  const d = request.details ?? {};
+  const ars = (value: unknown) =>
+    typeof value === 'number' ? `$ ${arsFormat.format(value)}` : null;
+  const gnc = d.gnc === true ? ', con GNC' : d.gnc === false ? ', sin GNC' : '';
   const lines = [
     request.customerName && `• Nombre: ${request.customerName}`,
-    request.service && `• Servicio: ${request.service}`,
-    request.preferredDate && `• Día: ${request.preferredDate}`,
-    request.preferredTime && `• Horario: ${request.preferredTime}`,
-    request.notes && `• Notas: ${request.notes}`,
+    d.vehicle &&
+      `• Auto: ${[d.vehicle, d.year].filter((v) => v !== undefined).join(' ')}${gnc}`,
+    d.location && `• Localidad: ${d.location}${d.zone ? ` (${d.zone})` : ''}`,
+    d.priority && `• Busca: ${d.priority}`,
+    request.service &&
+      `• Plan elegido: ${request.service}${ars(d.monthlyArs) ? ` – ${ars(d.monthlyArs)} por mes` : ''}`,
+    ars(d.deductibleArs) && `• Franquicia: ${ars(d.deductibleArs)}`,
+    d.contactPreference && `• Contacto: ${d.contactPreference}`,
   ].filter(Boolean);
   return [
-    `📝 Solicitud de turno de demo registrada en ${businessName}:`,
+    `📝 Consulta lista para un asesor de ${businessName}:`,
     ...lines,
-    '⚠️ Es una solicitud FICTICIA de la demo: no es una reserva real ni se cobró ningún pago.',
-    `Tocá el botón para volver a hablar con ${botName}.`,
+    `⚠️ ${INSURANCE_DISCLAIMER}: no es una póliza ni un precio real.`,
   ].join('\n');
 }

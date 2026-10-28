@@ -4,7 +4,6 @@ import type { ToolContext } from './tools/tool.js';
 
 const tools = {
   mode: 'COMMERCIAL',
-  barbershop: {},
   demoEnabled: false,
   leadFields: [],
 } as unknown as Omit<ToolContext, 'planned'>;

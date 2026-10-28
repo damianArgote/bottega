@@ -1,6 +1,5 @@
 import type { AiProvider, AiRequest, AiResponse } from '../ai/ai.provider.js';
 import type { AgentProfile } from '../agents/agent-profile.js';
-import type { BarbershopDemo } from '../content/content.schema.js';
 import { ConversationMode } from '../generated/prisma/client.js';
 import type { LeadValues } from '../leads/lead-values.js';
 import { AI_FALLBACK_REPLY } from './ai-replies.js';
@@ -55,13 +54,12 @@ export async function runCommercialTurn(input: {
   /** OPENAI_MODEL, used when the profile has no model. */
   defaultModel: string;
   maxOutputTokens: number;
-  barbershop: BarbershopDemo;
   messages: readonly TurnMessage[];
   known?: LeadValues;
   /** Called after every model call (for logging). */
   onCall?: (response: AiResponse, latencyMs: number) => void;
 }): Promise<CommercialTurnResult> {
-  const { profile, barbershop } = input;
+  const { profile } = input;
   const model = profile.model ?? input.defaultModel;
   const mode = ConversationMode.COMMERCIAL;
   const toolOptions = {
@@ -89,12 +87,13 @@ export async function runCommercialTurn(input: {
         maxOutputTokens: input.maxOutputTokens,
       },
       input: input.messages.map((m) => ({ kind: 'message', ...m })),
-      tools: { mode, barbershop, ...toolOptions },
+      tools: { mode, ...toolOptions },
     },
     call,
   );
 
-  const names = { demoBusinessName: barbershop.name, botName: profile.botName };
+  // Commercial mode: no demo business to name.
+  const names = { demoBusinessName: '', botName: profile.botName };
   const reply =
     outcome.kind === 'handoff'
       ? renderReply('HUMAN_REQUESTED', names)
