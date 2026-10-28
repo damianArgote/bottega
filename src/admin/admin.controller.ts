@@ -31,6 +31,8 @@ import {
   idempotencyKeySchema,
   isEmptyBody,
   leadsQuerySchema,
+  lineCredentialsBodySchema,
+  lineIdSchema,
   messagesQuerySchema,
   parseOrBadRequest,
   resumeBodySchema,
@@ -42,6 +44,7 @@ import {
 } from '../inbox/human-replies.service.js';
 import { AdminService } from './admin.service.js';
 import { BusinessesService } from './businesses.service.js';
+import { LineOnboardingService } from '../onboarding/line-onboarding.service.js';
 
 /** Team operations. Every route requires the admin API key. */
 @Controller('admin')
@@ -53,6 +56,7 @@ export class AdminController {
     private readonly agents: AgentsService,
     private readonly preview: AgentPreviewService,
     private readonly users: UsersService,
+    private readonly onboarding: LineOnboardingService,
   ) {}
 
   /** Adds an operator to the business (creates the user if new). */
@@ -116,6 +120,15 @@ export class AdminController {
     return this.businesses.createLine(
       businessId,
       parseOrBadRequest(createLineBodySchema, body, 'body'),
+    );
+  }
+
+  /** Stores the line's Meta credentials after checking them with Meta. */
+  @Put('lines/:lineId/credentials')
+  setLineCredentials(@Param('lineId') lineId: string, @Body() body: unknown) {
+    return this.onboarding.setCredentials(
+      parseOrBadRequest(lineIdSchema, lineId, 'lineId'),
+      parseOrBadRequest(lineCredentialsBodySchema, body ?? {}, 'body'),
     );
   }
 

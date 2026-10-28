@@ -756,6 +756,24 @@ rechaza toda entrega (`POST`, `401`: no tiene App Secret para validar la firma),
 no envía mensajes y no aparece en `GET /inbox/.../lines`. Un body con algunos
 campos pero no todos da `400`.
 
+Después se cargan las credenciales de la app de Meta. Antes de guardarlas,
+Bottega comprueba con Meta que el token ve esa cuenta de WhatsApp
+(`GET /{wabaId}`) y que el App Secret es de esa app:
+
+```bash
+curl -X PUT "$API/admin/lines/<lineId>/credentials" -H "X-Admin-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"wabaId":"...","appId":"...","appSecret":"...","accessToken":"..."}'
+# → 200 {"line":{...},"wabaName":"..."}
+```
+
+Si Meta los rechaza, no se guarda nada y la respuesta es `400` con el motivo en
+castellano (`message`) y el código de Meta (`metaCode`); si Meta no responde,
+`502`. Un dueño (`OWNER`) puede cargar las de su propio negocio desde la
+bandeja (`PUT /inbox/businesses/:businessId/settings/whatsapp/lines/:lineId/credentials`,
+mismas validaciones), para cuando el negocio arma la app sin darle acceso al
+equipo.
+
 ---
 
 ## Editar contenido

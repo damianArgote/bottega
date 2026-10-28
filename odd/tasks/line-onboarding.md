@@ -19,7 +19,7 @@ Source: `docs/prompts/08-alta-de-clientes.md`, section 08a (PR #62), quoted verb
 ## Tasks
 
 - T1 S1, S2: migration (nullable phone_number_id, app_published_at), draft create, null-safe routing/sending, inbox `/lines` hides drafts. Route: inline. Status: done (e2e RED observed on the old controller; int runs in CI, no local Postgres).
-- T2 S3, S6: Graph onboarding client, Meta error texts, credentials endpoints (admin + inbox). Route: inline. Status: pending.
+- T2 S3, S6: Graph onboarding client, Meta error texts, credentials endpoints (admin + inbox). Route: inline. Status: done (unit RED observed for the error texts; routes were new, int green locally on embedded Postgres).
 - T3 S4, S5: phone-numbers, register, subscribe, app-published. Route: inline. Status: pending.
 - T4 S7: status endpoints with 60 s cache. Route: inline. Status: pending.
 
