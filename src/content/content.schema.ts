@@ -4,29 +4,27 @@ import { z } from 'zod';
 
 const text = z.string().trim().min(1);
 
-export const BOOKING_FIELDS = [
-  'customerName',
-  'service',
-  'preferredDate',
-  'preferredTime',
-] as const;
-
-export const barbershopDemoSchema = z
+export const aestheticsDemoSchema = z
   .object({
-    scenario: z.literal('barbershop'),
+    scenario: z.literal('aesthetics'),
     // Demo data must always be declared fictitious.
     fictitious: z.literal(true),
     name: text,
     description: text,
     address: text,
+    instagram: text,
+    /** Online booking page the receptionist sends (no live availability). */
+    bookingUrl: z.url(),
     currency: z.literal('ARS'),
     services: z
       .array(
         z
           .object({
+            category: text,
             name: text,
             priceArs: z.number().int().positive(),
             durationMinutes: z.number().int().positive(),
+            description: text,
           })
           .strict(),
       )
@@ -34,12 +32,11 @@ export const barbershopDemoSchema = z
     openingHours: z
       .array(z.object({ days: text, hours: text }).strict())
       .min(1),
-    faq: z.array(z.object({ question: text, answer: text }).strict()),
-    bookingFields: z.array(z.enum(BOOKING_FIELDS)).min(1),
+    policies: z.array(z.object({ question: text, answer: text }).strict()),
   })
   .strict();
 
-export type BarbershopDemo = z.infer<typeof barbershopDemoSchema>;
+export type AestheticsDemo = z.infer<typeof aestheticsDemoSchema>;
 
 export const VEHICLE_CATEGORIES = ['A', 'B', 'C'] as const;
 
@@ -103,7 +100,7 @@ export const insuranceDemoSchema = z
 export type InsuranceDemo = z.infer<typeof insuranceDemoSchema>;
 
 /** Content of one fictitious demo business, by scenario. */
-export type DemoContent = BarbershopDemo | InsuranceDemo;
+export type DemoContent = AestheticsDemo | InsuranceDemo;
 
 /** Markdown knowledge with the editing-notes HTML comments removed. */
 export const commercialInfoSchema = z
@@ -113,13 +110,13 @@ export const commercialInfoSchema = z
 
 export interface Content {
   commercialInfo: string;
-  barbershop: BarbershopDemo;
+  aesthetics: AestheticsDemo;
   insurance: InsuranceDemo;
 }
 
 export const CONTENT_FILES = {
   commercialInfo: 'commercial-info.md',
-  barbershop: join('demos', 'barbershop.json'),
+  aesthetics: join('demos', 'aesthetics.json'),
   insurance: join('demos', 'insurance.json'),
 } as const;
 
@@ -172,10 +169,10 @@ export function parseContent(files: Record<keyof Content, string>): Content {
       commercialInfoSchema,
       files.commercialInfo,
     ),
-    barbershop: check(
-      CONTENT_FILES.barbershop,
-      barbershopDemoSchema,
-      json(CONTENT_FILES.barbershop, files.barbershop),
+    aesthetics: check(
+      CONTENT_FILES.aesthetics,
+      aestheticsDemoSchema,
+      json(CONTENT_FILES.aesthetics, files.aesthetics),
     ),
     insurance: check(
       CONTENT_FILES.insurance,
@@ -189,7 +186,7 @@ export function parseContent(files: Record<keyof Content, string>): Content {
 export function loadContent(dir: string): Content {
   return parseContent({
     commercialInfo: read(dir, CONTENT_FILES.commercialInfo),
-    barbershop: read(dir, CONTENT_FILES.barbershop),
+    aesthetics: read(dir, CONTENT_FILES.aesthetics),
     insurance: read(dir, CONTENT_FILES.insurance),
   });
 }

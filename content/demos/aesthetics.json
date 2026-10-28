@@ -1,0 +1,46 @@
+{
+  "scenario": "aesthetics",
+  "fictitious": true,
+  "name": "Zentara",
+  "description": "Centro de estética y bienestar ficticio, usado solo para mostrar cómo funciona una recepcionista virtual.",
+  "address": "Av. Siempreviva 742, Palermo, CABA (dirección de ejemplo)",
+  "instagram": "@zentara.demo (cuenta de ejemplo)",
+  "bookingUrl": "https://example.com/zentara/reservas",
+  "currency": "ARS",
+  "services": [
+    { "category": "Uñas", "name": "Manicura tradicional", "priceArs": 9000, "durationMinutes": 40, "description": "Limado, cutículas y esmaltado común." },
+    { "category": "Uñas", "name": "Esmaltado semipermanente en manos", "priceArs": 16000, "durationMinutes": 60, "description": "Dura entre 2 y 3 semanas." },
+    { "category": "Uñas", "name": "Kapping gel", "priceArs": 22000, "durationMinutes": 75, "description": "Capa de gel sobre la uña natural para fortalecerla." },
+    { "category": "Uñas", "name": "Uñas esculpidas", "priceArs": 30000, "durationMinutes": 120, "description": "Extensión en gel o acrílico, con esmaltado semipermanente." },
+    { "category": "Uñas", "name": "Pedicuría completa", "priceArs": 20000, "durationMinutes": 60, "description": "Callosidades, cutículas y esmaltado común." },
+    { "category": "Facial", "name": "Limpieza facial profunda", "priceArs": 28000, "durationMinutes": 60, "description": "Higiene, extracción y máscara según el tipo de piel." },
+    { "category": "Facial", "name": "Dermaplaning", "priceArs": 32000, "durationMinutes": 45, "description": "Exfoliación con bisturí que retira células muertas y vello fino." },
+    { "category": "Cejas y pestañas", "name": "Perfilado de cejas", "priceArs": 8000, "durationMinutes": 30, "description": "Diseño según la forma del rostro." },
+    { "category": "Cejas y pestañas", "name": "Lifting de pestañas", "priceArs": 22000, "durationMinutes": 60, "description": "Curvado y tinte; dura entre 6 y 8 semanas." },
+    { "category": "Corporal", "name": "Masaje descontracturante", "priceArs": 30000, "durationMinutes": 60, "description": "Espalda, cuello y hombros." },
+    { "category": "Corporal", "name": "Drenaje linfático manual", "priceArs": 32000, "durationMinutes": 60, "description": "Masaje suave que ayuda a reducir la retención de líquidos." }
+  ],
+  "openingHours": [
+    { "days": "Lunes a viernes", "hours": "10:00 a 20:00" },
+    { "days": "Sábados", "hours": "10:00 a 15:00" },
+    { "days": "Domingos y feriados", "hours": "Cerrado" }
+  ],
+  "policies": [
+    {
+      "question": "¿Cómo reservo un turno?",
+      "answer": "Desde la agenda online, donde se ven los horarios disponibles y se completa la reserva."
+    },
+    {
+      "question": "¿Puedo cancelar o cambiar un turno?",
+      "answer": "Sí, avisando con al menos 24 horas de anticipación."
+    },
+    {
+      "question": "¿Tengo que llegar antes?",
+      "answer": "Conviene llegar 10 minutos antes del turno."
+    },
+    {
+      "question": "¿Atienden a hombres?",
+      "answer": "Sí, todos los servicios son para cualquier persona."
+    }
+  ]
+}

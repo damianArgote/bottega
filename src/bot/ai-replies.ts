@@ -12,30 +12,6 @@ export const AI_LIMIT_REPLY =
 /** Used when the model saved lead data but wrote no text. */
 export const LEAD_SAVED_ACK = '¡Gracias! Ya lo anoté.';
 
-/**
- * Backend-built confirmation of a fictitious demo request: lists exactly what
- * was registered, so it never depends on the model's wording.
- */
-export function demoRequestSummary(
-  request: DemoRequestInput,
-  businessName: string,
-  botName: string,
-): string {
-  const lines = [
-    request.customerName && `• Nombre: ${request.customerName}`,
-    request.service && `• Servicio: ${request.service}`,
-    request.preferredDate && `• Día: ${request.preferredDate}`,
-    request.preferredTime && `• Horario: ${request.preferredTime}`,
-    request.notes && `• Notas: ${request.notes}`,
-  ].filter(Boolean);
-  return [
-    `📝 Solicitud de turno de demo registrada en ${businessName}:`,
-    ...lines,
-    '⚠️ Es una solicitud FICTICIA de la demo: no es una reserva real ni se cobró ningún pago.',
-    `Tocá el botón para volver a hablar con ${botName}.`,
-  ].join('\n');
-}
-
 const arsFormat = new Intl.NumberFormat('es-AR');
 
 /**

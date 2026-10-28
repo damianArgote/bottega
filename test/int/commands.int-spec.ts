@@ -8,7 +8,10 @@ import {
 import { BotWorker } from '../../src/bot/worker.js';
 import { ContentService } from '../../src/content/content.service.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
-import { DemosService } from '../../src/demos/demos.service.js';
+import {
+  DemoContextError,
+  DemosService,
+} from '../../src/demos/demos.service.js';
 import { LeadsService } from '../../src/leads/leads.service.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import { QueueService } from '../../src/queue/queue.service.js';
@@ -24,8 +27,8 @@ import {
 const USER = '5491100001234';
 const content = new ContentService();
 const vars = {
-  demoBusinessName: content.getBarbershop().name,
-  demoScenario: 'barbershop' as const,
+  demoBusinessName: content.getDemo('aesthetics').name,
+  demoScenario: 'aesthetics' as const,
   // resetDb seeds the profile with the test business's botName.
   botName: 'Bot de botsuite46',
 };
@@ -91,7 +94,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     await say('hola');
     const commercial = (await conversation()).activeContextId!;
 
-    await say('Barbería');
+    await say('Estética');
     const afterDemo = await conversation();
     const demo = afterDemo.activeContextId!;
     expect(afterDemo.mode).toBe('DEMO');
@@ -131,7 +134,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     expect((await history(commercial)).map((m) => m.content)).toEqual([
       'hola',
       expect.stringContaining('"hola"'),
-      'Barbería',
+      'Estética',
     ]);
     expect((await history(demo)).map((m) => m.content)).toEqual([
       renderReply('ENTER_DEMO', vars),
@@ -147,7 +150,7 @@ describe('Deterministic commands and contexts (integration)', () => {
   it('moves a message received before a switch into the context that answers it', async () => {
     await say('hola');
     // "demo" and the next message arrive before the worker runs.
-    await conversations.recordInbound(textEvent('wamid.a', USER, 'Barbería'));
+    await conversations.recordInbound(textEvent('wamid.a', USER, 'Estética'));
     await conversations.recordInbound(textEvent('wamid.b', USER, 'precios?'));
     await worker.drain();
 
@@ -171,7 +174,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     expect(lastSent()).toBe(renderReply('CHOOSE_DEMO', vars));
     expect((await conversation()).mode).toBe('COMMERCIAL');
 
-    await say('Barbería');
+    await say('Estética');
     await say('demo');
     expect(lastSent()).toBe(renderReply('ALREADY_IN_DEMO', vars));
     const after = await conversation();
@@ -208,14 +211,36 @@ describe('Deterministic commands and contexts (integration)', () => {
     ).toEqual([renderReply('RESET_COMMERCIAL', vars)]);
   });
 
-  it('reiniciar inside the demo stays in demo mode', async () => {
-    await say('Barbería');
+  it('reiniciar inside the demo stays in demo mode and in the same demo', async () => {
+    await say('Estética');
     await say('reiniciar');
 
     const after = await conversation();
     expect(after.mode).toBe('DEMO');
-    expect(after.contexts.filter((c) => c.mode === 'DEMO')).toHaveLength(2);
+    const demos = after.contexts.filter((c) => c.mode === 'DEMO');
+    expect(demos).toHaveLength(2);
+    expect(demos.map((c) => c.demoScenario)).toEqual([
+      'aesthetics',
+      'aesthetics',
+    ]);
     expect(lastSent()).toBe(renderReply('RESET_DEMO', vars));
+  });
+
+  it('tapping another demo inside a demo switches to it from scratch', async () => {
+    await say('Estética');
+    await say('Seguro de auto');
+
+    const after = await conversation();
+    const active = after.contexts.find((c) => c.id === after.activeContextId);
+    expect(active).toMatchObject({ mode: 'DEMO', demoScenario: 'insurance' });
+    expect(after.contexts).toHaveLength(3);
+    expect(lastSent()).toBe(
+      renderReply('ENTER_DEMO', {
+        ...vars,
+        demoBusinessName: content.getDemo('insurance').name,
+        demoScenario: 'insurance',
+      }),
+    );
   });
 
   it('humano pauses, opens a handoff and then stays silent, even for commands', async () => {
@@ -231,7 +256,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     expect(lastSent()).toBe(renderReply('HUMAN_REQUESTED', vars));
     const sends = sendText.mock.calls.length;
 
-    await say('Barbería');
+    await say('Estética');
     await say('sigo acá?');
 
     expect(sendText).toHaveBeenCalledTimes(sends);
@@ -242,7 +267,7 @@ describe('Deterministic commands and contexts (integration)', () => {
     const inbound = await prisma.message.findMany({
       where: {
         direction: 'INBOUND',
-        content: { in: ['Barbería', 'sigo acá?'] },
+        content: { in: ['Estética', 'sigo acá?'] },
       },
     });
     expect(inbound.map((m) => m.status)).toEqual(['PROCESSED', 'PROCESSED']);
@@ -256,7 +281,7 @@ describe('Deterministic commands and contexts (integration)', () => {
       message: 'rate limited',
       retryable: true,
     });
-    await say('Barbería');
+    await say('Estética');
     const job = await prisma.processingJob.findFirstOrThrow();
     expect(job.status).toBe('PENDING');
 
@@ -313,7 +338,7 @@ describe('Deterministic commands and contexts (integration)', () => {
       new QueueSignal(),
     );
 
-    await say('Barbería');
+    await say('Estética');
 
     expect(aiGenerate).not.toHaveBeenCalled();
     expect(lastSent()).toBe(renderReply('ENTER_DEMO', vars));
@@ -351,24 +376,44 @@ describe('Deterministic commands and contexts (integration)', () => {
 
   describe('DemosService', () => {
     it('stores a fictitious request in the demo context', async () => {
-      await say('Barbería');
+      await say('Seguro de auto');
       const { id, activeContextId } = await conversation();
 
       const request = await new DemosService(
         prisma,
         content,
-      ).registerDemoRequest(id, activeContextId!, 'barbershop', {
+      ).registerDemoRequest(id, activeContextId!, 'insurance', {
         customerName: 'Juan',
-        service: 'Corte de pelo',
-        preferredDate: 'sábado',
-        preferredTime: '11:00',
+        service: 'Terceros Completo',
+        details: {
+          vehicle: 'Volkswagen Gol Trend Trendline',
+          monthlyArs: 36800,
+        },
       });
 
       expect(request).toMatchObject({
-        scenario: 'barbershop',
+        scenario: 'insurance',
         isFictitious: true,
         contextId: activeContextId,
+        details: {
+          vehicle: 'Volkswagen Gol Trend Trendline',
+          monthlyArs: 36800,
+        },
       });
+    });
+
+    it('refuses a request for another demo than the active one', async () => {
+      await say('Estética');
+      const { id, activeContextId } = await conversation();
+
+      await expect(
+        new DemosService(prisma, content).registerDemoRequest(
+          id,
+          activeContextId!,
+          'insurance',
+          { customerName: 'Juan' },
+        ),
+      ).rejects.toThrow(DemoContextError);
     });
   });
 });
