@@ -189,14 +189,12 @@ describe('Staff role (integration)', () => {
           .send({ name: 'X', slug: 'x', botName: 'X' }),
       () => http().post(`/staff/businesses/${businessId}/lines`),
       () =>
-        http()
-          .put(`/staff/lines/${lineId}/credentials`)
-          .send({
-            wabaId: WABA,
-            appId: APP,
-            appSecret: APP_SECRET,
-            accessToken: TOKEN,
-          }),
+        http().put(`/staff/lines/${lineId}/credentials`).send({
+          wabaId: WABA,
+          appId: APP,
+          appSecret: APP_SECRET,
+          accessToken: TOKEN,
+        }),
       () => http().get(`/staff/lines/${lineId}/phone-numbers`),
       () =>
         http()
@@ -257,14 +255,12 @@ describe('Staff role (integration)', () => {
       const lineId = draft.line.id;
       bodies.push(
         await call(
-          http()
-            .put(`/staff/lines/${lineId}/credentials`)
-            .send({
-              wabaId: WABA,
-              appId: APP,
-              appSecret: APP_SECRET,
-              accessToken: TOKEN,
-            }),
+          http().put(`/staff/lines/${lineId}/credentials`).send({
+            wabaId: WABA,
+            appId: APP,
+            appSecret: APP_SECRET,
+            accessToken: TOKEN,
+          }),
           200,
         ),
       );
@@ -339,6 +335,40 @@ describe('Staff role (integration)', () => {
         expect(logged.join('\n')).not.toContain(secret);
       }
       vi.restoreAllMocks();
+    });
+
+    it('only creates new owners: an existing email (even their own) is refused', async () => {
+      await add(b, 'pablo@example.com', 'AGENT');
+      const cookie = await staffSession();
+      const owners = (email: string) =>
+        http()
+          .post(`/staff/businesses/${b}/owners`)
+          .set('Cookie', cookie)
+          .send({ email, name: 'X' });
+
+      for (const email of [
+        'olga@example.com',
+        'OLGA@example.com',
+        'pablo@example.com',
+      ]) {
+        const res = await owners(email).expect(409);
+        expect(res.body).toMatchObject({ code: 'EMAIL_IN_USE' });
+      }
+
+      expect(
+        await prisma.membership.count({
+          where: { userId: olga, businessId: b },
+        }),
+      ).toBe(0);
+      const pablo = await prisma.user.findUniqueOrThrow({
+        where: { email: 'pablo@example.com' },
+        select: { memberships: { select: { role: true } } },
+      });
+      expect(pablo.memberships).toEqual([{ role: 'AGENT' }]);
+      await http()
+        .get(`/inbox/businesses/${b}/leads`)
+        .set('Cookie', cookie)
+        .expect(403);
     });
 
     it('only creates draft lines', async () => {

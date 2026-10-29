@@ -28,3 +28,4 @@ Route evidence: two dependent units sharing the guard and services; no Writer tr
 
 - L1 (2026-10-29) user: "si y empeza tu parte" (to: save prompt 08d and start the backend).
 - L2 (2026-10-29) decisions: StaffGuard reads `staff` with its own query instead of adding it to SessionUser, so login/refresh/me `user` objects keep their shape; `/auth/me` adds a top-level `staff`.
+- L3 (2026-10-29) independent verifier: blocker B1, a staff user could add their own (or any existing) email as OWNER of any business through `/staff/businesses/:id/owners`, then read its leads even after losing the role. Fixed: the route only creates new accounts (`addMember(..., { newUserOnly: true })` → 409 `EMAIL_IN_USE`, also on a concurrent create); regression test added (RED observed with the option off). Advisory A2 applied: the audit line records the added owner id.

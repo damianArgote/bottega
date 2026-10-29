@@ -768,7 +768,7 @@ sin el rol `403`):
 | `POST /staff/businesses/:businessId/lines` | El alta del borrador (solo body vacío; con body, `400`). |
 | `PUT /staff/lines/:lineId/credentials` | `PUT /admin/lines/:lineId/credentials` |
 | `GET /staff/lines/:lineId/phone-numbers`, `POST .../register`, `POST .../subscribe`, `POST .../app-published` | Las mismas rutas de `/admin/lines/:lineId/...` |
-| `POST /staff/businesses/:businessId/owners` `{"email","name"}` | Agrega un `OWNER` con contraseña temporal, que se devuelve una sola vez (`temporaryPassword`; `null` si el usuario ya existía) y tiene que cambiar al entrar. |
+| `POST /staff/businesses/:businessId/owners` `{"email","name"}` | Crea una cuenta **nueva** como `OWNER`, con contraseña temporal que se devuelve una sola vez (`temporaryPassword`) y tiene que cambiar al entrar. Un email que ya tiene cuenta (incluido el propio) da `409` `EMAIL_IN_USE`: así el equipo no puede sumarse ni sumar a otros a un negocio. |
 
 Cada acción queda en el log (`info`) con el id del usuario, la acción y el id
 del negocio o la línea; nunca secretos, el PIN ni los bodies.

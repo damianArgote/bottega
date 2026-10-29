@@ -145,7 +145,11 @@ export class StaffController {
     return result;
   }
 
-  /** `{ email, name }`: an OWNER with a temporary password, shown once. */
+  /**
+   * `{ email, name }`: a NEW account as OWNER, with a temporary password
+   * shown once. An existing email is refused (409 `EMAIL_IN_USE`): staff
+   * could otherwise attach themselves or any account to any business.
+   */
   @Post('businesses/:businessId/owners')
   @HttpCode(HttpStatus.CREATED)
   async addOwner(
@@ -154,11 +158,15 @@ export class StaffController {
     @Body() body: unknown,
   ) {
     const id = parseOrBadRequest(businessIdSchema, businessId, 'businessId');
-    const result = await this.users.addMember(id, {
-      ...parseOrBadRequest(addOwnerBodySchema, body ?? {}, 'body'),
-      role: 'OWNER',
-    });
-    this.audit(user, 'added an owner to business', id);
+    const result = await this.users.addMember(
+      id,
+      {
+        ...parseOrBadRequest(addOwnerBodySchema, body ?? {}, 'body'),
+        role: 'OWNER',
+      },
+      { newUserOnly: true },
+    );
+    this.audit(user, `added owner ${result.user.id} to business`, id);
     return result;
   }
 
