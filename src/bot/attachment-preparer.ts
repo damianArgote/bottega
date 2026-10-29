@@ -32,6 +32,7 @@ import {
   FILE_TOO_LARGE_REPLY,
   MEDIA_DAILY_CAP_REPLY,
   MEDIA_GONE_REPLY,
+  MEDIA_UNAVAILABLE_REPLY,
   MEDIA_UNSUPPORTED_REPLY,
 } from './media-replies.js';
 
@@ -45,6 +46,8 @@ export type MediaErrorCode =
   | 'transcription_failed'
   | 'empty_transcript'
   | 'media_gone'
+  /** Meta could not be reached with the line's token (or refused it). */
+  | 'media_unavailable'
   /** Not read because the bot did not answer (paused, attended, agent off, echo). */
   | 'skipped';
 
@@ -182,10 +185,14 @@ export class AttachmentPreparer {
       if (error.retryable && !isLastAttempt) {
         throw new JobError(`media_${error.code}`, true);
       }
+      // Gone in Meta: the customer can send it again. Anything else (the
+      // line's token, a URL outside Meta, Meta down) is the team's problem.
+      const code =
+        error.code === 'media_gone' ? 'media_gone' : 'media_unavailable';
       this.logger.warn(
-        `Attachment not fetched message=${inbound.id} code=${error.code}`,
+        `Attachment not fetched message=${inbound.id} line=${conversation.lineId} code=${error.code}`,
       );
-      return this.fail(inbound, 'media_gone');
+      return this.fail(inbound, code);
     }
 
     const dataUrl = () =>
@@ -329,6 +336,8 @@ export class AttachmentPreparer {
         return { kind: 'rejected', reply: AUDIO_FAILED_REPLY };
       case 'media_gone':
         return { kind: 'rejected', reply: MEDIA_GONE_REPLY };
+      case 'media_unavailable':
+        return { kind: 'rejected', reply: MEDIA_UNAVAILABLE_REPLY };
       case 'unsupported_type':
       case 'skipped':
         return { kind: 'rejected', reply: MEDIA_UNSUPPORTED_REPLY };

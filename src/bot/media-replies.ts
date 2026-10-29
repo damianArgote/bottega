@@ -22,6 +22,10 @@ export const MEDIA_DAILY_CAP_REPLY =
 export const MEDIA_GONE_REPLY =
   'No pude abrir el archivo. ¿Me lo mandás de nuevo?';
 
+/** The file could not be fetched for a reason on our side: no resend. */
+export const MEDIA_UNAVAILABLE_REPLY =
+  'No pude abrir el archivo en este momento. ¿Me contás por escrito qué necesitás?';
+
 /** "Ese audio es muy largo para mí (hasta 2 minutos)...". */
 export function audioTooLongReply(maxSeconds: number): string {
   return `Ese audio es muy largo para mí (hasta ${durationText(maxSeconds)}). ¿Me mandás uno más corto o me lo escribís?`;

@@ -15,6 +15,7 @@ import {
   audioTooLongReply,
   MEDIA_DAILY_CAP_REPLY,
   MEDIA_GONE_REPLY,
+  MEDIA_UNAVAILABLE_REPLY,
   MEDIA_UNSUPPORTED_REPLY,
 } from '../../src/bot/media-replies.js';
 import { BotWorker } from '../../src/bot/worker.js';
@@ -507,6 +508,26 @@ describe('Inbound attachments (integration, Meta and OpenAI mocked)', () => {
 
     expect((await message(id)).mediaError).toBe('media_gone');
     expect(lastSent()).toBe(MEDIA_GONE_REPLY);
+  });
+
+  it("a problem on our side (the line's token) does not ask to send it again", async () => {
+    info.mockRejectedValue(new MediaFetchError('media_unavailable', false));
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    try {
+      const id = await receive(voiceNote());
+
+      await drain();
+
+      expect((await message(id)).mediaError).toBe('media_unavailable');
+      expect(lastSent()).toBe(MEDIA_UNAVAILABLE_REPLY);
+      expect(warn.mock.calls.map(([line]) => String(line))).toContainEqual(
+        expect.stringMatching(
+          /Attachment not fetched .* line=.* code=media_unavailable/,
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('a row of the previous release (no media kind) answers the fixed text', async () => {

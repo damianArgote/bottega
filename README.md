@@ -555,6 +555,8 @@ El bot responde **siempre en texto** (prompt 11):
   turnos siguientes van solo como texto (`"[Imagen] <texto>"`,
   `"[PDF: <nombre>]"`). No se guardan archivos propios: quedan en Meta.
 - **Ubicación**: llega como texto ("Ubicación: …").
+- El nombre del contacto se toma del webhook para cualquier mensaje, también
+  adjuntos y tipos que el bot no abre.
 - **Video, sticker, Word, Excel u otro audio**: "Todavía no puedo abrir ese
   tipo de archivo. ¿Me contás por escrito qué necesitás?". El bot no pasa la
   conversación a una persona por eso.
@@ -573,7 +575,7 @@ cambian por negocio con `PUT /admin/businesses/<id>/limits`
 
 Lo que no se procesó queda en `media_error` (`too_long`, `too_large`,
 `daily_cap`, `ai_cap`, `unsupported_type`, `transcription_failed`,
-`empty_transcript`, `media_gone`, o `skipped` si el bot no lo leyó porque no iba a responder: pausada, atendida por una persona, agente apagado o modo echo) y la bandeja lo muestra. Solo cuentan para el tope diario de adjuntos los que de verdad se procesaron. Nunca se loguean
+`empty_transcript`, `media_gone` (Meta ya no lo tiene: se le pide reenviarlo), `media_unavailable` (no se pudo bajar por algo nuestro, por ejemplo el token de la línea: no se le pide reenviarlo y queda un log `warn` con la línea), o `skipped` si el bot no lo leyó porque no iba a responder: pausada, atendida por una persona, agente apagado o modo echo) y la bandeja lo muestra. Solo cuentan para el tope diario de adjuntos los que de verdad se procesaron. Nunca se loguean
 en `info` la transcripción, el texto del adjunto ni el link de Meta.
 
 ### Catálogo
