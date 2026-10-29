@@ -9,7 +9,7 @@ Vas a trabajar en `bottega-api` (NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cl
 ## Qué es y hacia dónde va
 - Hoy: bot comercial propio de BotSuite46 sobre un solo número. Ya resuelve webhook firmado, idempotencia por `wamid`, cola en Postgres con `FOR UPDATE SKIP LOCKED`, IA con herramientas validadas, pausa "humano" y respuesta humana por la API de admin.
 - Objetivo de la primera etapa: (1) desplegarlo fuera de ngrok con la base en Neon, (2) que soporte varios negocios y números, cada uno con su propia app de Meta y credenciales cifradas, (3) que el agente de cada negocio se configure desde la base, (4) sumar una bandeja web donde una persona ve las conversaciones, responde y toma o devuelve el control al bot, y (5) un backoffice chico para editar el agente y ver los leads. El único negocio cargado al principio es BotSuite46; el bot se presenta como "BotSuite, IA de BotSuite46", nunca como "asistente virtual".
-- Orden de los prompts: 00, 01, 02, 02b, 03, 04, 05 (repo `bottega-inbox`), 05b. Después: 08 (alta de clientes; va antes porque hay clientes esperando), 08d (alta desde la bandeja), 09 (límites de IA por negocio), 10 (catálogo por negocio), 07 (turnos con seña y eventos), 06.
+- Orden de los prompts: 00, 01, 02, 02b, 03, 04, 05 (repo `bottega-inbox`), 05b. Después: 08 (alta de clientes; va antes porque hay clientes esperando), 08d (alta desde la bandeja), 09 (límites de IA por negocio), 10 (catálogo por negocio), 11 (adjuntos y audios), 07 (turnos con seña y eventos), 06.
 - El bot es **un participante más de la bandeja**: mismo número, mismas conversaciones, misma tabla de mensajes. Nada de un sistema paralelo.
 
 ## Decisiones que no se discuten en cada tarea
