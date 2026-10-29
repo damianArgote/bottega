@@ -647,10 +647,11 @@ export class CatalogService {
 
   /**
    * The mapping of a source, in order: the one given (a person chose it, so
-   * it is saved), the saved one when the headers did not change, the
-   * model's proposal (unconfirmed: a person must confirm it before apply),
-   * or the known headers when the model is not available. 400 without a
-   * name column.
+   * it is saved), the saved one when the headers did not change, the known
+   * headers when they include the name and the price, a pending proposal
+   * for these headers, the model's proposal (unconfirmed: a person must
+   * confirm it before apply), or the known headers when the model is not
+   * available. 400 without a name column.
    */
   async resolveMapping(
     businessId: string,
@@ -667,6 +668,12 @@ export class CatalogService {
     if (saved) {
       return { mapping: saved, confirmed: true };
     }
+    // Known name and price columns need no model and no confirmation (as
+    // before the model existed); the rest of the known ones come along.
+    const known = defaultMapping(headers);
+    if (known?.price) {
+      return { mapping: known, confirmed: true };
+    }
     // A proposal already waiting for a person with these same headers is
     // reused: the model is asked once per set of headers, not every sync.
     const pending = await this.pendingProposal(businessId, headers);
@@ -677,7 +684,7 @@ export class CatalogService {
     if (proposed) {
       return { mapping: proposed, confirmed: false };
     }
-    const guessed = defaultMapping(headers);
+    const guessed = known;
     if (!guessed) {
       throw new BadRequestException(
         'No encontramos la columna del nombre: indicá el mapeo de columnas (mapping.name).',

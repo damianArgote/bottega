@@ -575,12 +575,17 @@ separado por `,` o `;`.
    negocio (`business.catalog_mapping`, junto con los encabezados).
 2. El guardado, si los encabezados son los mismos (aunque cambien de orden):
    no se llama al modelo.
-3. La propuesta del modelo, con los encabezados y hasta 5 filas de ejemplo.
+3. Las columnas conocidas de la planilla de ejemplo (`codigo, producto,
+   descripcion, categoria, precio, disponible` y sinónimos), si incluyen el
+   nombre **y** el precio: sin modelo y sin confirmación, como en una
+   importación común.
+4. La propuesta del modelo, con los encabezados y hasta 5 filas de ejemplo.
    Queda **sin confirmar** (`mappingConfirmed: false`): aplicar da `409`
    `MAPPING_NOT_CONFIRMED` hasta que una persona lo confirme o lo corrija con
    `PUT .../imports/<id>/mapping`, que vuelve a normalizar las filas y lo
-   guarda.
-4. Sin modelo (modo echo, tope del mes alcanzado o una respuesta inválida),
+   guarda. Mientras espera, una nueva importación con los mismos encabezados
+   reusa esa propuesta (no vuelve a llamar al modelo).
+5. Sin modelo (modo echo, tope del mes alcanzado o una respuesta inválida),
    las columnas conocidas de la planilla de ejemplo (`codigo, producto,
    descripcion, categoria, precio, disponible`). Sin columna de nombre, `400`.
 

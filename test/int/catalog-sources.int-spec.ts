@@ -208,13 +208,31 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
           ...AI_MAPPING,
           externalId: null,
           available: null,
-          name: 'Producto',
-          price: 'Precio',
+          name: 'Gusto',
+          price: 'Valor kg',
         }),
       ),
     );
-    await postCsv('Producto,Precio\nTorta,9000').expect(201);
+    await postCsv('Gusto,Valor kg\nTorta,9000').expect(201);
     expect(respond).toHaveBeenCalledTimes(1);
+  });
+
+  it('known name and price columns need no model and no confirmation', async () => {
+    const preview = (
+      await postCsv(
+        'codigo,producto,precio,sabor\nA1,Torta,100,frutilla',
+      ).expect(201)
+    ).body as ImportBody;
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(preview).toMatchObject({
+      mappingConfirmed: true,
+      mapping: { externalId: 'codigo', name: 'producto', price: 'precio' },
+    });
+    await apply(preview.id).expect(200);
+    expect((await prisma.catalogItem.findFirstOrThrow()).attributes).toEqual({
+      sabor: 'frutilla',
+    });
   });
 
   it('an invalid proposal (a column that does not exist) falls back to the known headers', async () => {
@@ -223,12 +241,13 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
     );
 
     const preview = (
-      await postCsv('codigo,producto,precio\nA1,Torta,100').expect(201)
+      await postCsv('codigo,producto,costo\nA1,Torta,100').expect(201)
     ).body as ImportBody;
 
+    expect(respond).toHaveBeenCalledTimes(1);
     expect(preview).toMatchObject({
       mappingConfirmed: true,
-      mapping: { externalId: 'codigo', name: 'producto', price: 'precio' },
+      mapping: { externalId: 'codigo', name: 'producto' },
     });
   });
 
