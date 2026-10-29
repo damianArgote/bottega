@@ -792,7 +792,10 @@ en castellano.
 
 `GET /admin/lines/:lineId/status` (equipo) y
 `GET /inbox/businesses/:businessId/settings/whatsapp` (dueño, `OWNER`: todas
-las líneas de su negocio, borradores incluidos) dicen qué falta:
+las líneas de su negocio, borradores incluidos) dicen qué falta.
+`GET /admin/lines/status` (equipo) devuelve lo mismo para todas las líneas de
+todos los negocios, cada una con su `business` (`id`, `name`, `slug`), para ver
+de un vistazo la calidad (`number.qualityRating`) de todos los clientes:
 
 | Campo | Qué es |
 | ----- | ------ |
