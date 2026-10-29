@@ -9,19 +9,24 @@ import { ContentModule } from '../content/content.module.js';
 import { LeadsQueryService } from '../leads/leads-query.service.js';
 import { OnboardingModule } from '../onboarding/onboarding.module.js';
 import { LeadsController } from './leads.controller.js';
+import { UsageController } from './usage.controller.js';
 import { WhatsAppSettingsController } from './whatsapp-settings.controller.js';
 import {
   PREVIEW_RATE_LIMITER,
   SettingsController,
 } from './settings.controller.js';
 
-/** The backoffice API (business OWNERs): agent, leads and WhatsApp connection. */
+/**
+ * The backoffice API (business OWNERs): agent, leads and WhatsApp connection;
+ * the AI usage of the month for any of the business's people.
+ */
 @Module({
   imports: [AiModule, AuthModule, ContentModule, OnboardingModule],
   controllers: [
     SettingsController,
     LeadsController,
     WhatsAppSettingsController,
+    UsageController,
   ],
   providers: [
     AgentsService,

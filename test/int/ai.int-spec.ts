@@ -6,8 +6,17 @@ import {
   type AiRequest,
   type AiResponse,
 } from '../../src/ai/ai.provider.js';
-import { AiUsageService, usageDay } from '../../src/ai/ai-usage.service.js';
-import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from '../../src/bot/ai-replies.js';
+import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
+import {
+  AiUsageService,
+  usageDay,
+  usageMonth,
+} from '../../src/ai/ai-usage.service.js';
+import {
+  AI_FALLBACK_REPLY,
+  AI_LIMIT_REPLY,
+  AI_MONTHLY_CAP_REPLY,
+} from '../../src/bot/ai-replies.js';
 import { AiReplyGenerator } from '../../src/bot/ai-reply-generator.js';
 import { renderReply } from '../../src/bot/replies.js';
 import { Prisma } from '../../src/generated/prisma/client.js';
@@ -20,6 +29,7 @@ import type { SendOutcome } from '../../src/whatsapp/whatsapp.client.js';
 import {
   buildBotService,
   connectPrisma,
+  createLine,
   resetDb,
   testConfig,
   textEvent,
@@ -113,6 +123,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     const generator = new AiReplyGenerator({
       provider: { respond },
       usage: new AiUsageService(prisma),
+      limits: new AiLimitsService(prisma, aiConfig),
       prisma,
       content,
       config: aiConfig,
@@ -425,7 +436,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(lastSent()).toBe('No puedo hacer eso.');
   });
 
-  it('daily cap reached: no model call, LIMITED recorded, limit reply', async () => {
+  it('daily cap reached (business without its own: the variable): no model call, LIMITED recorded, limit reply', async () => {
     worker = buildWorker(2);
     respond.mockResolvedValue(text('ok'));
     await say('uno');
@@ -444,6 +455,118 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       model: MODEL,
       agentProfileVersion: (await profile()).version,
     });
+  });
+
+  describe('monthly cap of the business', () => {
+    const botsuite = () =>
+      prisma.business.findUniqueOrThrow({ where: { slug: 'botsuite46' } });
+    const setLimits = async (data: {
+      aiMonthlyCap?: number | null;
+      aiDailyCapPerConversation?: number | null;
+    }) =>
+      prisma.business.update({ where: { id: (await botsuite()).id }, data });
+    const handoffs = () => prisma.handoffRequest.findMany();
+
+    it('reached: no model call, LIMITED, fixed reply and one handoff', async () => {
+      await setLimits({ aiMonthlyCap: 2 });
+      respond.mockResolvedValue(text('ok'));
+      await say('uno');
+      await say('dos');
+      expect(respond).toHaveBeenCalledTimes(2);
+
+      await say('tres');
+
+      expect(respond).toHaveBeenCalledTimes(2);
+      expect(lastSent()).toBe(AI_MONTHLY_CAP_REPLY);
+      expect(await usageOutcomes()).toEqual(['LIMITED', 'OK', 'OK']);
+      expect(await handoffs()).toEqual([
+        expect.objectContaining({ reason: 'ai_monthly_cap', status: 'OPEN' }),
+      ]);
+      expect(await conversation()).toMatchObject({
+        paused: true,
+        status: 'PENDING',
+      });
+
+      // Paused: the next message gets no reply and opens nothing.
+      const sends = sendText.mock.calls.length;
+      await say('cuatro');
+      expect(sendText).toHaveBeenCalledTimes(sends);
+      expect(await handoffs()).toHaveLength(1);
+
+      // Given back to the bot while the cap is still reached: no model call
+      // and no second handoff this month.
+      await prisma.conversation.updateMany({ data: { paused: false } });
+      await say('cinco');
+      expect(respond).toHaveBeenCalledTimes(2);
+      expect(sendText).toHaveBeenCalledTimes(sends);
+      expect(await handoffs()).toHaveLength(1);
+      expect(await usageOutcomes()).toEqual(['LIMITED', 'LIMITED', 'OK', 'OK']);
+    });
+
+    it("another business's usage does not count", async () => {
+      await setLimits({ aiMonthlyCap: 2 });
+      const other = await createLine(prisma, {
+        slug: 'lola',
+        phoneNumberId: '222',
+      });
+      await conversations.recordInbound(
+        textEvent('wamid.other', '5491100009999'),
+        other,
+      );
+      const otherConversation = await prisma.conversation.findFirstOrThrow({
+        where: { lineId: other.lineId },
+      });
+      await prisma.aiUsage.createMany({
+        data: Array.from({ length: 5 }, () => ({
+          conversationId: otherConversation.id,
+          day: usageDay(new Date()),
+          model: MODEL,
+          inputTokens: 1,
+          outputTokens: 1,
+          latencyMs: 1,
+          outcome: 'OK' as const,
+        })),
+      });
+      respond.mockResolvedValue(text('ok'));
+
+      await say('hola');
+
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(lastSent()).toBe('ok');
+    });
+
+    it('a new month starts the count again', async () => {
+      await setLimits({ aiMonthlyCap: 2 });
+      respond.mockResolvedValue(text('ok'));
+      await say('uno');
+      await say('dos');
+      // Move both calls to the last day of the previous month.
+      const lastMonth = new Date(usageMonth(new Date()).start.getTime() - 1);
+      await prisma.aiUsage.updateMany({
+        data: { day: usageDay(lastMonth) },
+      });
+
+      await say('tres');
+
+      expect(respond).toHaveBeenCalledTimes(3);
+      expect(lastSent()).toBe('ok');
+      expect(await handoffs()).toEqual([]);
+    });
+  });
+
+  it("the business's daily cap per conversation wins over the variable", async () => {
+    await prisma.business.updateMany({
+      where: { slug: 'botsuite46' },
+      data: { aiDailyCapPerConversation: 1 },
+    });
+    respond.mockResolvedValue(text('ok'));
+    await say('uno');
+
+    await say('dos');
+
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(lastSent()).toBe(AI_LIMIT_REPLY);
+    expect(await prisma.handoffRequest.count()).toBe(0);
   });
 
   it('retries a retryable AI error and regenerates without duplicating effects', async () => {

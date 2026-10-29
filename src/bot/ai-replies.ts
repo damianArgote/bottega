@@ -9,6 +9,13 @@ export const AI_FALLBACK_REPLY =
 export const AI_LIMIT_REPLY =
   'Por hoy llegamos al límite de respuestas automáticas. Mañana sigo respondiéndote. Si querés hablar con una persona del equipo, escribí *humano*.';
 
+/**
+ * Reply when the business reached its monthly AI cap; the conversation is
+ * handed off to a person with it.
+ */
+export const AI_MONTHLY_CAP_REPLY =
+  'En un momento te responde una persona del equipo.';
+
 /** Used when the model saved lead data but wrote no text. */
 export const LEAD_SAVED_ACK = '¡Gracias! Ya lo anoté.';
 

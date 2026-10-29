@@ -51,6 +51,7 @@ describe('parseEnv', () => {
       BOT_REPLY_MODE: 'echo',
       WHATSAPP_HTTP_TIMEOUT_MS: 10_000,
       AI_MAX_INTERACTIONS_PER_USER_PER_DAY: 30,
+      AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH: 5_000,
       OPENAI_TIMEOUT_MS: 20_000,
       OPENAI_MAX_OUTPUT_TOKENS: 300,
       AI_HISTORY_LIMIT: 12,
@@ -272,6 +273,19 @@ describe('parseEnv', () => {
 
       expect(error.problems[0]).toMatch(
         /^AI_MAX_INTERACTIONS_PER_USER_PER_DAY: /,
+      );
+    },
+  );
+
+  it.each(['0', '-1', '1.5', 'abc'])(
+    'rejects a non positive-integer monthly cap (%s)',
+    (value) => {
+      const error = captureError(
+        validEnv({ AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH: value }),
+      );
+
+      expect(error.problems[0]).toMatch(
+        /^AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH: /,
       );
     },
   );

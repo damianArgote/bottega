@@ -127,16 +127,22 @@ enum AiOutcome {
 
 /// A business served by Bottega (one Meta app and portfolio per business).
 model Business {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String   @unique
+  id                        String   @id @default(uuid()) @db.Uuid
+  name                      String
+  slug                      String   @unique
   /// How the bot introduces itself, e.g. "BotSuite, IA de BotSuite46".
   /// Initial value of AgentProfile.botName; the profile's name is the one used.
-  botName   String   @map("bot_name")
+  botName                   String   @map("bot_name")
   /// IANA zone for the business's opening hours.
-  timezone  String   @default("America/Argentina/Buenos_Aires")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  timezone                  String   @default("America/Argentina/Buenos_Aires")
+  /// AI replies per calendar month (America/Argentina/Buenos_Aires) for the
+  /// whole business; null uses AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH.
+  aiMonthlyCap              Int?     @map("ai_monthly_cap")
+  /// AI replies per conversation per day; null uses
+  /// AI_MAX_INTERACTIONS_PER_USER_PER_DAY.
+  aiDailyCapPerConversation Int?     @map("ai_daily_cap_per_conversation")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
 
   lines                Line[]
   contacts             Contact[]
@@ -470,6 +476,8 @@ model AiUsage {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, day])
+  /// The business's monthly count (joined through conversation and line).
+  @@index([day])
   @@map("ai_usage")
 }
 
