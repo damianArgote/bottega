@@ -189,10 +189,14 @@ export class AuthService {
   }
 
   /**
-   * GET /auth/me: the user, their businesses and their role in each (only
-   * the active memberships).
+   * GET /auth/me: the user, whether they are staff, their businesses and
+   * their role in each (only the active memberships).
    */
   async me(user: SessionUser) {
+    const { staff } = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { staff: true },
+    });
     const memberships = await this.prisma.membership.findMany({
       where: { userId: user.id, active: true },
       orderBy: { createdAt: 'asc' },
@@ -203,6 +207,7 @@ export class AuthService {
     });
     return {
       user,
+      staff,
       businesses: memberships.map((m) => ({ ...m.business, role: m.role })),
     };
   }

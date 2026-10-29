@@ -534,7 +534,7 @@ vive en dos cookies `httpOnly`, `Secure` y `SameSite=Lax`:
 | `POST /auth/login` | Body `{ "email", "password" }`. Setea las dos cookies y devuelve el usuario. `401` con el mismo mensaje para email desconocido, contraseña incorrecta o usuario inactivo. Hasta 5 intentos por minuto por IP y por email; después, `429`. |
 | `POST /auth/refresh` | Con la cookie de refresh: cookies nuevas. `401` si el token no existe, ya se usó, se revocó o venció. |
 | `POST /auth/logout` | Revoca el refresh y borra las cookies (`204`). |
-| `GET /auth/me` | El usuario, sus negocios (solo donde está activo) y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. `user.mustChangePassword` dice si tiene una contraseña temporal (también viene en el login): la web le pide una nueva antes de entrar a la bandeja. |
+| `GET /auth/me` | El usuario, sus negocios (solo donde está activo) y su rol en cada uno (`OWNER` o `AGENT`). `401` sin sesión. `user.mustChangePassword` dice si tiene una contraseña temporal (también viene en el login): la web le pide una nueva antes de entrar a la bandeja. `staff` dice si es del equipo de BotSuite46 (ver "Rol de equipo"). |
 | `POST /auth/change-password` | Con sesión. Body `{ "currentPassword", "newPassword" }` (la nueva, de 10 caracteres o más y distinta). `401` si la actual no es correcta. Las otras sesiones del usuario ya no pueden renovarse (su acceso actual vence en hasta 15 minutos) y esta recibe cookies nuevas. |
 
 El límite de intentos es en memoria (sirve con una sola instancia); está
@@ -740,6 +740,38 @@ suscripción falla, la línea queda creada igual y el motivo viene en
 
 El `appSecret` y el `accessToken` se guardan cifrados y **nunca** se devuelven.
 Un slug o un `phoneNumberId` repetidos dan `409`; un negocio que no existe, `404`.
+
+#### Rol de equipo (`STAFF`)
+
+El equipo de BotSuite46 puede dar de alta clientes desde la bandeja, sin la
+`ADMIN_API_KEY`, con un usuario marcado como `staff`. El rol se da y se saca
+**solo** con la API de admin:
+
+```bash
+curl -X PUT "$API/admin/users/<userId>/staff" -H "X-Admin-Api-Key: $KEY" \
+  -H 'Content-Type: application/json' -d '{"staff":true}'
+# → 200 {"id":"<userId>","staff":true}
+```
+
+Se comprueba en la base en cada pedido: al sacarlo, el acceso se corta en el
+pedido siguiente, sin cerrar la sesión. El rol no da acceso a conversaciones,
+mensajes, leads ni al agente de otros negocios.
+
+Con una sesión de la bandeja de un usuario `staff`, las rutas `/staff/...` hacen
+lo mismo que la API de admin, con las mismas validaciones (sin sesión `401`,
+sin el rol `403`):
+
+| Ruta | Igual que |
+| ---- | --------- |
+| `GET /staff/lines/status` | `GET /admin/lines/status` |
+| `POST /staff/businesses` | `POST /admin/businesses` |
+| `POST /staff/businesses/:businessId/lines` | El alta del borrador (solo body vacío; con body, `400`). |
+| `PUT /staff/lines/:lineId/credentials` | `PUT /admin/lines/:lineId/credentials` |
+| `GET /staff/lines/:lineId/phone-numbers`, `POST .../register`, `POST .../subscribe`, `POST .../app-published` | Las mismas rutas de `/admin/lines/:lineId/...` |
+| `POST /staff/businesses/:businessId/owners` `{"email","name"}` | Crea una cuenta **nueva** como `OWNER`, con contraseña temporal que se devuelve una sola vez (`temporaryPassword`) y tiene que cambiar al entrar. Un email que ya tiene cuenta (incluido el propio) da `409` `EMAIL_IN_USE`: así el equipo no puede sumarse ni sumar a otros a un negocio. |
+
+Cada acción queda en el log (`info`) con el id del usuario, la acción y el id
+del negocio o la línea; nunca secretos, el PIN ni los bodies.
 
 #### Alta paso a paso (línea en borrador)
 
