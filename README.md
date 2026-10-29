@@ -757,6 +757,22 @@ Se comprueba en la base en cada pedido: al sacarlo, el acceso se corta en el
 pedido siguiente, sin cerrar la sesión. El rol no da acceso a conversaciones,
 mensajes, leads ni al agente de otros negocios.
 
+Con una sesión de la bandeja de un usuario `staff`, las rutas `/staff/...` hacen
+lo mismo que la API de admin, con las mismas validaciones (sin sesión `401`,
+sin el rol `403`):
+
+| Ruta | Igual que |
+| ---- | --------- |
+| `GET /staff/lines/status` | `GET /admin/lines/status` |
+| `POST /staff/businesses` | `POST /admin/businesses` |
+| `POST /staff/businesses/:businessId/lines` | El alta del borrador (solo body vacío; con body, `400`). |
+| `PUT /staff/lines/:lineId/credentials` | `PUT /admin/lines/:lineId/credentials` |
+| `GET /staff/lines/:lineId/phone-numbers`, `POST .../register`, `POST .../subscribe`, `POST .../app-published` | Las mismas rutas de `/admin/lines/:lineId/...` |
+| `POST /staff/businesses/:businessId/owners` `{"email","name"}` | Agrega un `OWNER` con contraseña temporal, que se devuelve una sola vez (`temporaryPassword`; `null` si el usuario ya existía) y tiene que cambiar al entrar. |
+
+Cada acción queda en el log (`info`) con el id del usuario, la acción y el id
+del negocio o la línea; nunca secretos, el PIN ni los bodies.
+
 #### Alta paso a paso (línea en borrador)
 
 Cuando todavía no hay número (la guía de conexión verifica el webhook antes),

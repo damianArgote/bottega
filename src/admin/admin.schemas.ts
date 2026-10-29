@@ -152,6 +152,11 @@ export const agentPreviewBodySchema = z
   })
   .strict();
 
+/** A business owner added by the team (temporary password, shown once). */
+export const addOwnerBodySchema = addUserBodySchema
+  .pick({ email: true, name: true })
+  .strict();
+
 /** No body, or `{}`: the request carries no fields. */
 export function isEmptyBody(body: unknown): boolean {
   return (

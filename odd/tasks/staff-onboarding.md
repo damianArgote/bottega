@@ -20,7 +20,7 @@ Source: `docs/prompts/08d-alta-desde-la-bandeja.md`, part 1 (verbatim where quot
 ## Tasks
 
 - T1 S1-S4, S8: migration, admin route, StaffGuard, `/auth/me` staff, CLAUDE.md. Route: inline. Risk: item 2 (permissions). Status: done (int RED observed: 4 failing before the change).
-- T2 S5-S7, S9: `/staff` controller with audit logs and tests. Route: inline. Risk: item 2. Status: pending.
+- T2 S5-S7, S9: `/staff` controller with audit logs and tests. Route: inline. Risk: item 2. Status: done (routes were new; int green locally).
 
 Route evidence: two dependent units sharing the guard and services; no Writer trigger, so inline. Independent verifier at the end (item 2).
 
