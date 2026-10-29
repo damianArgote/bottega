@@ -935,6 +935,43 @@ describe('Line onboarding (integration)', () => {
       );
     });
 
+    it('lists every line of every business for the team, with its quality', async () => {
+      const a = await registered('lola');
+      const b = await createDraft('kubbo');
+
+      const res = await adminGet('/lines/status').expect(200);
+
+      const lines = (
+        res.body as {
+          lines: Array<{
+            lineId: string;
+            business: { slug: string };
+            step: string;
+            number: { qualityRating: string } | null;
+          }>;
+        }
+      ).lines;
+      expect(
+        lines.map((l) => [
+          l.business.slug,
+          l.step,
+          l.number?.qualityRating ?? null,
+        ]),
+      ).toEqual([
+        // The seeded default line: no credentials, so Meta is not asked.
+        ['botsuite46', 'registered', null],
+        ['lola', 'registered', 'GREEN'],
+        ['kubbo', 'draft', null],
+      ]);
+      expect(lines[1]).toMatchObject({
+        lineId: a.lineId,
+        business: { id: a.businessId, name: 'Peluquería Ana', slug: 'lola' },
+      });
+      expect(lines[2]!.lineId).toBe(b.lineId);
+      await expectNoRouteSecrets(a.lineId, res.body);
+      await http().get('/admin/lines/status').expect(401);
+    });
+
     it("shows an OWNER only their business's lines; an AGENT gets 403", async () => {
       const a = await registered('lola');
       const b = await createDraft('kubbo');
