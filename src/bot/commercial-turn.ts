@@ -7,7 +7,7 @@ import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
 import { buildCommercialInstructions } from './prompts.js';
 import { renderReply } from './replies.js';
 import { toolDefinitionsFor } from './tools/registry.js';
-import type { PlannedEffect } from './tools/tool.js';
+import type { CatalogReader, PlannedEffect } from './tools/tool.js';
 
 export interface TurnMessage {
   role: 'user' | 'assistant';
@@ -56,6 +56,8 @@ export async function runCommercialTurn(input: {
   maxOutputTokens: number;
   messages: readonly TurnMessage[];
   known?: LeadValues;
+  /** The business's catalog, when it has available items. */
+  catalog?: CatalogReader;
   /** Called after every model call (for logging). */
   onCall?: (response: AiResponse, latencyMs: number) => void;
 }): Promise<CommercialTurnResult> {
@@ -65,6 +67,7 @@ export async function runCommercialTurn(input: {
   const toolOptions = {
     demoEnabled: profile.demoEnabled,
     leadFields: profile.leadFields,
+    ...(input.catalog ? { catalog: input.catalog } : {}),
   };
   const usage = { calls: 0, inputTokens: 0, outputTokens: 0 };
 
@@ -82,7 +85,9 @@ export async function runCommercialTurn(input: {
     {
       request: {
         model,
-        instructions: buildCommercialInstructions(profile, input.known ?? {}),
+        instructions: buildCommercialInstructions(profile, input.known ?? {}, {
+          catalog: input.catalog !== undefined,
+        }),
         tools: toolDefinitionsFor(mode, toolOptions),
         maxOutputTokens: input.maxOutputTokens,
       },

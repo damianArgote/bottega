@@ -1,7 +1,7 @@
 import type { AiInputItem, AiRequest, AiResponse } from '../ai/ai.provider.js';
 import { AI_MAX_MODEL_ROUNDS } from '../ai/ai-limits.js';
 import { insuranceRequestSummary, LEAD_SAVED_ACK } from './ai-replies.js';
-import { planToolCall } from './tools/registry.js';
+import { runToolCall } from './tools/registry.js';
 import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 import type { PlannedEffect, ToolContext } from './tools/tool.js';
 
@@ -14,7 +14,7 @@ export interface ToolCallTrace {
   /** Raw JSON text from the model (untrusted). */
   arguments: string;
   accepted: boolean;
-  /** Static rejection label (see planToolCall), when not accepted. */
+  /** Static rejection label (see runToolCall), when not accepted. */
   reason?: string;
 }
 
@@ -69,7 +69,7 @@ export async function runAgentTurn(
       return { kind: 'text', text: response.outputText, effects, calls };
     }
     for (const toolCall of response.toolCalls) {
-      const result = planToolCall(toolCall, {
+      const result = await runToolCall(toolCall, {
         ...setup.tools,
         planned: effects,
       });
@@ -85,7 +85,9 @@ export async function runAgentTurn(
       };
       calls.push(trace);
       if (result.ok) {
-        effects.push(result.effect);
+        if (result.effect) {
+          effects.push(result.effect);
+        }
       } else {
         onRejected?.(trace);
       }

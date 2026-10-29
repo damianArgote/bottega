@@ -8,6 +8,7 @@ import {
   type AiResponse,
 } from '../../src/ai/ai.provider.js';
 import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
+import { CatalogService } from '../../src/catalog/catalog.service.js';
 import {
   AiUsageService,
   usageDay,
@@ -125,6 +126,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       provider: { respond },
       usage: new AiUsageService(prisma),
       limits: new AiLimitsService(prisma, aiConfig),
+      catalog: new CatalogService(prisma, aiConfig),
       prisma,
       content,
       config: aiConfig,
@@ -455,6 +457,86 @@ describe('AI reply pipeline (integration, mocked model)', () => {
     expect(limited).toMatchObject({
       model: MODEL,
       agentProfileVersion: (await profile()).version,
+    });
+  });
+
+  describe('catalog', () => {
+    const addItem = async (available = true) => {
+      const business = await prisma.business.findUniqueOrThrow({
+        where: { slug: 'botsuite46' },
+      });
+      await prisma.catalogItem.create({
+        data: {
+          businessId: business.id,
+          externalId: 'H1',
+          name: 'Chocolate amargo',
+          description: 'Cacao 70%',
+          price: '1500.00',
+          available,
+          rowHash: 'h',
+        },
+      });
+    };
+    const toolNames = (index: number) =>
+      request(index)?.tools.map((t) => t.name) ?? [];
+
+    it('without an available item the bot gets no search_catalog', async () => {
+      await addItem(false);
+      respond.mockResolvedValueOnce(text('¡Hola!'));
+
+      await say('¿cuánto sale el chocolate?');
+
+      expect(toolNames(0)).not.toContain('search_catalog');
+      expect(request(0)?.instructions).not.toContain('search_catalog');
+    });
+
+    it('with one, the bot searches during the turn and answers with the result', async () => {
+      await addItem();
+      respond
+        .mockResolvedValueOnce(
+          tool('search_catalog', {
+            query: 'chocolate amrgo',
+            category: null,
+            max_price: null,
+          }),
+        )
+        .mockResolvedValueOnce(text('El chocolate amargo sale $1.500.'));
+
+      await say('¿cuánto sale el chocolate amrgo?');
+
+      expect(toolNames(0)).toContain('search_catalog');
+      expect(request(0)?.instructions).toContain(
+        'Nunca digas un precio que no salga de sus resultados.',
+      );
+      expect(toolResults(request(1))).toEqual([
+        {
+          ok: true,
+          items: [
+            {
+              name: 'Chocolate amargo',
+              description: 'Cacao 70%',
+              category: null,
+              price: 1500,
+              currency: 'ARS',
+              attributes: {},
+            },
+          ],
+        },
+      ]);
+      expect(lastSent()).toBe('El chocolate amargo sale $1.500.');
+      // A read tool: nothing written besides the usual rows.
+      expect(await prisma.handoffRequest.count()).toBe(0);
+      expect(await prisma.lead.count()).toBe(0);
+    });
+
+    it('is not offered inside the demo', async () => {
+      await addItem();
+      await say('Seguro de auto');
+      respond.mockResolvedValueOnce(text('Hola desde la demo.'));
+
+      await say('hola');
+
+      expect(toolNames(0)).not.toContain('search_catalog');
     });
   });
 

@@ -1,4 +1,5 @@
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { CatalogService } from '../../src/catalog/catalog.service.js';
 import {
   AiProviderError,
   type AiProvider,
@@ -57,10 +58,12 @@ describe('Admin agent profile and preview (integration)', () => {
   beforeAll(async () => {
     prisma = await connectPrisma();
     agents = new AgentsService(prisma);
+    const config = testConfig({ OPENAI_MODEL: MODEL });
     preview = new AgentPreviewService(
       prisma,
       { respond },
-      testConfig({ OPENAI_MODEL: MODEL }),
+      config,
+      new CatalogService(prisma, config),
     );
   });
 
