@@ -33,6 +33,14 @@ export const userIdSchema = z.uuid();
 
 export const staffBodySchema = z.object({ staff: z.boolean() }).strict();
 
+/** A business's own AI cap; null goes back to the environment default. */
+const aiCap = z.number().int().min(1).max(1_000_000).nullable();
+
+/** PUT /admin/businesses/:id/limits: both caps, every time. */
+export const aiLimitsBodySchema = z
+  .object({ aiMonthlyCap: aiCap, aiDailyCapPerConversation: aiCap })
+  .strict();
+
 export const createBusinessBodySchema = z
   .object({
     name: z.string().trim().min(1).max(100),

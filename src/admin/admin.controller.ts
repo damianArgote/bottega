@@ -15,12 +15,14 @@ import {
 import type { Response } from 'express';
 import { agentProfileSchema } from '../agents/agent-profile.schema.js';
 import { AgentsService } from '../agents/agents.service.js';
+import { AiLimitsService } from '../ai/ai-limits.service.js';
 import { UsersService } from '../auth/users.service.js';
 import { AgentPreviewService } from '../bot/agent-preview.service.js';
 import { AdminApiKeyGuard } from './admin-api-key.guard.js';
 import {
   addUserBodySchema,
   agentPreviewBodySchema,
+  aiLimitsBodySchema,
   businessIdSchema,
   conversationIdSchema,
   createBusinessBodySchema,
@@ -60,6 +62,7 @@ export class AdminController {
     private readonly preview: AgentPreviewService,
     private readonly users: UsersService,
     private readonly onboarding: LineOnboardingService,
+    private readonly aiLimits: AiLimitsService,
   ) {}
 
   /** `{ staff }`: grants or removes the BotSuite46 team role. */
@@ -93,6 +96,27 @@ export class AdminController {
       parseOrBadRequest(businessIdSchema, id, 'id'),
       parseOrBadRequest(agentProfileSchema, body ?? {}, 'body'),
     );
+  }
+
+  /** The business's own AI caps (null: the environment default). */
+  @Get('businesses/:id/limits')
+  limits(@Param('id') id: string) {
+    return this.aiLimits.get(parseOrBadRequest(businessIdSchema, id, 'id'));
+  }
+
+  /** Only the team changes the caps: no inbox or staff route does. */
+  @Put('businesses/:id/limits')
+  putLimits(@Param('id') id: string, @Body() body: unknown) {
+    return this.aiLimits.put(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      parseOrBadRequest(aiLimitsBodySchema, body ?? {}, 'body'),
+    );
+  }
+
+  /** AI replies of the month against the monthly cap. */
+  @Get('businesses/:id/usage')
+  usage(@Param('id') id: string) {
+    return this.aiLimits.usage(parseOrBadRequest(businessIdSchema, id, 'id'));
   }
 
   /** One turn against the real model; sends and stores nothing. */

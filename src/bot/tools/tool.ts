@@ -28,7 +28,9 @@ export type PlannedEffect =
   /** Reply buttons under the reply (offer_options); nothing to apply. */
   | { kind: 'reply_buttons'; buttons: ReplyButton[] }
   /** Not a tool: the generator added the out-of-hours notice on `day`. */
-  | { kind: 'out_of_hours_notice'; day: string };
+  | { kind: 'out_of_hours_notice'; day: string }
+  /** Not a tool: the business reached its monthly AI cap (hands off). */
+  | { kind: 'ai_monthly_cap_handoff' };
 
 /** What a tool may read while planning. */
 export interface ToolContext {

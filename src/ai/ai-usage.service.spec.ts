@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { AiUsageService, usageDay } from './ai-usage.service.js';
+import { AiUsageService, usageDay, usageMonth } from './ai-usage.service.js';
 import { worstCaseAiJobMs } from './ai-limits.js';
 
 describe('usageDay', () => {
@@ -12,6 +12,33 @@ describe('usageDay', () => {
     expect(usageDay(new Date('2026-10-12T03:00:00Z')).toISOString()).toBe(
       '2026-10-12T00:00:00.000Z',
     );
+  });
+});
+
+describe('usageMonth', () => {
+  const month = (iso: string) => {
+    const { label, start, end } = usageMonth(new Date(iso));
+    return { label, start: start.toISOString(), end: end.toISOString() };
+  };
+
+  it('is already November at 00:30 on 1/11 in Argentina (03:30 UTC)', () => {
+    expect(month('2026-11-01T03:30:00Z')).toEqual({
+      label: '2026-11',
+      start: '2026-11-01T00:00:00.000Z',
+      end: '2026-12-01T00:00:00.000Z',
+    });
+  });
+
+  it('is still October at 22:00 on 31/10 in Argentina (01:00 UTC on 1/11)', () => {
+    expect(month('2026-11-01T01:00:00Z')).toEqual({
+      label: '2026-10',
+      start: '2026-10-01T00:00:00.000Z',
+      end: '2026-11-01T00:00:00.000Z',
+    });
+  });
+
+  it('ends December on the first of January', () => {
+    expect(month('2026-12-15T12:00:00Z').end).toBe('2027-01-01T00:00:00.000Z');
   });
 });
 

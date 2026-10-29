@@ -5,6 +5,7 @@ import {
   AiProviderError,
   type AiProvider,
 } from './ai.provider.js';
+import { AiLimitsService } from './ai-limits.service.js';
 import { AiUsageService } from './ai-usage.service.js';
 import { OpenAiProvider } from './openai.provider.js';
 
@@ -16,6 +17,7 @@ const disabledProvider: AiProvider = {
 @Module({
   providers: [
     AiUsageService,
+    AiLimitsService,
     {
       provide: AI_PROVIDER,
       inject: [AppConfigService],
@@ -36,6 +38,6 @@ const disabledProvider: AiProvider = {
       },
     },
   ],
-  exports: [AI_PROVIDER, AiUsageService],
+  exports: [AI_PROVIDER, AiUsageService, AiLimitsService],
 })
 export class AiModule {}

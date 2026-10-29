@@ -1,5 +1,6 @@
 import type { ReplyButton } from '../../whatsapp/whatsapp.client.js';
 import { Injectable } from '@nestjs/common';
+import { HANDOFF_REASON_AI_MONTHLY_CAP } from '../../ai/ai-limits.service.js';
 import type { Tx } from '../../conversations/context.service.js';
 import { DemosService } from '../../demos/demos.service.js';
 import type { LeadValues } from '../../leads/lead-values.js';
@@ -38,7 +39,8 @@ export class ToolEffectsService {
     generated: GeneratedOutcome,
   ): Promise<CommandOutcome> {
     const lead: LeadValues = {};
-    let handoff: { reason: string | null } | null = null;
+    /** confirm: the "humano" confirmation follows the generated replies. */
+    let handoff: { reason: string; confirm: boolean } | null = null;
     for (const effect of generated.effects) {
       switch (effect.kind) {
         case 'save_lead':
@@ -53,14 +55,18 @@ export class ToolEffectsService {
             tx,
           );
           if (effect.handoffReason) {
-            handoff = { reason: effect.handoffReason };
+            handoff = aiToolHandoff(effect.handoffReason);
           }
           break;
         case 'insurance_quote':
           // Prices for the reply only: nothing to store.
           break;
         case 'request_handoff':
-          handoff = effect;
+          handoff = aiToolHandoff(effect.reason);
+          break;
+        case 'ai_monthly_cap_handoff':
+          // The generated reply already tells the user a person answers.
+          handoff = { reason: HANDOFF_REASON_AI_MONTHLY_CAP, confirm: false };
           break;
         case 'reply_buttons':
           // Sent with the reply (GeneratedOutcome.buttons): nothing to store.
@@ -84,12 +90,11 @@ export class ToolEffectsService {
         tx,
         conversationId,
         CommandId.REQUEST_HUMAN,
-        {
-          handoffReason: handoff.reason
-            ? `${HANDOFF_REASON_AI_TOOL}: ${handoff.reason}`
-            : HANDOFF_REASON_AI_TOOL,
-        },
+        { handoffReason: handoff.reason },
       );
+      if (!handoff.confirm) {
+        return { contextId: outcome.contextId, replies: generated.replies };
+      }
       return {
         ...outcome,
         replies: [...generated.replies, ...outcome.replies],
@@ -101,4 +106,13 @@ export class ToolEffectsService {
       ...(generated.buttons ? { buttons: generated.buttons } : {}),
     };
   }
+}
+
+function aiToolHandoff(reason: string | null) {
+  return {
+    reason: reason
+      ? `${HANDOFF_REASON_AI_TOOL}: ${reason}`
+      : HANDOFF_REASON_AI_TOOL,
+    confirm: true,
+  };
 }
