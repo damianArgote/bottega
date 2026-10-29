@@ -127,35 +127,41 @@ enum AiOutcome {
 
 /// A business served by Bottega (one Meta app and portfolio per business).
 model Business {
-  id                        String    @id @default(uuid()) @db.Uuid
-  name                      String
-  slug                      String    @unique
+  id                           String    @id @default(uuid()) @db.Uuid
+  name                         String
+  slug                         String    @unique
   /// How the bot introduces itself, e.g. "BotSuite, IA de BotSuite46".
   /// Initial value of AgentProfile.botName; the profile's name is the one used.
-  botName                   String    @map("bot_name")
+  botName                      String    @map("bot_name")
   /// IANA zone for the business's opening hours.
-  timezone                  String    @default("America/Argentina/Buenos_Aires")
+  timezone                     String    @default("America/Argentina/Buenos_Aires")
   /// AI replies per calendar month (America/Argentina/Buenos_Aires) for the
   /// whole business; null uses AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH.
-  aiMonthlyCap              Int?      @map("ai_monthly_cap")
+  aiMonthlyCap                 Int?      @map("ai_monthly_cap")
   /// AI replies per conversation per day; null uses
   /// AI_MAX_INTERACTIONS_PER_USER_PER_DAY.
-  aiDailyCapPerConversation Int?      @map("ai_daily_cap_per_conversation")
+  aiDailyCapPerConversation    Int?      @map("ai_daily_cap_per_conversation")
   /// Catalog items the business may have; null uses
   /// CATALOG_MAX_ITEMS_PER_BUSINESS.
-  catalogItemCap            Int?      @map("catalog_item_cap")
+  catalogItemCap               Int?      @map("catalog_item_cap")
   /// The confirmed column mapping and the headers it was made for:
   /// { headers, mapping }. Reused while the headers do not change.
-  catalogMapping            Json?     @map("catalog_mapping")
+  catalogMapping               Json?     @map("catalog_mapping")
   /// Google Sheet published as CSV, re-read every hour.
-  catalogSheetUrl           String?   @map("catalog_sheet_url")
+  catalogSheetUrl              String?   @map("catalog_sheet_url")
   /// When the sheet is due again (claimed by the worker, then moved ahead).
-  catalogSyncNextAt         DateTime? @map("catalog_sync_next_at")
+  catalogSyncNextAt            DateTime? @map("catalog_sync_next_at")
   /// Last sheet sync attempt and its error code (null when it worked).
-  catalogSyncedAt           DateTime? @map("catalog_synced_at")
-  catalogSyncError          String?   @map("catalog_sync_error")
-  createdAt                 DateTime  @default(now()) @map("created_at")
-  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  catalogSyncedAt              DateTime? @map("catalog_synced_at")
+  catalogSyncError             String?   @map("catalog_sync_error")
+  /// Longest audio the bot transcribes, in seconds; null uses
+  /// MEDIA_AUDIO_MAX_SECONDS.
+  audioMaxSeconds              Int?      @map("audio_max_seconds")
+  /// Attachments processed per conversation per day; null uses
+  /// MEDIA_MAX_PER_CONVERSATION_PER_DAY.
+  mediaDailyCapPerConversation Int?      @map("media_daily_cap_per_conversation")
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  updatedAt                    DateTime  @updatedAt @map("updated_at")
 
   lines                Line[]
   contacts             Contact[]
@@ -368,6 +374,23 @@ model Message {
   idempotencyKey String?          @unique @map("idempotency_key")
   author         MessageAuthor
   errorCode      String?          @map("error_code")
+  /// Attachment (inbound): image, audio, document, video, sticker,
+  /// location or other. Media is stored with type UNSUPPORTED (location as
+  /// TEXT) so the previous release reads it; null for plain text.
+  mediaKind      String?          @map("media_kind")
+  /// Meta media id; the file stays in Meta (deleted there after 30 days).
+  mediaId        String?          @map("media_id")
+  mediaMime      String?          @map("media_mime")
+  mediaSize      Int?             @map("media_size")
+  mediaFilename  String?          @map("media_filename")
+  /// Audio recorded as a voice note.
+  mediaVoice     Boolean?         @map("media_voice")
+  /// Automatic transcription of an audio (kept after Meta deletes it).
+  transcript     String?
+  /// Why the attachment was not processed: too_long, too_large, daily_cap,
+  /// ai_cap, unsupported_type, transcription_failed, empty_transcript,
+  /// media_gone.
+  mediaError     String?          @map("media_error")
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 

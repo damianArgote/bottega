@@ -10,8 +10,9 @@ import type {
  * Message types that never get a reply:
  * - `reaction`: answering an emoji reaction with "text only" would be noise.
  * - `system`: notifications such as "customer changed number", not user input.
- * Every other non-text type (image, audio, sticker, location, Meta's own
- * `unsupported`, ...) becomes `InboundUnsupported` so the user gets a hint.
+ * Image, audio, document, video and sticker become `InboundUnsupported`
+ * with their media; a location becomes text; any other type (Meta's own
+ * `unsupported`, ...) becomes `InboundUnsupported` without media.
  */
 const IGNORED_MESSAGE_TYPES = new Set(['reaction', 'system']);
 
@@ -41,6 +42,28 @@ const contactSchema = z.object({
   profile: z.object({ name: z.string() }).optional(),
 });
 
+/** The fields of an image, audio, document, video or sticker object. */
+const mediaObject = z.object({
+  id: z.string().min(1),
+  mime_type: z.string().optional(),
+  file_size: z.number().int().nonnegative().optional(),
+  caption: z.string().optional(),
+  filename: z.string().optional(),
+  voice: z.boolean().optional(),
+});
+
+const locationObject = z.object({
+  latitude: z.number(),
+  longitude: z.number(),
+  name: z.string().optional(),
+  address: z.string().optional(),
+});
+
+const MEDIA_TYPES = ['image', 'audio', 'document', 'video', 'sticker'] as const;
+type MediaType = (typeof MEDIA_TYPES)[number];
+const isMediaType = (type: string): type is MediaType =>
+  (MEDIA_TYPES as readonly string[]).includes(type);
+
 const messageSchema = z.object({
   from: z.string().min(1),
   id: z.string().min(1),
@@ -54,6 +77,12 @@ const messageSchema = z.object({
       list_reply: z.object({ title: z.string() }).optional(),
     })
     .optional(),
+  image: mediaObject.optional(),
+  audio: mediaObject.optional(),
+  document: mediaObject.optional(),
+  video: mediaObject.optional(),
+  sticker: mediaObject.optional(),
+  location: locationObject.optional(),
 });
 
 const statusSchema = z.object({
@@ -160,12 +189,39 @@ function parseMessage(
     return ignored(`ignored message type`);
   }
 
+  const profileName = profileNames.get(message.from);
   const base = {
     phoneNumberId,
     waMessageId: message.id,
     from: message.from,
     timestamp: toDate(message.timestamp),
+    ...(profileName !== undefined ? { profileName } : {}),
   };
+  if (message.type === 'location' && message.location) {
+    return {
+      kind: 'text',
+      ...base,
+      text: locationText(message.location),
+      media: { kind: 'location' },
+    };
+  }
+  const media = isMediaType(message.type) ? message[message.type] : undefined;
+  if (media) {
+    return {
+      kind: 'unsupported',
+      ...base,
+      messageType: message.type,
+      media: {
+        kind: message.type as MediaType,
+        mediaId: media.id,
+        ...(media.mime_type ? { mime: media.mime_type } : {}),
+        ...(media.file_size !== undefined ? { size: media.file_size } : {}),
+        ...(media.caption?.trim() ? { caption: media.caption.trim() } : {}),
+        ...(media.filename ? { filename: media.filename } : {}),
+        ...(media.voice !== undefined ? { voice: media.voice } : {}),
+      },
+    };
+  }
   // A tapped reply button or list option arrives as its title, like text.
   const tapped =
     message.type === 'interactive'
@@ -179,13 +235,19 @@ function parseMessage(
   if (body === undefined) {
     return ignored('text message without body');
   }
-  const profileName = profileNames.get(message.from);
-  return {
-    kind: 'text',
-    ...base,
-    text: body,
-    ...(profileName !== undefined ? { profileName } : {}),
-  };
+  return { kind: 'text', ...base, text: body };
+}
+
+/** "Ubicación: <nombre>, <dirección> (lat, long)", for the bot and the inbox. */
+function locationText(location: z.infer<typeof locationObject>): string {
+  const place = [location.name, location.address]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(', ');
+  const coordinates = `(${location.latitude}, ${location.longitude})`;
+  return place
+    ? `Ubicación: ${place} ${coordinates}`
+    : `Ubicación: ${coordinates}`;
 }
 
 function parseStatus(rawStatus: unknown, phoneNumberId: string): InboundEvent {
