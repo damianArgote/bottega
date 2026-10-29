@@ -9,6 +9,10 @@ import {
 } from '../../src/ai/ai.provider.js';
 import { usageDay } from '../../src/ai/ai-usage.service.js';
 import { configureHttp } from '../../src/app.setup.js';
+import {
+  SHEET_FETCHER,
+  type SheetFetcher,
+} from '../../src/catalog/sheet-fetcher.js';
 import { AppModule } from '../../src/app.module.js';
 import { AppConfigService } from '../../src/config/app-config.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
@@ -28,6 +32,13 @@ const SHEET = [
   'A1,Chocolate amargo,"15.000",sí,intenso',
   'A2,Dulce de leche,14000,no,',
 ].join('\n');
+
+const AI_MAPPING_CONFIRMED = {
+  externalId: 'Cód',
+  name: 'Sabor',
+  price: 'Precio x kg',
+  available: 'Hay',
+};
 
 const AI_MAPPING = {
   externalId: 'Cód',
@@ -52,6 +63,7 @@ type ImportBody = {
 
 describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => {
   const respond = vi.fn<AiProvider['respond']>();
+  const fetchSheet = vi.fn<SheetFetcher>();
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let a: string;
@@ -67,6 +79,8 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
       .useValue(config)
       .overrideProvider(AI_PROVIDER)
       .useValue({ respond })
+      .overrideProvider(SHEET_FETCHER)
+      .useValue(fetchSheet)
       .compile();
     app = moduleRef.createNestApplication({ rawBody: true, logger: false });
     configureHttp(app, config);
@@ -81,6 +95,7 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
   beforeEach(async () => {
     await resetDb(prisma);
     respond.mockReset();
+    fetchSheet.mockReset();
     a = (await createLine(prisma, { slug: 'kubbo', phoneNumberId: '222' }))
       .businessId;
   });
@@ -256,6 +271,64 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
       .expect(409);
     expect(pdf.body).toMatchObject({ code: 'AI_CAP_REACHED' });
     expect(respond).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a sheet whose mapping waits for a person', () => {
+    const URL =
+      'https://docs.google.com/spreadsheets/d/e/2PACX-kubbo/pub?output=csv';
+    const sync = () =>
+      http().post(admin('sync')).set('X-Admin-Api-Key', ADMIN_KEY);
+
+    beforeEach(async () => {
+      await http()
+        .put(admin('sheet'))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .send({ url: URL })
+        .expect(200);
+      respond.mockResolvedValue(answer(JSON.stringify(AI_MAPPING)));
+    });
+
+    it('an unchanged sheet keeps the same preview and does not ask the model again', async () => {
+      fetchSheet.mockResolvedValue(SHEET);
+
+      const first = (await sync().expect(200)).body as {
+        outcome: string;
+        import: ImportBody;
+      };
+      expect(first).toMatchObject({
+        outcome: 'preview',
+        import: { mappingConfirmed: false },
+      });
+      const second = (await sync().expect(200)).body as {
+        outcome: string;
+        import: ImportBody;
+      };
+
+      expect(second.import.id).toBe(first.import.id);
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(await prisma.catalogAiUsage.count()).toBe(1);
+      // The person can still confirm the preview they were looking at.
+      await confirm(first.import.id, AI_MAPPING_CONFIRMED).expect(200);
+      await apply(first.import.id).expect(200);
+      expect(await prisma.catalogItem.count()).toBe(2);
+    });
+
+    it('changed rows with the same headers reuse the pending proposal', async () => {
+      fetchSheet.mockResolvedValueOnce(SHEET);
+      await sync().expect(200);
+      fetchSheet.mockResolvedValueOnce(`${SHEET}\nA3,Limón,12000,sí,`);
+
+      const second = (await sync().expect(200)).body as {
+        import: ImportBody;
+      };
+
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(second.import).toMatchObject({
+        mappingConfirmed: false,
+        mapping: { name: 'Sabor', price: 'Precio x kg' },
+        summary: { created: 3 },
+      });
+    });
   });
 
   describe('PDF and photos', () => {

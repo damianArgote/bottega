@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import {
   BadGatewayException,
   BadRequestException,
@@ -14,7 +15,11 @@ import {
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { canApplyAlone, isPublishedSheetCsvUrl } from './catalog-sheet.js';
-import { CatalogService, type ImportView } from './catalog.service.js';
+import {
+  CatalogService,
+  type ImportView,
+  PREVIEW_TTL_MS,
+} from './catalog.service.js';
 import {
   SHEET_FETCHER,
   SheetFetchError,
@@ -163,6 +168,30 @@ export class CatalogSheetService {
       parsed.records,
       undefined,
     );
+    // The sheet did not change since the preview a person has to review:
+    // keep that one, so a confirmation in progress is not lost.
+    const pending = await this.prisma.catalogImport.findFirst({
+      where: {
+        businessId,
+        source: CatalogImportSource.SHEET,
+        status: CatalogImportStatus.PREVIEW,
+        createdAt: { gte: new Date(Date.now() - PREVIEW_TTL_MS) },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (
+      pending &&
+      // jsonb does not keep key order: compare by value.
+      isDeepStrictEqual(pending.sourceRecords, {
+        records: parsed.records,
+        rows: parsed.rows,
+      })
+    ) {
+      return {
+        outcome: 'preview',
+        import: await this.catalog.getImport(businessId, pending.id),
+      };
+    }
     await this.prisma.catalogImport.updateMany({
       where: {
         businessId,

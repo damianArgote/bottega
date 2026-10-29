@@ -241,6 +241,10 @@ export class CatalogAiService {
     },
   ): Promise<AiResponse> {
     const model = this.config.get('OPENAI_MODEL') ?? '';
+    const [before, cap] = await Promise.all([
+      this.limits.countMonth(businessId),
+      this.limits.monthlyCapOf(businessId),
+    ]);
     const started = Date.now();
     const record = (
       outcome: AiOutcome,
@@ -259,6 +263,14 @@ export class CatalogAiService {
           outcome,
         },
       });
+    // The 80% and 100% logs of the month, as for the bot's turns.
+    const logThresholds = async () =>
+      this.limits.logThresholds(
+        businessId,
+        cap,
+        before,
+        await this.limits.countMonth(businessId),
+      );
     let response: AiResponse;
     try {
       response = await this.provider.respond({
@@ -273,9 +285,11 @@ export class CatalogAiService {
       });
     } catch (error) {
       await record(AiOutcome.ERROR, { inputTokens: 0, outputTokens: 0 });
+      await logThresholds();
       throw error;
     }
     await record(AiOutcome.OK, response.usage, response.model);
+    await logThresholds();
     this.logger.log(
       JSON.stringify({
         event: 'catalog_ai_call',

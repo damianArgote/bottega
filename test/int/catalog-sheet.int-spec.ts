@@ -161,7 +161,7 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
     expect(await available()).toBe(4);
   });
 
-  it('a sync with row errors stays as a preview; a newer one discards it', async () => {
+  it('a sync with row errors stays as a preview; the same sheet keeps it, a changed one replaces it', async () => {
     await setSheet(URL).expect(200);
     fetchSheet.mockResolvedValue(sheet(3, 1000, ['F9,Sabor raro,consultar']));
 
@@ -172,6 +172,10 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
     });
     expect(await available()).toBe(0);
 
+    const same = (await sync().expect(200)).body as SyncBody;
+    expect(same.import?.id).toBe(first.import?.id);
+
+    fetchSheet.mockResolvedValue(sheet(4, 1000, ['F9,Sabor raro,consultar']));
     await sync().expect(200);
     const imports = await prisma.catalogImport.findMany({
       orderBy: { createdAt: 'asc' },

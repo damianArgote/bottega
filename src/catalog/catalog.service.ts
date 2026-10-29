@@ -667,6 +667,12 @@ export class CatalogService {
     if (saved) {
       return { mapping: saved, confirmed: true };
     }
+    // A proposal already waiting for a person with these same headers is
+    // reused: the model is asked once per set of headers, not every sync.
+    const pending = await this.pendingProposal(businessId, headers);
+    if (pending) {
+      return { mapping: pending, confirmed: false };
+    }
     const proposed = await this.ai.proposeMapping(businessId, headers, records);
     if (proposed) {
       return { mapping: proposed, confirmed: false };
@@ -680,6 +686,29 @@ export class CatalogService {
     return { mapping: guessed, confirmed: true };
   }
 
+  /** The newest unexpired, unconfirmed proposal for these same headers. */
+  private async pendingProposal(
+    businessId: string,
+    headers: readonly string[],
+    now = new Date(),
+  ): Promise<CatalogMapping | null> {
+    const candidates = await this.prisma.catalogImport.findMany({
+      where: {
+        businessId,
+        status: CatalogImportStatus.PREVIEW,
+        mappingConfirmed: false,
+        createdAt: { gte: new Date(now.getTime() - PREVIEW_TTL_MS) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { headers: true, mapping: true },
+      take: 10,
+    });
+    const match = candidates.find((c) =>
+      sameHeaders((c.headers as string[] | null) ?? [], headers),
+    );
+    return (match?.mapping as CatalogMapping | null | undefined) ?? null;
+  }
+
   /** The saved mapping, when it was made for these same headers. */
   async savedMapping(
     businessId: string,
@@ -690,11 +719,7 @@ export class CatalogService {
       select: { catalogMapping: true },
     });
     const saved = business?.catalogMapping as SavedMapping | null | undefined;
-    if (
-      !saved ||
-      saved.headers.length !== headers.length ||
-      !saved.headers.every((h) => headers.includes(h))
-    ) {
+    if (!saved || !sameHeaders(saved.headers, headers)) {
       return null;
     }
     return saved.mapping;
@@ -886,4 +911,9 @@ function assertColumns(mapping: CatalogMapping, headers: readonly string[]) {
       `El mapeo usa columnas que no están en el archivo: ${missing.map((c) => `"${c}"`).join(', ')}.`,
     );
   }
+}
+
+/** The same columns, in any order. */
+function sameHeaders(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((h) => b.includes(h));
 }
