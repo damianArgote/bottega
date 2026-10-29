@@ -132,6 +132,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `AI_MAX_INTERACTIONS_PER_USER_PER_DAY` | No | `30` | Tope diario de respuestas con IA por conversación, para los negocios sin tope propio (`PUT /admin/businesses/:id/limits`). |
 | `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` | No | `5000` | Tope mensual de respuestas con IA de todo un negocio (mes calendario de Argentina), para los negocios sin tope propio. |
 | `AI_HISTORY_LIMIT` | No | `12` | Mensajes del historial que recibe el modelo. |
+| `CATALOG_MAX_ITEMS_PER_BUSINESS` | No | `2000` | Tope de ítems del catálogo de un negocio sin tope propio (`catalogItemCap` en `PUT /admin/businesses/:id/limits`). |
 
 > **ChatGPT Plus no da acceso a la API.** La API se paga aparte: necesitás
 > cargar crédito o un medio de pago en platform.openai.com (Billing).
@@ -531,6 +532,99 @@ el 80% y el 100% del tope del mes queda un log `info`
 `ai_monthly_cap_threshold` con el id del negocio, el uso y el tope (dos
 turnos simultáneos pueden dejarlo dos veces).
 
+### Catálogo
+
+Un negocio puede cargar sus productos, servicios o propiedades con precio
+(tabla `catalog_item`). Es opcional: sin ítems disponibles el bot funciona
+como siempre y ni siquiera recibe la herramienta de búsqueda.
+
+- **Importar** (CSV o filas en JSON): cada fila se normaliza (precio
+  `"$ 1.500,00"` → `1500.00`, con coma o punto decimal; un punto solo es de
+  miles en grupos de tres, como `1.500`; disponibilidad `sí/no/1/0/true/false/disponible/agotado`)
+  y se valida sola. Una fila con error queda en la vista previa con su motivo
+  ("Fila 14: el precio \"consultar\" no es un número.") y las demás siguen. La
+  fila es la de la planilla: la 1 es la de los encabezados y las filas vacías
+  también cuentan. Sin código, el código es el nombre
+  en minúsculas y sin acentos. Las columnas que no son de ningún campo van a
+  `attributes` (hasta 20).
+- **Vista previa**: cuántos ítems se crean, cuántos cambian, cuántos quedan
+  igual y cuántos ya no están. No aplica nada. Vence a las 24 horas.
+- **Aplicar**, en una transacción: crea y actualiza por código; lo que ya no
+  está en la fuente queda `available = false` (nunca se borra) y vuelve si
+  reaparece. Importar dos veces lo mismo no cambia nada. Si quedarían más
+  ítems **disponibles** que el tope del negocio (`catalogItemCap` o
+  `CATALOG_MAX_ITEMS_PER_BUSINESS`), `409` `CATALOG_CAP_EXCEEDED` y no se
+  aplica nada. Cada aplicación deja un log `info` con el negocio, el usuario,
+  la importación y el resumen (nunca las filas).
+- **El bot** recibe `search_catalog` en modo comercial (nunca en la demo)
+  cuando el negocio tiene al menos un ítem disponible, con una regla fija: los
+  precios salen solo de sus resultados. Busca por texto (español, sin
+  acentos) y, si encuentra menos de 3, completa por parecido del nombre
+  (tolera errores de tipeo); devuelve hasta 8 ítems disponibles. Lo que
+  devuelve es información del negocio, no instrucciones.
+
+El mapeo de columnas va en `?mapping=` (JSON) con el CSV, o en el body
+`{ "rows": [...], "mapping": {...} }`. Campos: `externalId`, `name`
+(obligatorio), `description`, `category`, `price`, `currency`, `available`;
+cada uno con el nombre de su columna. El CSV es `text/csv` de hasta 2 MB,
+separado por `,` o `;`.
+
+**De dónde sale el mapeo**, en orden:
+
+1. El que se manda: lo eligió una persona, así que queda guardado para el
+   negocio (`business.catalog_mapping`, junto con los encabezados).
+2. El guardado, si los encabezados son los mismos (aunque cambien de orden):
+   no se llama al modelo.
+3. Las columnas conocidas de la planilla de ejemplo (`codigo, producto,
+   descripcion, categoria, precio, disponible` y sinónimos), si incluyen el
+   nombre **y** el precio: sin modelo y sin confirmación, como en una
+   importación común.
+4. La propuesta del modelo, con los encabezados y hasta 5 filas de ejemplo.
+   Queda **sin confirmar** (`mappingConfirmed: false`): aplicar da `409`
+   `MAPPING_NOT_CONFIRMED` hasta que una persona lo confirme o lo corrija con
+   `PUT .../imports/<id>/mapping`, que vuelve a normalizar las filas y lo
+   guarda. Mientras espera, una nueva importación con los mismos encabezados
+   reusa esa propuesta (no vuelve a llamar al modelo).
+5. Sin modelo (modo echo, tope del mes alcanzado o una respuesta inválida),
+   las columnas conocidas de la planilla de ejemplo (`codigo, producto,
+   descripcion, categoria, precio, disponible`). Sin columna de nombre, `400`.
+
+**PDF o foto** de una lista de precios (`application/pdf`, `image/jpeg`,
+`image/png` o `image/webp`, hasta 10 MB): el modelo extrae las filas y quedan
+como vista previa con `source: "document"`; nunca se aplican solas. Una lista
+que el modelo no puede devolver entera da `422` `DOCUMENT_UNREADABLE` (hay que
+dividirla o subirla como planilla); sin modelo, `503` `AI_UNAVAILABLE`; con el
+tope del mes alcanzado, `409` `AI_CAP_REACHED`. Cualquier otro tipo de
+contenido da `415`.
+
+Cada llamada al modelo del catálogo (mapeo y documentos) queda en
+`catalog_ai_usage` y **cuenta en el tope mensual de IA del negocio** (ver
+[Topes de IA](#topes-de-ia)). No se guarda el archivo original: solo las
+filas de la vista previa hasta aplicarla, descartarla o que pasen 24 horas.
+
+**Google Sheet**: el negocio publica su hoja (Archivo → Compartir → Publicar
+en la web → CSV) y carga el link con `PUT .../catalog/sheet`. Solo se aceptan
+links `https://docs.google.com/spreadsheets/.../pub?...output=csv`; cualquier
+otro da `400`. La hoja publicada es pública para quien tenga el link: no
+pongas costos ni datos internos en esa pestaña. Se vuelve a leer cada hora y
+con `POST .../catalog/sync` ("Sincronizar ahora"), por la misma importación:
+
+- Sin cambios: no se crea ninguna importación.
+- Se aplica sola solo si el mapeo está confirmado, no hay errores por fila y
+  pasan a no disponibles como mucho el 30% de los ítems disponibles. Si no,
+  queda en vista previa para una persona (una sincronización nueva descarta
+  la vista previa anterior de la hoja).
+- Si no se puede leer (`404`, deja de ser CSV, más de 2 MB, 15 segundos), la
+  ruta da `502` con el código (`sheet_http_404`, `sheet_not_csv`, ...) y el
+  código queda en `syncError`.
+
+La sincronización por hora corre en el proceso del worker
+(`WORKER_ENABLED=true`): cada negocio con hoja tiene su próxima hora
+(`catalog_sync_next_at`), que el worker toma con `FOR UPDATE SKIP LOCKED` y
+corre una hora para adelante, así dos instancias nunca leen la misma hoja.
+No es un job de `processing_job`. Si ningún negocio tiene hoja, no consulta
+la base (Neon puede suspenderse).
+
 ### Pausa
 
 Mientras una conversación está pausada (por `humano` o por un admin):
@@ -618,6 +712,14 @@ mes, con la misma respuesta que `GET /admin/businesses/<id>/usage`, a
 **cualquier** persona del negocio (`OWNER` o `AGENT`); `403` a alguien de
 otro negocio. Es de solo lectura: los topes los cambia el equipo.
 
+El catálogo del negocio, solo para sus `OWNER`, bajo
+`/inbox/businesses/<businessId>/settings/catalog` (ver [Catálogo](#catálogo)):
+las mismas rutas que la API de admin (`POST imports`, `GET imports/<id>`,
+`PUT imports/<id>/mapping`, `POST imports/<id>/apply`,
+`POST imports/<id>/discard`, `GET items`, `PUT items/<código>`,
+`DELETE items/<código>`, `GET sheet`, `PUT sheet`, `POST sync`). La
+importación guarda quién la hizo. El dueño no cambia el tope de ítems.
+
 Los leads del negocio, también solo para sus `OWNER`, bajo
 `/inbox/businesses/<businessId>/leads`:
 
@@ -692,8 +794,19 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
 | `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version` y guarda una copia (ver [Configuración del negocio](#configuración-del-negocio-backoffice)). Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
-| `GET /admin/businesses/<id>/limits` | Los topes de IA propios del negocio: `{ "aiMonthlyCap", "aiDailyCapPerConversation" }` (`null`: usa la variable de entorno). `404` si el negocio no existe. |
-| `PUT /admin/businesses/<id>/limits` | Body `{ "aiMonthlyCap": number\|null, "aiDailyCapPerConversation": number\|null }`, los dos campos siempre (enteros de 1 a 1.000.000; `null` vuelve al valor por defecto: `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` y `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`). Solo el equipo cambia los topes: no hay ninguna ruta de `/inbox` ni de `/staff` que lo haga. `404` si el negocio no existe. |
+| `GET /admin/businesses/<id>/limits` | Los topes propios del negocio: `{ "aiMonthlyCap", "aiDailyCapPerConversation", "catalogItemCap" }` (`null`: usa la variable de entorno). `404` si el negocio no existe. |
+| `PUT /admin/businesses/<id>/limits` | Body `{ "aiMonthlyCap": number\|null, "aiDailyCapPerConversation": number\|null }`, los dos campos siempre (enteros de 1 a 1.000.000; `null` vuelve al valor por defecto: `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` y `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`). Opcional: `"catalogItemCap": number\|null`, el tope de ítems disponibles del catálogo (`null`: `CATALOG_MAX_ITEMS_PER_BUSINESS`; si no se manda, no cambia). Solo el equipo cambia los topes: no hay ninguna ruta de `/inbox` ni de `/staff` que lo haga. `404` si el negocio no existe. |
+| `POST /admin/businesses/<id>/catalog/imports` | Un CSV (`Content-Type: text/csv`, hasta 2 MB, mapeo en `?mapping=`), `{ "rows", "mapping" }` en JSON (hasta 5.000 filas) o un PDF o una foto (hasta 10 MB, lo lee el modelo). Devuelve la vista previa: `{ id, status: "PREVIEW", summary: { created, updated, unchanged, unavailable, errors }, errors: [{ row, message }] }` (hasta 200 errores). Ver [Catálogo](#catálogo). |
+| `GET /admin/businesses/<id>/catalog/imports/<importId>` | La importación y su estado, con `headers`, `mapping` y `mappingConfirmed`. |
+| `PUT /admin/businesses/<id>/catalog/imports/<importId>/mapping` | Body `{ "mapping": {...} }`: confirma o corrige el mapeo de una vista previa, vuelve a normalizar sus filas y lo guarda para el negocio. `409` `NO_MAPPING` para un documento. |
+| `GET /admin/businesses/<id>/catalog/sheet` | La hoja de Google: `{ url, syncedAt, syncError, nextSyncAt }`. |
+| `PUT /admin/businesses/<id>/catalog/sheet` | Body `{ "url": "..." }` (o `null` para sacarla). Solo hojas publicadas como CSV; si no, `400`. La primera lectura corre enseguida. |
+| `POST /admin/businesses/<id>/catalog/sync` | "Sincronizar ahora": `{ outcome: "applied" \| "preview" \| "unchanged", import? }`. `409` `NO_SHEET`, `502` si no se pudo leer. |
+| `POST /admin/businesses/<id>/catalog/imports/<importId>/apply` | La aplica. `409` `CATALOG_CAP_EXCEEDED` (pasaría el tope), `IMPORT_NOT_PREVIEW` (ya aplicada o descartada) o `IMPORT_EXPIRED` (más de 24 horas). |
+| `POST /admin/businesses/<id>/catalog/imports/<importId>/discard` | La descarta sin tocar el catálogo. |
+| `PUT /admin/businesses/<id>/catalog/items/<código>` | Crea o actualiza un ítem por su código: `{ "name", "description"?, "category"?, "price"?, "currency"?, "available"?, "attributes"? }`. Es la API para los sistemas propios de los clientes. Mismas validaciones que una fila importada. Reemplaza el ítem entero, salvo `available`: si no se manda, un ítem que existe conserva su disponibilidad (actualizar el precio no vuelve a habilitar uno agotado) y uno nuevo queda disponible. |
+| `DELETE /admin/businesses/<id>/catalog/items/<código>` | Lo marca no disponible (no lo borra). `404` si no existe. |
+| `GET /admin/businesses/<id>/catalog/items?query=&category=&available=&cursor=` | 50 por página, por nombre; `query` busca en código, nombre y descripción; `nextCursor` trae la siguiente. El precio va como texto con dos decimales (`"1500.00"`). |
 | `GET /admin/businesses/<id>/usage` | Respuestas con IA del mes contra el tope mensual: `{ "month": "2026-11", "used": 1234, "cap": 5000, "percent": 25, "capReached": false }`. Ver [Topes de IA](#topes-de-ia). |
 
 `limit` va de 1 a 200 (default 50). Errores: `400` parámetros inválidos,

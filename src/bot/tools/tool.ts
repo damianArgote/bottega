@@ -7,6 +7,10 @@ import type { ConversationMode } from '../../generated/prisma/client.js';
 import type { LeadField } from '../../agents/agent-profile.schema.js';
 import type { LeadValues } from '../../leads/lead-values.js';
 import type { ReplyButton } from '../../whatsapp/whatsapp.client.js';
+import type {
+  CatalogSearchItem,
+  CatalogSearchQuery,
+} from '../../catalog/catalog.service.js';
 import type { ToolName } from '../mode-profiles.js';
 
 /**
@@ -43,6 +47,16 @@ export interface ToolContext {
   demoEnabled: boolean;
   /** The business's lead fields: save_lead is generated from them. */
   leadFields: readonly LeadField[];
+  /**
+   * The business's catalog, when it has an available item: search_catalog
+   * is offered only then (COMMERCIAL mode).
+   */
+  catalog?: CatalogReader;
+}
+
+/** Read-only search over one business's catalog (search_catalog). */
+export interface CatalogReader {
+  search(query: CatalogSearchQuery): Promise<CatalogSearchItem[]>;
 }
 
 /**
@@ -62,6 +76,20 @@ export interface ToolHandler<Args = unknown> {
   /** Validates the model's arguments; `.strict()` rejects unknown keys. */
   schema: z.ZodType<Args>;
   plan(args: Args, ctx: ToolContext): ToolPlan;
+}
+
+/**
+ * A tool that only reads (search_catalog): it queries the database while
+ * the model loop runs and plans no effect. `read` returns the output the
+ * model reads back; it never writes.
+ */
+export interface ReadToolHandler<Args = unknown> {
+  name: ToolName;
+  description: string;
+  allowedModes: readonly ConversationMode[];
+  jsonSchema: Record<string, unknown>;
+  schema: z.ZodType<Args>;
+  read(args: Args, ctx: ToolContext): Promise<Record<string, unknown>>;
 }
 
 // Control characters (C0, DEL, C1; newlines and tabs too: one-line values).

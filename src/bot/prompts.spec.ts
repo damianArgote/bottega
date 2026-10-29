@@ -122,6 +122,25 @@ describe('prompt builders', () => {
     expect(prompt).toContain('Si ya la probó, no se la vuelvas a ofrecer');
   });
 
+  it('commercial: the catalog rule is fixed in code and only with a catalog', () => {
+    const rule =
+      'Para precios, productos o disponibilidad usá search_catalog. Nunca digas un precio que no salga de sus resultados.';
+
+    const withCatalog = buildCommercialInstructions(
+      salon,
+      {},
+      { catalog: true },
+    );
+    expect(withCatalog).toContain(rule);
+    // Among the fixed rules, above the business's own information.
+    expect(withCatalog.indexOf(rule)).toBeLessThan(
+      withCatalog.indexOf('## Información cargada por el negocio'),
+    );
+    expect(buildCommercialInstructions(salon, {})).not.toContain(
+      'search_catalog',
+    );
+  });
+
   it('commercial: saves every lead value the person mentions, even unasked', () => {
     expect(buildCommercialInstructions(botsuite, {})).toContain(
       'aunque no se lo hayas preguntado o venga junto con otra cosa, llamá a save_lead en ese mismo turno',

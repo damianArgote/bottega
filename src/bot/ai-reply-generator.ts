@@ -16,6 +16,7 @@ import {
   type AgentProfile,
   loadAgentProfile,
 } from '../agents/agent-profile.js';
+import type { CatalogService } from '../catalog/catalog.service.js';
 import type { AppConfigService } from '../config/app-config.service.js';
 import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
@@ -71,6 +72,7 @@ export interface AiReplyGeneratorDeps {
   provider: AiProvider;
   usage: AiUsageService;
   limits: AiLimitsService;
+  catalog: CatalogService;
   prisma: PrismaService;
   content: ContentService;
   config: AppConfigService;
@@ -93,7 +95,9 @@ export interface AiReplyGeneratorDeps {
  *    call is made: a LIMITED usage row is recorded and a fixed reply is
  *    returned.
  * 2. Builds the mode's instructions from the business's agent profile (its
- *    model, or OPENAI_MODEL) and the history of the active context.
+ *    model, or OPENAI_MODEL) and the history of the active context. In
+ *    commercial mode, a business with available catalog items also gets
+ *    search_catalog (a read-only tool that queries during the loop).
  * 3. Runs up to {@link AI_MAX_MODEL_ROUNDS} model calls. Tool calls are
  *    validated and planned in memory (registry) and their results fed back;
  *    nothing is written here, effects are applied by the worker's phase-1
@@ -149,7 +153,7 @@ export class AiReplyGenerator implements ReplyGenerator {
       return { replies: [AI_LIMIT_REPLY], effects: [] };
     }
     try {
-      return await this.answer(input, profile, turn);
+      return await this.answer(input, profile, turn, caps.businessId);
     } finally {
       // Also after a retryable failure: its ERROR rows already count.
       if (turn.calls > 0) {
@@ -199,6 +203,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     input: ReplyInput,
     profile: AgentProfile,
     turn: Turn,
+    businessId: string,
   ): Promise<GeneratedReply> {
     const { config } = this.deps;
     const items: AiInputItem[] = [
@@ -206,14 +211,20 @@ export class AiReplyGenerator implements ReplyGenerator {
       { kind: 'message', role: 'user', content: input.message.content },
     ];
     const demo = await this.demoOf(input);
+    // The catalog belongs to the business: never inside the fictitious demo.
+    const catalog =
+      input.mode === ConversationMode.COMMERCIAL
+        ? await this.deps.catalog.readerFor(businessId)
+        : undefined;
     const toolOptions = {
       demoEnabled: profile.demoEnabled,
       leadFields: profile.leadFields,
       ...(demo ? { demo } : {}),
+      ...(catalog ? { catalog } : {}),
     };
     const request = {
       model: turn.model,
-      instructions: await this.instructions(input, profile, demo),
+      instructions: await this.instructions(input, profile, demo, !!catalog),
       tools: toolDefinitionsFor(input.mode, toolOptions),
       maxOutputTokens: config.get('OPENAI_MAX_OUTPUT_TOKENS'),
     };
@@ -389,6 +400,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     input: ReplyInput,
     profile: AgentProfile,
     demo: DemoContent | undefined,
+    catalog: boolean,
   ): Promise<string> {
     const { prisma } = this.deps;
     if (demo) {
@@ -398,7 +410,9 @@ export class AiReplyGenerator implements ReplyGenerator {
     const lead = await prisma.lead.findUnique({
       where: { conversationId: input.conversationId },
     });
-    return buildCommercialInstructions(profile, leadValuesOf(lead));
+    return buildCommercialInstructions(profile, leadValuesOf(lead), {
+      catalog,
+    });
   }
 
   /**

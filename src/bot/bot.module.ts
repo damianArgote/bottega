@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai.provider.js';
 import { AiModule } from '../ai/ai.module.js';
 import { AiLimitsService } from '../ai/ai-limits.service.js';
+import { CatalogModule } from '../catalog/catalog.module.js';
+import { CatalogService } from '../catalog/catalog.service.js';
 import { AiUsageService } from '../ai/ai-usage.service.js';
 import { AppConfigService } from '../config/app-config.service.js';
 import { ContentModule } from '../content/content.module.js';
@@ -27,6 +29,7 @@ import { BotWorker } from './worker.js';
 @Module({
   imports: [
     QueueModule,
+    CatalogModule,
     WhatsAppModule,
     ConversationsModule,
     ContentModule,
@@ -49,6 +52,7 @@ import { BotWorker } from './worker.js';
         PrismaService,
         ContentService,
         AiLimitsService,
+        CatalogService,
       ],
       useFactory: (
         config: AppConfigService,
@@ -57,12 +61,14 @@ import { BotWorker } from './worker.js';
         prisma: PrismaService,
         content: ContentService,
         limits: AiLimitsService,
+        catalog: CatalogService,
       ): ReplyGenerator =>
         config.get('BOT_REPLY_MODE') === 'ai'
           ? new AiReplyGenerator({
               provider,
               usage,
               limits,
+              catalog,
               prisma,
               content,
               config,

@@ -59,7 +59,7 @@ describe('quote_insurance', () => {
         { plan: 'Todo Riesgo', monthlyArs: 66700, deductibleArs: 400000 },
       ],
     });
-    expect(result.ok && result.effect.kind).toBe('insurance_quote');
+    expect(result.ok && result.effect?.kind).toBe('insurance_quote');
   });
 
   it('asks for what is missing instead of quoting', () => {

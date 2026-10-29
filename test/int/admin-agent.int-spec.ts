@@ -9,7 +9,13 @@ import { AgentsService } from '../../src/agents/agents.service.js';
 import { AgentPreviewService } from '../../src/bot/agent-preview.service.js';
 import { renderReply } from '../../src/bot/replies.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
-import { connectPrisma, createLine, resetDb, testConfig } from './helpers.js';
+import {
+  buildCatalogService,
+  connectPrisma,
+  createLine,
+  resetDb,
+  testConfig,
+} from './helpers.js';
 
 const MODEL = 'env-model';
 
@@ -57,10 +63,12 @@ describe('Admin agent profile and preview (integration)', () => {
   beforeAll(async () => {
     prisma = await connectPrisma();
     agents = new AgentsService(prisma);
+    const config = testConfig({ OPENAI_MODEL: MODEL });
     preview = new AgentPreviewService(
       prisma,
       { respond },
-      testConfig({ OPENAI_MODEL: MODEL }),
+      config,
+      buildCatalogService(prisma, config),
     );
   });
 

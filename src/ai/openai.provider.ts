@@ -67,6 +67,18 @@ export class OpenAiProvider implements AiProvider {
           strict: true,
         })),
         ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
+        ...(request.responseFormat
+          ? {
+              text: {
+                format: {
+                  type: 'json_schema' as const,
+                  name: request.responseFormat.name,
+                  schema: request.responseFormat.schema,
+                  strict: true,
+                },
+              },
+            }
+          : {}),
         max_output_tokens: request.maxOutputTokens,
         store: false,
       });
@@ -102,6 +114,29 @@ function toOpenAiItem(item: AiInputItem): ResponseInputItem {
   switch (item.kind) {
     case 'message':
       return { type: 'message', role: item.role, content: item.content };
+    case 'parts':
+      return {
+        type: 'message',
+        role: 'user',
+        content: item.content.map((part) => {
+          switch (part.kind) {
+            case 'text':
+              return { type: 'input_text' as const, text: part.text };
+            case 'image':
+              return {
+                type: 'input_image' as const,
+                detail: 'auto' as const,
+                image_url: part.dataUrl,
+              };
+            case 'file':
+              return {
+                type: 'input_file' as const,
+                filename: part.filename,
+                file_data: part.dataUrl,
+              };
+          }
+        }),
+      };
     case 'tool_call':
       return {
         type: 'function_call',

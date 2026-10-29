@@ -1,3 +1,7 @@
+import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
+import { AiProviderError, type AiProvider } from '../../src/ai/ai.provider.js';
+import { CatalogAiService } from '../../src/catalog/catalog-ai.service.js';
+import { CatalogService } from '../../src/catalog/catalog.service.js';
 import { seedDefaultAgentProfile } from '../../src/agents/default-agent-profile.seed.js';
 import { BotService } from '../../src/bot/bot.service.js';
 import { CommandService } from '../../src/bot/command.service.js';
@@ -138,5 +142,28 @@ export function buildBotService(
     contexts,
     commands,
     effects,
+  );
+}
+
+/**
+ * CatalogService with its model calls going to `provider` (by default one
+ * that fails, as in echo mode: no mapping proposals, no documents).
+ */
+export function buildCatalogService(
+  prisma: PrismaService,
+  config: AppConfigService,
+  provider: AiProvider = {
+    respond: () => Promise.reject(new AiProviderError('ai_disabled', false)),
+  },
+): CatalogService {
+  return new CatalogService(
+    prisma,
+    config,
+    new CatalogAiService(
+      provider,
+      prisma,
+      config,
+      new AiLimitsService(prisma, config),
+    ),
   );
 }
