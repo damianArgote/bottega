@@ -543,7 +543,8 @@ como siempre y ni siquiera recibe la herramienta de búsqueda.
   miles en grupos de tres, como `1.500`; disponibilidad `sí/no/1/0/true/false/disponible/agotado`)
   y se valida sola. Una fila con error queda en la vista previa con su motivo
   ("Fila 14: el precio \"consultar\" no es un número.") y las demás siguen. La
-  fila 1 del CSV es la de los encabezados. Sin código, el código es el nombre
+  fila es la de la planilla: la 1 es la de los encabezados y las filas vacías
+  también cuentan. Sin código, el código es el nombre
   en minúsculas y sin acentos. Las columnas que no son de ningún campo van a
   `attributes` (hasta 20).
 - **Vista previa**: cuántos ítems se crean, cuántos cambian, cuántos quedan
@@ -744,7 +745,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `GET /admin/businesses/<id>/catalog/imports/<importId>` | La importación y su estado. |
 | `POST /admin/businesses/<id>/catalog/imports/<importId>/apply` | La aplica. `409` `CATALOG_CAP_EXCEEDED` (pasaría el tope), `IMPORT_NOT_PREVIEW` (ya aplicada o descartada) o `IMPORT_EXPIRED` (más de 24 horas). |
 | `POST /admin/businesses/<id>/catalog/imports/<importId>/discard` | La descarta sin tocar el catálogo. |
-| `PUT /admin/businesses/<id>/catalog/items/<código>` | Crea o actualiza un ítem por su código: `{ "name", "description"?, "category"?, "price"?, "currency"?, "available"?, "attributes"? }`. Es la API para los sistemas propios de los clientes. Mismas validaciones que una fila importada. |
+| `PUT /admin/businesses/<id>/catalog/items/<código>` | Crea o actualiza un ítem por su código: `{ "name", "description"?, "category"?, "price"?, "currency"?, "available"?, "attributes"? }`. Es la API para los sistemas propios de los clientes. Mismas validaciones que una fila importada. Reemplaza el ítem entero, salvo `available`: si no se manda, un ítem que existe conserva su disponibilidad (actualizar el precio no vuelve a habilitar uno agotado) y uno nuevo queda disponible. |
 | `DELETE /admin/businesses/<id>/catalog/items/<código>` | Lo marca no disponible (no lo borra). `404` si no existe. |
 | `GET /admin/businesses/<id>/catalog/items?query=&category=&available=&cursor=` | 50 por página, por nombre; `query` busca en código, nombre y descripción; `nextCursor` trae la siguiente. El precio va como texto con dos decimales (`"1500.00"`). |
 | `GET /admin/businesses/<id>/usage` | Respuestas con IA del mes contra el tope mensual: `{ "month": "2026-11", "used": 1234, "cap": 5000, "percent": 25, "capReached": false }`. Ver [Topes de IA](#topes-de-ia). |

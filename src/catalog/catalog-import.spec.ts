@@ -172,7 +172,7 @@ describe('normalizeSource', () => {
     const result = normalizeSource(
       records,
       { externalId: 'codigo', name: 'producto', price: 'precio' },
-      2,
+      [2, 3, 4, 5],
     );
     expect(result.items.map((i) => i.externalId)).toEqual(['A12', 'A14']);
     expect(result.errors).toEqual([
@@ -189,7 +189,11 @@ describe('normalizeSource', () => {
     const records = Array.from({ length: MAX_ROW_ERRORS + 5 }, () => ({
       producto: '',
     }));
-    const result = normalizeSource(records, { name: 'producto' }, 2);
+    const result = normalizeSource(
+      records,
+      { name: 'producto' },
+      records.map((_, i) => i + 2),
+    );
     expect(result.errors).toHaveLength(MAX_ROW_ERRORS);
     expect(result.errorCount).toBe(MAX_ROW_ERRORS + 5);
   });
@@ -284,10 +288,32 @@ describe('parseCsv', () => {
     ]);
   });
 
+  it('numbers records by spreadsheet row: blank rows count, a multi-line cell is one row', () => {
+    const csv = [
+      'producto,precio',
+      'Chocolate,100',
+      ',',
+      '',
+      '"Helado',
+      'de agua",50',
+      'Limon,consultar',
+    ].join('\n');
+
+    expect(csvRecords(csv).rows).toEqual([2, 5, 6]);
+    const { records, rows } = csvRecords(csv);
+    expect(
+      normalizeSource(records, { name: 'producto', price: 'precio' }, rows)
+        .errors,
+    ).toEqual([
+      { row: 6, message: 'Fila 6: el precio "consultar" no es un número.' },
+    ]);
+  });
+
   it('builds records keyed by the header', () => {
     expect(csvRecords(' producto ,precio\nTorta\n')).toEqual({
       headers: ['producto', 'precio'],
       records: [{ producto: 'Torta', precio: '' }],
+      rows: [2],
     });
   });
 });

@@ -20,8 +20,10 @@ import {
   type CatalogDiff,
   type CatalogItemInput,
   type CatalogMapping,
+  cleanCode,
   defaultMapping,
   diffCatalog,
+  normalizeAttributes,
   normalizeRow,
   normalizeSource,
   type RowError,
@@ -202,8 +204,8 @@ export class CatalogService {
     createdById: string | null,
   ): Promise<ImportView> {
     await this.assertBusiness(businessId);
-    const { records, mapping, firstRow } = this.recordsOf(source);
-    const normalized = normalizeSource(records, mapping, firstRow);
+    const { records, mapping, rows } = this.recordsOf(source);
+    const normalized = normalizeSource(records, mapping, rows);
     const diff = diffCatalog(
       await this.prisma.catalogItem.findMany({
         where: { businessId },
@@ -334,12 +336,20 @@ export class CatalogService {
     return this.importView(found);
   }
 
-  /** Creates or updates one item by its code (a client's own system). */
+  /**
+   * Creates or updates one item by its code (a client's own system). Without
+   * `available`, an existing item keeps its availability (a price update
+   * does not bring back a sold-out item); a new one is available.
+   */
   async putItem(
     businessId: string,
-    externalId: string,
+    rawExternalId: string,
     body: ItemBody,
   ): Promise<CatalogItemView> {
+    const externalId = cleanCode(rawExternalId);
+    if (!externalId) {
+      throw new BadRequestException('Falta el código.');
+    }
     const { attributes, ...fields } = body;
     const record: SourceRecord = { ...fields, externalId };
     const mapping: CatalogMapping = {
@@ -357,15 +367,23 @@ export class CatalogService {
         result.error.message.replace(/^Fila 1: /, ''),
       );
     }
-    const item = {
-      ...result.item,
-      attributes: attributesOf(attributes),
-    };
+    const extra = normalizeAttributes(attributes ?? {});
+    if (!extra.ok) {
+      throw new BadRequestException(extra.message);
+    }
     return this.prisma.$transaction(async (tx) => {
       const cap = await this.lockBusiness(tx, businessId);
       const current = await tx.catalogItem.findUnique({
         where: { businessId_externalId: { businessId, externalId } },
       });
+      const item: CatalogItemInput = {
+        ...result.item,
+        attributes: extra.attributes,
+        available:
+          body.available === undefined && current
+            ? current.available
+            : result.item.available,
+      };
       if (item.available && !current?.available) {
         const available = await tx.catalogItem.count({
           where: { businessId, available: true },
@@ -391,8 +409,9 @@ export class CatalogService {
   /** Marks the item unavailable (items are never deleted). */
   async removeItem(
     businessId: string,
-    externalId: string,
+    rawExternalId: string,
   ): Promise<CatalogItemView> {
+    const externalId = cleanCode(rawExternalId);
     const current = await this.prisma.catalogItem.findUnique({
       where: { businessId_externalId: { businessId, externalId } },
     });
@@ -573,13 +592,14 @@ export class CatalogService {
   private recordsOf(source: ImportSource): {
     records: SourceRecord[];
     mapping: CatalogMapping;
-    firstRow: number;
+    rows: number[];
   } {
     let headers: string[];
     let records: SourceRecord[];
-    let firstRow: number;
+    let rows: number[];
     if (source.kind === 'csv') {
-      ({ headers, records } = csvRecords(source.text));
+      // Spreadsheet rows: the header is row 1, blank rows still count.
+      ({ headers, records, rows } = csvRecords(source.text));
       if (headers.length === 0 || headers.every((h) => h === '')) {
         throw new BadRequestException(
           'El archivo está vacío o no tiene encabezados.',
@@ -593,12 +613,10 @@ export class CatalogService {
           `La columna "${repeated}" está repetida en los encabezados.`,
         );
       }
-      // The header is row 1, as in the spreadsheet.
-      firstRow = 2;
     } else {
       records = source.rows;
       headers = [...new Set(records.flatMap((r) => Object.keys(r)))];
-      firstRow = 1;
+      rows = records.map((_, index) => index + 1);
     }
     const mapping = source.mapping ?? defaultMapping(headers);
     if (!mapping) {
@@ -615,7 +633,7 @@ export class CatalogService {
         `El mapeo usa columnas que no están en el archivo: ${missing.map((c) => `"${c}"`).join(', ')}.`,
       );
     }
-    return { records, mapping, firstRow };
+    return { records, mapping, rows };
   }
 
   private async assertBusiness(businessId: string): Promise<void> {
@@ -645,22 +663,4 @@ function notPreview(): ConflictException {
     message: 'Esta importación ya se aplicó o se descartó.',
     code: 'IMPORT_NOT_PREVIEW',
   });
-}
-
-/** The attributes of a single-item write, validated like an import row's. */
-function attributesOf(value: unknown): CatalogItemInput['attributes'] {
-  if (value === undefined || value === null) {
-    return {};
-  }
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException('attributes tiene que ser un objeto.');
-  }
-  const record = value as SourceRecord;
-  const result = normalizeRow({ name: 'x', ...record }, { name: 'name' }, 1);
-  if (!result.ok) {
-    throw new BadRequestException(
-      result.error.message.replace(/^Fila 1: /, ''),
-    );
-  }
-  return result.item.attributes;
 }

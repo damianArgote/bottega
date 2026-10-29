@@ -32,7 +32,8 @@ export const searchCatalogTool: ReadToolHandler<SearchArgs> = {
   jsonSchema: strictObject({
     query: {
       type: 'string',
-      description: 'Qué busca la persona, con sus palabras (máx. 200).',
+      description:
+        'Solo lo que busca, en pocas palabras clave (por ejemplo "chocolate amargo" o "torta"), sin preguntas, saludos ni la palabra precio (máx. 200).',
     },
     category: nullableString('Categoría del catálogo, si la sabés.'),
     max_price: {

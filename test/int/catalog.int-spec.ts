@@ -405,6 +405,45 @@ describe('Catalog (integration, HTTP)', () => {
     ).toEqual(['H2']);
   });
 
+  it('a PUT without available keeps a sold-out item sold out; codes are normalized', async () => {
+    const put = (code: string, body: object) =>
+      http()
+        .put(admin(`items/${encodeURIComponent(code)}`))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .send(body);
+    await put('K  1', {
+      name: 'Kilo',
+      price: 100,
+      attributes: { name: 'x' },
+    })
+      .expect(200)
+      .expect((res) =>
+        expect(res.body).toMatchObject({ attributes: { name: 'x' } }),
+      );
+    await http()
+      .delete(admin('items/K%201'))
+      .set('X-Admin-Api-Key', ADMIN_KEY)
+      .expect(200);
+
+    const updated = await put('K 1', { name: 'Kilo', price: 120 }).expect(200);
+
+    expect(updated.body).toMatchObject({
+      externalId: 'K 1',
+      price: '120.00',
+      available: false,
+      // Every PUT replaces the whole item: no attributes sent, none kept.
+      attributes: {},
+    });
+    expect(await prisma.catalogItem.count()).toBe(1);
+    await put('K 1', { name: 'Kilo', available: 'sí' })
+      .expect(200)
+      .expect((res) => expect(res.body).toMatchObject({ available: true }));
+    // A new item without available is available.
+    await put('K2', { name: 'Otro' })
+      .expect(200)
+      .expect((res) => expect(res.body).toMatchObject({ available: true }));
+  });
+
   describe('search_catalog', () => {
     beforeEach(async () => {
       await importCsv(CSV);

@@ -256,27 +256,13 @@ export function normalizeRow(
   const mapped = new Set<string>(
     Object.values(mapping).filter((c): c is string => c !== undefined),
   );
-  const attributes: Record<string, AttributeValue> = {};
-  for (const [column, raw] of Object.entries(record)) {
-    const key = oneLine(column);
-    if (mapped.has(column) || !key || raw === null) {
-      continue;
-    }
-    if (typeof raw === 'string') {
-      const clean = oneLine(raw);
-      if (!clean) {
-        continue;
-      }
-      if (clean.length > MAX_ATTRIBUTE_TEXT) {
-        return fail(`"${key}" tiene más de ${MAX_ATTRIBUTE_TEXT} caracteres.`);
-      }
-      attributes[key] = clean;
-    } else {
-      attributes[key] = raw;
-    }
-  }
-  if (Object.keys(attributes).length > MAX_ATTRIBUTES) {
-    return fail(`tiene más de ${MAX_ATTRIBUTES} datos extra (atributos).`);
+  const attributes = normalizeAttributes(
+    Object.fromEntries(
+      Object.entries(record).filter(([column]) => !mapped.has(column)),
+    ),
+  );
+  if (!attributes.ok) {
+    return fail(attributes.message);
   }
 
   return {
@@ -289,9 +275,55 @@ export function normalizeRow(
       price,
       currency,
       available,
-      attributes,
+      attributes: attributes.attributes,
     },
   };
+}
+
+/**
+ * Industry-specific values: text (one line, at most 200 characters),
+ * numbers or booleans, at most 20 keys. Blank values are left out. The
+ * message, in Spanish, has no row prefix.
+ */
+export function normalizeAttributes(
+  record: SourceRecord,
+):
+  | { ok: true; attributes: Record<string, AttributeValue> }
+  | { ok: false; message: string } {
+  const attributes: Record<string, AttributeValue> = {};
+  for (const [column, raw] of Object.entries(record)) {
+    const key = oneLine(column);
+    if (!key || raw === null) {
+      continue;
+    }
+    if (typeof raw === 'string') {
+      const clean = oneLine(raw);
+      if (!clean) {
+        continue;
+      }
+      if (clean.length > MAX_ATTRIBUTE_TEXT) {
+        return {
+          ok: false,
+          message: `"${key}" tiene más de ${MAX_ATTRIBUTE_TEXT} caracteres.`,
+        };
+      }
+      attributes[key] = clean;
+    } else {
+      attributes[key] = raw;
+    }
+  }
+  if (Object.keys(attributes).length > MAX_ATTRIBUTES) {
+    return {
+      ok: false,
+      message: `tiene más de ${MAX_ATTRIBUTES} datos extra (atributos).`,
+    };
+  }
+  return { ok: true, attributes };
+}
+
+/** A code as it is stored: one line, single spaces. */
+export function cleanCode(value: string): string {
+  return oneLine(value);
 }
 
 /** Valid rows and per-row errors of a whole source. */
@@ -304,13 +336,13 @@ export interface NormalizedSource {
 
 /**
  * Normalizes every row; an invalid row is reported and the rest go on. A
- * repeated code keeps its first row. `firstRow` is the number of the first
- * record (2 for a CSV, after its header).
+ * repeated code keeps its first row. `rows[i]` is the row number of
+ * `records[i]` as the person sees it (the spreadsheet row for a CSV).
  */
 export function normalizeSource(
   records: readonly SourceRecord[],
   mapping: CatalogMapping,
-  firstRow: number,
+  rows: readonly number[],
 ): NormalizedSource {
   const items: CatalogItemInput[] = [];
   const errors: RowError[] = [];
@@ -323,7 +355,7 @@ export function normalizeSource(
     }
   };
   records.forEach((record, index) => {
-    const row = firstRow + index;
+    const row = rows[index] ?? index + 1;
     const result = normalizeRow(record, mapping, row);
     if (!result.ok) {
       report(result.error);
