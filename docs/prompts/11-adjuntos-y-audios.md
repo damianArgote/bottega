@@ -115,9 +115,10 @@ Nadie tiene que poder mandar un audio largo y gastar el tope del negocio.
 ## Parte 2 · Bandeja (rama `feat/inbound-media`, repo `bottega-inbox`)
 - En el hilo: audio con reproductor y su transcripción debajo (con la marca "transcripción automática"); imagen en miniatura que se abre grande; documento con nombre e ícono para abrirlo; ubicación como texto con link a Google Maps; video y sticker como etiqueta ("Video", "Sticker") con link para abrirlo.
 - Si el archivo ya no está (410) o falló (`media.error`), un texto claro en lugar del reproductor o la imagen, por ejemplo "No se transcribió: dura más de 2 minutos".
+- **Aviso de que los archivos son temporales:** si la conversación tiene al menos un adjunto con archivo (audio, imagen, documento, video o sticker), arriba del hilo se muestra un aviso fijo: "Los archivos de WhatsApp (audios, fotos y documentos) se borran a los 30 días de recibidos. Si necesitás guardar alguno, descargalo antes. Las transcripciones de los audios quedan." Además, cada adjunto muestra hasta cuándo está disponible ("Disponible hasta el 28/11"), calculado con la fecha del mensaje más 30 días en la zona horaria del negocio; pasada esa fecha, el texto del 410. Una conversación sin adjuntos no muestra el aviso.
 - La URL firmada es estable durante su ventana; cuando vence, se vuelve a pedir el mensaje para tener una nueva.
 - Usable en el celular, con el audio reproducible en Safari de iPhone.
-- Tests con la API mockeada: cada tipo se muestra como corresponde; un error muestra el texto y no un reproductor roto; una transcripción que llega después (por `/changes`) aparece sin recargar.
+- Tests con la API mockeada: cada tipo se muestra como corresponde; un error muestra el texto y no un reproductor roto; una transcripción que llega después (por `/changes`) aparece sin recargar; el aviso de archivos temporales aparece solo en una conversación con adjuntos, y la fecha "Disponible hasta" es la del mensaje más 30 días.
 
 ## Fuera de alcance
 Responder con audio, entender videos, leer Word o Excel, guardar los archivos en un storage propio más allá de los 30 días de Meta, mandar adjuntos desde la bandeja, y agrupar mensajes seguidos (6b del prompt 06).
