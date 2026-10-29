@@ -30,7 +30,7 @@ describe('Inbox reads (integration)', () => {
   beforeAll(async () => {
     prisma = await connectPrisma(config);
     conversations = new ConversationsService(prisma, config, new QueueSignal());
-    queries = new InboxQueriesService(prisma);
+    queries = new InboxQueriesService(prisma, config);
   });
 
   afterAll(async () => {

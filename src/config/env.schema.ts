@@ -4,6 +4,7 @@ import { worstCaseAiJobMs } from '../ai/ai-limits.js';
 const GRAPH_API_VERSION_PATTERN = /^v\d+\.\d+$/;
 const ADMIN_API_KEY_MIN_LENGTH = 32;
 const JWT_SECRET_MIN_LENGTH = 32;
+const MEDIA_URL_SECRET_MIN_LENGTH = 32;
 /** Scheme, host and optional port: what a browser sends in Origin. */
 const ORIGIN_PATTERN = /^https?:\/\/[^\s/:]+(:\d{1,5})?$/;
 const ENCRYPTION_KEY_BYTES = 32;
@@ -128,6 +129,29 @@ export const envSchema = z
       'AI_MAX_INTERACTIONS_PER_USER_PER_DAY',
       30,
     ),
+    // Audio transcription (prompt 11): model and per-call timeout.
+    OPENAI_TRANSCRIBE_MODEL: z
+      .string()
+      .trim()
+      .min(1, 'OPENAI_TRANSCRIBE_MODEL must not be empty')
+      .default('gpt-4o-mini-transcribe'),
+    OPENAI_TRANSCRIBE_TIMEOUT_MS: positiveInt(
+      'OPENAI_TRANSCRIBE_TIMEOUT_MS',
+      30_000,
+    ),
+    // Attachment limits (prompt 11). Per business: audio_max_seconds and
+    // media_daily_cap_per_conversation.
+    MEDIA_AUDIO_MAX_SECONDS: positiveInt('MEDIA_AUDIO_MAX_SECONDS', 120),
+    MEDIA_AUDIO_MAX_BYTES: positiveInt('MEDIA_AUDIO_MAX_BYTES', 1_000_000),
+    MEDIA_IMAGE_MAX_BYTES: positiveInt('MEDIA_IMAGE_MAX_BYTES', 5_000_000),
+    MEDIA_DOCUMENT_MAX_BYTES: positiveInt(
+      'MEDIA_DOCUMENT_MAX_BYTES',
+      10_000_000,
+    ),
+    MEDIA_MAX_PER_CONVERSATION_PER_DAY: positiveInt(
+      'MEDIA_MAX_PER_CONVERSATION_PER_DAY',
+      10,
+    ),
     // Default monthly cap of a business without its own (Business.aiMonthlyCap).
     AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH: positiveInt(
       'AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH',
@@ -165,7 +189,7 @@ export const envSchema = z
     // A claimed job is reclaimable after this. Must exceed the worst-case job
     // time (AI call + several sends with WHATSAPP_HTTP_TIMEOUT_MS each), or a
     // slow job could be picked up twice.
-    QUEUE_LEASE_MS: positiveInt('QUEUE_LEASE_MS', 120_000),
+    QUEUE_LEASE_MS: positiveInt('QUEUE_LEASE_MS', 180_000),
 
     // Public base URL of this API, used to build each line's webhook URL in
     // the admin API (e.g. https://bottega-api.onrender.com). Render sets
@@ -183,6 +207,13 @@ export const envSchema = z
     ADMIN_API_KEY: requiredString('ADMIN_API_KEY').min(
       ADMIN_API_KEY_MIN_LENGTH,
       `ADMIN_API_KEY must be at least ${ADMIN_API_KEY_MIN_LENGTH} characters`,
+    ),
+
+    // Signs the inbox's attachment links (HMAC). Changing it only expires the
+    // links already handed out.
+    MEDIA_URL_SECRET: requiredString('MEDIA_URL_SECRET').min(
+      MEDIA_URL_SECRET_MIN_LENGTH,
+      `MEDIA_URL_SECRET must be at least ${MEDIA_URL_SECRET_MIN_LENGTH} characters`,
     ),
 
     // Signs the inbox session JWTs (HS256). Changing it ends every session.
@@ -253,6 +284,7 @@ export const envSchema = z
       if (
         typeof env.QUEUE_LEASE_MS === 'number' &&
         typeof env.OPENAI_TIMEOUT_MS === 'number' &&
+        typeof env.OPENAI_TRANSCRIBE_TIMEOUT_MS === 'number' &&
         typeof env.WHATSAPP_HTTP_TIMEOUT_MS === 'number'
       ) {
         const needed = worstCaseAiJobMs(env);
@@ -260,7 +292,7 @@ export const envSchema = z
           ctx.addIssue({
             code: 'custom',
             path: ['QUEUE_LEASE_MS'],
-            message: `QUEUE_LEASE_MS must be greater than ${needed} (model rounds x OPENAI_TIMEOUT_MS + sends x WHATSAPP_HTTP_TIMEOUT_MS + overhead) when BOT_REPLY_MODE=ai`,
+            message: `QUEUE_LEASE_MS must be greater than ${needed} (attachment fetch x WHATSAPP_HTTP_TIMEOUT_MS + OPENAI_TRANSCRIBE_TIMEOUT_MS + model rounds x OPENAI_TIMEOUT_MS + sends x WHATSAPP_HTTP_TIMEOUT_MS + overhead) when BOT_REPLY_MODE=ai`,
           });
         }
       }

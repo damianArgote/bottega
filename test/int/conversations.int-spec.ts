@@ -89,6 +89,82 @@ describe('ConversationsService (integration)', () => {
       });
     });
 
+    it('stores an attachment with its media columns, its caption as content and the contact name', async () => {
+      await service.recordInbound({
+        kind: 'unsupported',
+        phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
+        waMessageId: 'wamid.photo',
+        from: '5491100001234',
+        timestamp: new Date(),
+        messageType: 'image',
+        profileName: 'Ana',
+        media: {
+          kind: 'image',
+          mediaId: 'media-9',
+          mime: 'image/jpeg',
+          size: 1234,
+          caption: '¿Tienen esta?',
+        },
+      });
+      await service.recordInbound({
+        kind: 'unsupported',
+        phoneNumberId: DEFAULT_PHONE_NUMBER_ID,
+        waMessageId: 'wamid.voice',
+        from: '5491100001234',
+        timestamp: new Date(),
+        messageType: 'audio',
+        media: {
+          kind: 'audio',
+          mediaId: 'media-10',
+          mime: 'audio/ogg',
+          voice: true,
+        },
+      });
+
+      const photo = await prisma.message.findUniqueOrThrow({
+        where: { waMessageId: 'wamid.photo' },
+      });
+      expect(photo).toMatchObject({
+        type: 'UNSUPPORTED',
+        content: '¿Tienen esta?',
+        mediaKind: 'image',
+        mediaId: 'media-9',
+        mediaMime: 'image/jpeg',
+        mediaSize: 1234,
+        mediaVoice: null,
+        transcript: null,
+        mediaError: null,
+      });
+      expect(
+        await prisma.message.findUniqueOrThrow({
+          where: { waMessageId: 'wamid.voice' },
+        }),
+      ).toMatchObject({
+        content: '[audio]',
+        mediaKind: 'audio',
+        mediaVoice: true,
+      });
+      expect((await prisma.contact.findFirstOrThrow()).profileName).toBe('Ana');
+    });
+
+    it('stores a location as text with its media kind', async () => {
+      await service.recordInbound({
+        ...textEvent('wamid.loc', '5491100001234', 'Ubicación: KUBBO (1, 2)'),
+        media: { kind: 'location' },
+      });
+
+      expect(
+        await prisma.message.findUniqueOrThrow({
+          where: { waMessageId: 'wamid.loc' },
+        }),
+      ).toMatchObject({
+        type: 'TEXT',
+        content: 'Ubicación: KUBBO (1, 2)',
+        mediaKind: 'location',
+        mediaId: null,
+      });
+    });
+
     it('reuses the conversation and its context for later messages', async () => {
       await service.recordInbound(textEvent('wamid.1'));
       await service.recordInbound({

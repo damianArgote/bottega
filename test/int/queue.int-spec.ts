@@ -76,8 +76,8 @@ describe('QueueService (integration)', () => {
     });
     expect(row.status).toBe('PROCESSING');
     const leaseMs = row.leaseExpiresAt!.getTime() - Date.now();
-    expect(leaseMs).toBeGreaterThan(100_000);
-    expect(leaseMs).toBeLessThanOrEqual(121_000);
+    expect(leaseMs).toBeGreaterThan(160_000);
+    expect(leaseMs).toBeLessThanOrEqual(181_000);
   });
 
   it('processes one conversation strictly in order', async () => {

@@ -43,6 +43,16 @@ export const aiLimitsBodySchema = z
     aiDailyCapPerConversation: aiCap,
     /** Optional: left out keeps the current cap. */
     catalogItemCap: aiCap.optional(),
+    /** Optional (prompt 11): seconds, 5 to 600. */
+    audioMaxSeconds: z.number().int().min(5).max(600).nullable().optional(),
+    /** Optional (prompt 11): attachments per conversation per day, 1 to 1000. */
+    mediaDailyCapPerConversation: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .nullable()
+      .optional(),
   })
   .strict();
 

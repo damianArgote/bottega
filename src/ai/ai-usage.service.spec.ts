@@ -43,13 +43,14 @@ describe('usageMonth', () => {
 });
 
 describe('worstCaseAiJobMs', () => {
-  it('adds every model round, the sends and the overhead', () => {
+  it('adds the attachment fetch, the transcription, every model round, the sends and the overhead', () => {
     expect(
       worstCaseAiJobMs({
         OPENAI_TIMEOUT_MS: 20_000,
+        OPENAI_TRANSCRIBE_TIMEOUT_MS: 30_000,
         WHATSAPP_HTTP_TIMEOUT_MS: 10_000,
       }),
-    ).toBe(3 * 20_000 + 10_000 + 10_000);
+    ).toBe(2 * 10_000 + 30_000 + 3 * 20_000 + 10_000 + 10_000);
   });
 });
 

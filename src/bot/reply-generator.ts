@@ -1,6 +1,7 @@
 import type { ReplyButton } from '../whatsapp/whatsapp.client.js';
 import type { ConversationMode } from '../generated/prisma/client.js';
 import { echoReply, UNSUPPORTED_REPLY } from './echo-replies.js';
+import type { PreparedAttachment } from './attachment-preparer.js';
 import type { PlannedEffect } from './tools/tool.js';
 
 /** What a generator gets to produce the replies for one inbound message. */
@@ -17,6 +18,11 @@ export interface ReplyInput {
     id: string;
     type: 'TEXT' | 'UNSUPPORTED' | 'SYSTEM';
     content: string;
+    /**
+     * The attachment, prepared by AttachmentPreparer (transcript, image or
+     * PDF, or why it was not processed). Absent for text.
+     */
+    attachment?: PreparedAttachment;
   };
   /**
    * True on the job's last attempt: a generator must then answer with a
@@ -49,14 +55,16 @@ export interface ReplyGenerator {
 
 export const REPLY_GENERATOR = Symbol('REPLY_GENERATOR');
 
-/** BOT_REPLY_MODE=echo: quote the text back, or hint that only text works. */
+/** BOT_REPLY_MODE=echo: quote the text back, or say it cannot open files. */
 export class EchoReplyGenerator implements ReplyGenerator {
   generate({ message }: ReplyInput): Promise<GeneratedReply> {
     return Promise.resolve({
       replies: [
         message.type === 'TEXT'
           ? echoReply(message.content)
-          : UNSUPPORTED_REPLY,
+          : message.attachment?.kind === 'rejected'
+            ? message.attachment.reply
+            : UNSUPPORTED_REPLY,
       ],
       effects: [],
     });

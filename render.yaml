@@ -20,8 +20,8 @@ services:
     # suspend. /health (with the database) stays for monitoring.
     healthCheckPath: /health/live
     # A deploy sends SIGTERM; the worker finishes its in-flight jobs before
-    # exiting. Matches the default QUEUE_LEASE_MS (120 s).
-    maxShutdownDelaySeconds: 120
+    # exiting. Matches the default QUEUE_LEASE_MS (180 s).
+    maxShutdownDelaySeconds: 180
     # Deploy a new commit only after its GitHub checks (.github/workflows/ci.yml)
     # pass, so a red build never reaches production.
     autoDeployTrigger: checksPass

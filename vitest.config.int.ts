@@ -28,6 +28,7 @@ export default defineConfig({
       // 32 zero bytes, base64: test-only.
       TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       JWT_SECRET: 'int-jwt-secret-0123456789abcdef0123456789',
+      MEDIA_URL_SECRET: 'int-media-secret-0123456789abcdef01234567',
       INBOX_ORIGIN: 'https://inbox.test',
       // Tests drive the worker by hand (BotWorker.processNext / drain).
       WORKER_ENABLED: 'false',

@@ -129,6 +129,13 @@ el token de la línea de cada conversación, no con el del entorno.
 | `OPENAI_MODEL` | Si `BOT_REPLY_MODE=ai` | — | ID del modelo. Elegilo de la [lista de modelos](https://developers.openai.com/api/docs/models). |
 | `OPENAI_TIMEOUT_MS` | No | `20000` | Tiempo máximo de cada llamada a OpenAI. |
 | `OPENAI_MAX_OUTPUT_TOKENS` | No | `300` | Tope de tokens por respuesta. |
+| `OPENAI_TRANSCRIBE_MODEL` | No | `gpt-4o-mini-transcribe` | Modelo que transcribe los audios que mandan los clientes. |
+| `OPENAI_TRANSCRIBE_TIMEOUT_MS` | No | `30000` | Tiempo máximo de cada transcripción. Cuenta en el peor caso de `QUEUE_LEASE_MS`. |
+| `MEDIA_AUDIO_MAX_SECONDS` | No | `120` | Duración máxima de un audio que el bot transcribe (por negocio: `audioMaxSeconds` en `PUT /admin/businesses/:id/limits`). |
+| `MEDIA_AUDIO_MAX_BYTES` | No | `1000000` | Tamaño máximo de un audio: más pesado, ni se baja. |
+| `MEDIA_IMAGE_MAX_BYTES` | No | `5000000` | Tamaño máximo de una imagen que el bot mira. |
+| `MEDIA_DOCUMENT_MAX_BYTES` | No | `10000000` | Tamaño máximo de un PDF que el bot lee. |
+| `MEDIA_MAX_PER_CONVERSATION_PER_DAY` | No | `10` | Adjuntos que el bot procesa por conversación por día (por negocio: `mediaDailyCapPerConversation`). |
 | `AI_MAX_INTERACTIONS_PER_USER_PER_DAY` | No | `30` | Tope diario de respuestas con IA por conversación, para los negocios sin tope propio (`PUT /admin/businesses/:id/limits`). |
 | `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` | No | `5000` | Tope mensual de respuestas con IA de todo un negocio (mes calendario de Argentina), para los negocios sin tope propio. |
 | `AI_HISTORY_LIMIT` | No | `12` | Mensajes del historial que recibe el modelo. |
@@ -146,7 +153,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos mientras hay trabajo. |
 | `QUEUE_IDLE_POLL_INTERVAL_MS` | No | `600000` | Cuánto espera cuando la última vuelta no encontró trabajo (10 min), para que Neon pueda apagarse. Un mensaje nuevo despierta al worker enseguida, y un reintento pendiente lo despierta a su hora. |
 | `QUEUE_CONCURRENCY` | No | `2` | Trabajos en paralelo (de conversaciones distintas). |
-| `QUEUE_LEASE_MS` | No | `120000` | Tiempo que un trabajo queda reservado. Con `ai` debe superar el peor caso (la app lo valida al arrancar). |
+| `QUEUE_LEASE_MS` | No | `180000` | Tiempo que un trabajo queda reservado. Con `ai` debe superar el peor caso: bajar un adjunto, transcribirlo, las vueltas del modelo y el envío (la app lo valida al arrancar; con los valores por defecto, 130000). Si lo tenés cargado en Render con un valor menor, subilo antes de desplegar. |
 
 **Administración**
 
@@ -155,6 +162,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `ADMIN_API_KEY` | Sí | — | Clave de la [API de administración](#api-de-administración). Mínimo 32 caracteres. Generala con `openssl rand -hex 32`. |
 | `PUBLIC_BASE_URL` | No | — | URL pública de esta API (por ejemplo `https://bottega-api.onrender.com`). Con ella el alta de una línea devuelve la URL completa del webhook. En Render no hace falta: se usa `RENDER_EXTERNAL_URL`, que Render define solo. |
 | `JWT_SECRET` | Sí | — | Firma las sesiones de la bandeja (JWT). Mínimo 32 caracteres: generala con `openssl rand -base64 48`. Usá una distinta por entorno; si la cambiás, todas las sesiones se cierran. |
+| `MEDIA_URL_SECRET` | Sí | — | Firma los links de la bandeja a los adjuntos (audios, fotos, documentos). Mínimo 32 caracteres: `openssl rand -base64 48`. Cargala en Render **antes** de desplegar: sin ella la app no arranca. Si la cambiás, solo vencen los links ya entregados. |
 | `INBOX_ORIGIN` | Sí | — | Origen de la bandeja web, el único que acepta CORS (con cookies). Solo esquema, dominio y puerto, sin barra final: `http://localhost:4200` en local, la URL publicada de la bandeja en Render. |
 | `VAPID_PUBLIC_KEY` | No | — | Clave pública para los avisos Web Push de la bandeja (ver [Avisos con la app cerrada](#avisos-con-la-app-cerrada-web-push)). Van las tres `VAPID_*` o ninguna: sin ninguna, los avisos quedan apagados; con algunas, la app no arranca. Generá el par con `npx web-push generate-vapid-keys`. |
 | `VAPID_PRIVATE_KEY` | No | — | Clave privada del mismo par. Es un secreto: cambiarla invalida todas las suscripciones guardadas. |
@@ -532,6 +540,44 @@ el 80% y el 100% del tope del mes queda un log `info`
 `ai_monthly_cap_threshold` con el id del negocio, el uso y el tope (dos
 turnos simultáneos pueden dejarlo dos veces).
 
+### Audios, imágenes y documentos
+
+El bot responde **siempre en texto** (prompt 11):
+
+- **Audio**: el backend lo baja de Meta con el token de la línea, lo
+  transcribe (`OPENAI_TRANSCRIBE_MODEL`, en castellano) y el bot contesta
+  como si la persona lo hubiera escrito; el modelo lo recibe como
+  `"[Audio transcrito] <texto>"`. La transcripción queda en el mensaje (la
+  bandeja la muestra) aunque Meta borre el audio a los 30 días. Una
+  transcripción nunca dispara comandos ("humano", "demo"…). Se transcriben
+  OGG/Opus (notas de voz), MP3, M4A, WAV y WebM.
+- **Imagen o PDF**: el modelo los mira en ese turno, con su texto; en los
+  turnos siguientes van solo como texto (`"[Imagen] <texto>"`,
+  `"[PDF: <nombre>]"`). No se guardan archivos propios: quedan en Meta.
+- **Ubicación**: llega como texto ("Ubicación: …").
+- El nombre del contacto se toma del webhook para cualquier mensaje, también
+  adjuntos y tipos que el bot no abre.
+- **Video, sticker, Word, Excel u otro audio**: "Todavía no puedo abrir ese
+  tipo de archivo. ¿Me contás por escrito qué necesitás?". El bot no pasa la
+  conversación a una persona por eso.
+- Con la conversación pausada o atendida por una persona, el audio **se
+  transcribe igual** (para leerlo en la bandeja) y el bot no responde.
+
+**Límites** (ver las variables `MEDIA_*`): un audio de más de 2 minutos o de
+más de 1 MB no se transcribe ("Ese audio es muy largo para mí (hasta 2
+minutos)…"); imágenes de más de 5 MB y PDF de más de 10 MB no se abren; y
+hay hasta 10 adjuntos por conversación por día. Un adjunto rechazado no
+llama al modelo ni cuenta en los topes de IA. La transcripción, en cambio,
+cuenta como una llamada en los topes del mes y del día, y si un tope está
+alcanzado no se baja ni se transcribe nada. La duración y el tope diario se
+cambian por negocio con `PUT /admin/businesses/<id>/limits`
+(`audioMaxSeconds`, `mediaDailyCapPerConversation`).
+
+Lo que no se procesó queda en `media_error` (`too_long`, `too_large`,
+`daily_cap`, `ai_cap`, `unsupported_type`, `transcription_failed`,
+`empty_transcript`, `media_gone` (Meta ya no lo tiene: se le pide reenviarlo), `media_unavailable` (no se pudo bajar por algo nuestro, por ejemplo el token de la línea: no se le pide reenviarlo y queda un log `warn` con la línea), o `skipped` si el bot no lo leyó porque no iba a responder: pausada, atendida por una persona, agente apagado o modo echo) y la bandeja lo muestra. Solo cuentan para el tope diario de adjuntos los que de verdad se procesaron. Nunca se loguean
+en `info` la transcripción, el texto del adjunto ni el link de Meta.
+
 ### Catálogo
 
 Un negocio puede cargar sus productos, servicios o propiedades con precio
@@ -671,7 +717,8 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | `GET /inbox/businesses/<businessId>` | El negocio (`id`, `name`, `slug`) y el rol del usuario en él. |
 | `GET .../conversations?view=&lineId=&q=&cursor=` | Lista de 30 por página, la más reciente primero (por `lastMessageAt` e `id`). `view`: `mine` (asignadas a mí y no resueltas), `unassigned` (abiertas y sin asignar), `pending` (esperan a una persona) o `resolved`. `q` busca por nombre o número del contacto; `lineId`, una línea del negocio (`404` si no es suya). Devuelve `{ conversations, nextCursor }`. Cada conversación trae `windowClosesAt`: cuándo cierra la ventana de 24 h (también si `windowExpiresAt` viene en `null`); con eso la web sabe si una persona puede responder. |
 | `GET .../changes?cursor=` | Las conversaciones que cambiaron desde el cursor (hasta 200), el cursor nuevo y `hasMore` (si es `true`, pedí de nuevo enseguida). El cursor es opaco y lo da el servidor; la primera vez se pide sin cursor. Puede repetir conversaciones: quedate con la `version` más alta de cada `id`. |
-| `GET .../conversations/<id>/messages?before=&after=` | Mensajes de a 50, del más viejo al más nuevo, paginados por `seq` (orden de inserción, viene como texto). Sin parámetros, los últimos; `before=<seq>`, los anteriores; `after=<seq>`, los nuevos. Incluye los mensajes de sistema (`type: "SYSTEM"`). |
+| `GET .../conversations/<id>/messages?before=&after=` | Mensajes de a 50, del más viejo al más nuevo, paginados por `seq` (orden de inserción, viene como texto). Sin parámetros, los últimos; `before=<seq>`, los anteriores; `after=<seq>`, los nuevos. Incluye los mensajes de sistema (`type: "SYSTEM"`). Cada mensaje trae `media` (o `null` si es texto): `{ kind, mime, filename, caption, voice, transcript, error, url }`, donde `url` es un link firmado al proxy de abajo (`null` para una ubicación). |
+| `GET .../media/<messageId>?exp=&sig=` | El archivo del adjunto, traído de Meta en el momento. **No pide sesión**: el control es la firma (HMAC con `MEDIA_URL_SECRET` sobre negocio, mensaje y vencimiento). El link es el mismo durante cada media hora y dura entre 60 y 90 minutos. Acepta `Range` (responde `206`, para reproducir audio en iPhone). Solo se muestran en el navegador audios, JPG, PNG, WebP, PDF y MP4; el resto se descarga. Firma mala o vencida, `403`; mensaje de otro negocio, `404`; Meta ya lo borró, `410`. |
 | `POST .../conversations/<id>/messages` | Body `{ "body", "clientId" }` (`clientId`: un UUID que genera la web por mensaje; reintentar con el mismo no manda dos veces). Revisa la ventana de 24 h **antes** de llamar a Meta: cerrada, `409` con `code: "WINDOW_CLOSED"`. Si nadie la tiene asignada, la toma quien responde; si la tiene otra persona, `409` con `code: "ALREADY_TAKEN"`. `200` enviado (o repetido), `202` incierto (no se reintenta), `502` rechazado por Meta (si Meta dice que la ventana está cerrada, `windowExpiresAt` pasa a ahora). |
 | `POST .../conversations/<id>/read` | Deja `unreadCount` en 0 y marca leído en WhatsApp el último entrante (si eso falla, se ignora). |
 | `GET .../lines` | Las líneas del negocio (`id`, `phoneNumberId`, `displayPhone`, `active`), nunca sus credenciales. |
