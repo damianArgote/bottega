@@ -203,6 +203,29 @@ describe('Catalog (integration, HTTP)', () => {
     expect((await limon()).available).toBe(true);
   });
 
+  it('applies more changes than one update batch, and a re-import then changes nothing', async () => {
+    const csv = (price: number, available = 'sí') =>
+      [
+        'codigo,producto,precio,disponible,sabor',
+        ...Array.from(
+          { length: 1200 },
+          (_, i) => `C${i},Producto ${i},${price + i},${available},"x, ${i}"`,
+        ),
+      ].join('\n');
+    await importCsv(csv(100));
+
+    const changed = await importCsv(csv(200, 'no'));
+    expect(changed.summary).toMatchObject({ updated: 1200, unchanged: 0 });
+    const stored = await items();
+    expect(stored.every((i) => !i.available)).toBe(true);
+    const c999 = stored.find((i) => i.externalId === 'C999');
+    expect(c999?.price?.toFixed(2)).toBe('1199.00');
+    expect(c999?.attributes).toEqual({ sabor: 'x, 999' });
+
+    const again = await importCsv(csv(200, 'no'));
+    expect(again.summary).toMatchObject({ updated: 0, unchanged: 1200 });
+  });
+
   it('an invalid row does not stop the valid ones; its error is in the preview', async () => {
     const csv = [
       'codigo,producto,precio',

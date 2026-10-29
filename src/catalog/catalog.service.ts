@@ -14,6 +14,7 @@ import {
   Prisma,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { UTC_NOW } from '../prisma/sql.js';
 import type { CatalogReader } from '../bot/tools/tool.js';
 import {
   type AttributeValue,
@@ -35,6 +36,8 @@ import { csvRecords } from './csv.js';
 /** Previews keep their rows this long; then they can no longer be applied. */
 export const PREVIEW_TTL_MS = 24 * 60 * 60_000;
 const PAGE_SIZE = 50;
+/** Rows per UPDATE statement when applying an import. */
+const UPDATE_BATCH = 500;
 /** search_catalog returns at most this many items. */
 export const SEARCH_LIMIT = 8;
 /** Fewer full-text matches than this are completed by name similarity. */
@@ -260,24 +263,13 @@ export class CatalogService {
             })),
           });
         }
-        for (const item of diff.updated) {
-          await tx.catalogItem.update({
-            where: {
-              businessId_externalId: {
-                businessId,
-                externalId: item.externalId,
-              },
-            },
-            data: itemData(item),
-          });
-        }
         const gone = new Set(diff.unavailable);
-        for (const item of existing.filter((i) => gone.has(i.externalId))) {
-          await tx.catalogItem.update({
-            where: { id: item.id },
-            data: itemData({ ...asInput(item), available: false }),
-          });
-        }
+        await updateItems(tx, businessId, [
+          ...diff.updated,
+          ...existing
+            .filter((i) => gone.has(i.externalId))
+            .map((i) => ({ ...asInput(i), available: false })),
+        ]);
         return tx.catalogImport.update({
           where: { id: found.id },
           data: {
@@ -663,4 +655,34 @@ function notPreview(): ConflictException {
     message: 'Esta importación ya se aplicó o se descartó.',
     code: 'IMPORT_NOT_PREVIEW',
   });
+}
+
+/**
+ * Updates existing items by code, {@link UPDATE_BATCH} rows per statement
+ * (one round trip each instead of one per item).
+ */
+async function updateItems(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  items: readonly CatalogItemInput[],
+): Promise<void> {
+  for (let start = 0; start < items.length; start += UPDATE_BATCH) {
+    const values = items.slice(start, start + UPDATE_BATCH).map(
+      (item) => Prisma.sql`(
+        ${item.externalId}::text, ${item.name}::text, ${item.description}::text,
+        ${item.category}::text, ${item.price}::numeric, ${item.currency}::text,
+        ${item.available}::boolean, ${JSON.stringify(item.attributes)}::jsonb,
+        ${rowHash(item)}::text)`,
+    );
+    await tx.$executeRaw`
+      UPDATE catalog_item AS c SET
+        name = v.name, description = v.description, category = v.category,
+        price = v.price, currency = v.currency, available = v.available,
+        attributes = v.attributes, row_hash = v.row_hash,
+        updated_at = ${UTC_NOW}
+      FROM (VALUES ${Prisma.join(values)}) AS v(external_id, name,
+        description, category, price, currency, available, attributes, row_hash)
+      WHERE c.business_id = ${businessId}::uuid
+        AND c.external_id = v.external_id`;
+  }
 }
