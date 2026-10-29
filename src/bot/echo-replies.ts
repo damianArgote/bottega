@@ -1,7 +1,9 @@
+import { MEDIA_UNSUPPORTED_REPLY } from './media-replies.js';
+
 const MAX_ECHOED_CHARS = 200;
 
-export const UNSUPPORTED_REPLY =
-  'Por ahora solo puedo leer mensajes de texto. ¿Me lo escribís?';
+/** Anything the bot cannot open (prompt 11 replaced "solo leo texto"). */
+export const UNSUPPORTED_REPLY = MEDIA_UNSUPPORTED_REPLY;
 
 /** Echo reply for BOT_REPLY_MODE=echo. Truncates by code point (emoji-safe). */
 export function echoReply(text: string): string {

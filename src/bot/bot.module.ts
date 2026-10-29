@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai.provider.js';
 import { AiModule } from '../ai/ai.module.js';
 import { AiLimitsService } from '../ai/ai-limits.service.js';
+import { MediaModule } from '../media/media.module.js';
+import { AttachmentPreparer } from './attachment-preparer.js';
 import { CatalogModule } from '../catalog/catalog.module.js';
 import { CatalogService } from '../catalog/catalog.service.js';
 import { AiUsageService } from '../ai/ai-usage.service.js';
@@ -36,6 +38,7 @@ import { BotWorker } from './worker.js';
     LeadsModule,
     DemosModule,
     AiModule,
+    MediaModule,
     PushModule,
   ],
   providers: [
@@ -43,6 +46,7 @@ import { BotWorker } from './worker.js';
     BotWorker,
     CommandService,
     ToolEffectsService,
+    AttachmentPreparer,
     {
       provide: REPLY_GENERATOR,
       inject: [

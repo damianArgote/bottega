@@ -1,3 +1,11 @@
+import {
+  META_DOCUMENT,
+  META_IMAGE,
+  META_LOCATION,
+  META_STICKER,
+  META_VIDEO,
+  META_VOICE_NOTE,
+} from '../../test/fixtures/meta-media-messages.js';
 import { parseWebhookPayload } from './payload.parser.js';
 
 const PHONE_NUMBER_ID = '111111111111111';
@@ -98,6 +106,7 @@ describe('parseWebhookPayload', () => {
         from: '5491100005678',
         timestamp: new Date(1760140801 * 1000),
         messageType: 'image',
+        media: { kind: 'image', mediaId: 'media-1' },
       },
       { kind: 'ignored', reason: 'malformed message' },
       { kind: 'ignored', reason: 'malformed message' },
@@ -307,6 +316,108 @@ describe('parseWebhookPayload', () => {
     expect(events[2]).toMatchObject({
       kind: 'unsupported',
       messageType: 'interactive',
+    });
+  });
+});
+
+describe('parseWebhookPayload attachments', () => {
+  const one = (message: unknown) =>
+    parse(
+      payload({
+        contacts: [{ wa_id: '5491100001234', profile: { name: 'Ana' } }],
+        messages: [message],
+      }),
+    )[0];
+  const at = new Date(1760140800 * 1000);
+  const sender = { from: '5491100001234', timestamp: at, profileName: 'Ana' };
+
+  it('keeps a voice note with its media id, type and the contact name', () => {
+    expect(one(META_VOICE_NOTE)).toEqual({
+      kind: 'unsupported',
+      waMessageId: 'wamid.voice',
+      ...sender,
+      messageType: 'audio',
+      media: {
+        kind: 'audio',
+        mediaId: '1234567890001',
+        mime: 'audio/ogg; codecs=opus',
+        voice: true,
+      },
+    });
+  });
+
+  it('keeps the caption of an image and the file name of a document', () => {
+    expect(one(META_IMAGE)).toMatchObject({
+      messageType: 'image',
+      media: {
+        kind: 'image',
+        mediaId: '1234567890002',
+        mime: 'image/jpeg',
+        caption: '¿Tienen esta torta?',
+      },
+    });
+    expect(one(META_DOCUMENT)).toMatchObject({
+      media: {
+        kind: 'document',
+        mime: 'application/pdf',
+        filename: 'pedido.pdf',
+        caption: 'Mi pedido',
+      },
+    });
+  });
+
+  it('keeps videos and stickers as attachments', () => {
+    expect(one(META_VIDEO)).toMatchObject({
+      kind: 'unsupported',
+      media: { kind: 'video', mediaId: '1234567890004', mime: 'video/mp4' },
+    });
+    expect(one(META_STICKER)).toMatchObject({
+      kind: 'unsupported',
+      media: { kind: 'sticker', mime: 'image/webp' },
+    });
+  });
+
+  it('turns a location into text', () => {
+    expect(one(META_LOCATION)).toEqual({
+      kind: 'text',
+      waMessageId: 'wamid.location',
+      ...sender,
+      text: 'Ubicación: KUBBO, Presidente Camilo Tenorio 2036 (-34.6301, -58.4637)',
+      media: { kind: 'location' },
+    });
+    expect(
+      one({
+        ...META_LOCATION,
+        location: { latitude: 1.5, longitude: 2 },
+      }),
+    ).toMatchObject({ text: 'Ubicación: (1.5, 2)' });
+  });
+
+  it('keeps a message whose media object Meta sends in another shape', () => {
+    expect(
+      one({ ...META_IMAGE, image: { mime_type: 'image/jpeg' } }),
+    ).toMatchObject({ kind: 'unsupported', messageType: 'image' });
+    expect(
+      one({ ...META_IMAGE, image: { id: '1', file_size: '1234', caption: 7 } }),
+    ).toMatchObject({ media: { kind: 'image', mediaId: '1', size: 1234 } });
+    expect(
+      one({ ...META_LOCATION, location: { latitude: 'x' } }),
+    ).toMatchObject({ kind: 'unsupported', messageType: 'location' });
+  });
+
+  it('leaves unknown types without media, as before', () => {
+    expect(
+      one({
+        from: '5491100001234',
+        id: 'wamid.x',
+        timestamp: '1760140800',
+        type: 'unsupported',
+      }),
+    ).toEqual({
+      kind: 'unsupported',
+      waMessageId: 'wamid.x',
+      ...sender,
+      messageType: 'unsupported',
     });
   });
 });

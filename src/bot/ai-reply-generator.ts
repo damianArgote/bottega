@@ -120,7 +120,13 @@ export class AiReplyGenerator implements ReplyGenerator {
       // Switched off: the AI does not answer until the agent is turned on.
       return { replies: [], effects: [] };
     }
-    if (input.message.type !== 'TEXT') {
+    const { attachment } = input.message;
+    // Not processed (a limit, a type it cannot open, a failed fetch): the
+    // fixed text, no model call and nothing counted.
+    if (attachment?.kind === 'rejected') {
+      return { replies: [attachment.reply], effects: [] };
+    }
+    if (input.message.type !== 'TEXT' && !attachment) {
       return { replies: [UNSUPPORTED_REPLY], effects: [] };
     }
     const { config, usage, limits } = this.deps;
@@ -137,7 +143,10 @@ export class AiReplyGenerator implements ReplyGenerator {
     // Usage rows are dated with the system clock (AiUsageService.record), so
     // the caps count with it too, not with the opening-hours clock.
     const usedThisMonth = await limits.countMonth(caps.businessId);
-    if (usedThisMonth >= caps.monthlyCap) {
+    // An audio's caps were checked once, before transcribing it (the
+    // transcription itself now counts): its reply is not cut by them.
+    const capsChecked = attachment?.kind === 'audio';
+    if (!capsChecked && usedThisMonth >= caps.monthlyCap) {
       await this.recordLimited(turn);
       if (await limits.monthlyCapHandoffDone(input.conversationId)) {
         // Handed off once this month already (a person gave the bot back).
@@ -148,8 +157,16 @@ export class AiReplyGenerator implements ReplyGenerator {
         effects: [{ kind: 'ai_monthly_cap_handoff' }],
       };
     }
-    if ((await usage.countToday(input.conversationId)) >= caps.dailyCap) {
+    if (
+      !capsChecked &&
+      (await usage.countToday(input.conversationId)) >= caps.dailyCap
+    ) {
       await this.recordLimited(turn);
+      return { replies: [AI_LIMIT_REPLY], effects: [] };
+    }
+    if (attachment?.kind === 'capped') {
+      // A cap stopped the attachment and has since been raised or reset:
+      // the attachment was never read, so answer as the daily cap does.
       return { replies: [AI_LIMIT_REPLY], effects: [] };
     }
     try {
@@ -208,7 +225,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     const { config } = this.deps;
     const items: AiInputItem[] = [
       ...(await this.history(input)),
-      { kind: 'message', role: 'user', content: input.message.content },
+      currentItem(input),
     ];
     const demo = await this.demoOf(input);
     // The catalog belongs to the business: never inside the fictitious demo.
@@ -442,8 +459,62 @@ export class AiReplyGenerator implements ReplyGenerator {
       where: historyWhere(contextIds, input.message.id),
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: this.deps.config.get('AI_HISTORY_LIMIT'),
-      select: { direction: true, content: true },
+      select: {
+        direction: true,
+        content: true,
+        mediaKind: true,
+        mediaMime: true,
+        mediaFilename: true,
+        transcript: true,
+      },
     });
     return toHistoryItems(rows.reverse());
+  }
+}
+
+/**
+ * The inbound message for the model: its text, an audio's transcript
+ * (marked, so the model knows it may have errors), or an image or PDF with
+ * its caption.
+ */
+function currentItem({ message }: ReplyInput): AiInputItem {
+  const { attachment } = message;
+  switch (attachment?.kind) {
+    case 'audio':
+      return {
+        kind: 'message',
+        role: 'user',
+        content: `[Audio transcrito] ${attachment.transcript}`,
+      };
+    case 'image':
+      return {
+        kind: 'parts',
+        content: [
+          {
+            kind: 'text',
+            text: attachment.caption
+              ? `[Imagen] ${attachment.caption}`
+              : '[Imagen]',
+          },
+          { kind: 'image', dataUrl: attachment.dataUrl },
+        ],
+      };
+    case 'document':
+      return {
+        kind: 'parts',
+        content: [
+          {
+            kind: 'text',
+            text: `[PDF: ${attachment.filename}]${attachment.caption ? ` ${attachment.caption}` : ''}`,
+          },
+          {
+            kind: 'file',
+            filename: attachment.filename,
+            dataUrl: attachment.dataUrl,
+          },
+        ],
+      };
+    default:
+      return { kind: 'message', role: 'user', content: message.content };
   }
 }

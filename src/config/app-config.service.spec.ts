@@ -6,6 +6,7 @@ const VALID_ENV = {
   ADMIN_API_KEY: 'unit-admin-api-key-0123456789abcdef',
   TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
   JWT_SECRET: 'unit-jwt-secret-0123456789abcdef0123456789',
+  MEDIA_URL_SECRET: 'unit-media-secret-0123456789abcdef012345678',
   INBOX_ORIGIN: 'https://inbox.test',
 };
 

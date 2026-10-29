@@ -21,6 +21,7 @@ export default defineConfig({
       // 32 zero bytes, base64: test-only.
       TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       JWT_SECRET: 'e2e-jwt-secret-0123456789abcdef0123456789',
+      MEDIA_URL_SECRET: 'e2e-media-secret-0123456789abcdef01234567',
       INBOX_ORIGIN: 'https://inbox.test',
       // The queue worker would poll the (mocked) database; e2e is HTTP-only.
       WORKER_ENABLED: 'false',

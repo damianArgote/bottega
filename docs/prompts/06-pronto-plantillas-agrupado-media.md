@@ -17,6 +17,8 @@ La gente escribe "hola", "quiero precio", "para 2 personas" en tres mensajes y h
 - Test int: tres entrantes con 1 s de diferencia producen una sola llamada a la IA y una sola respuesta.
 
 ## 6c · Adjuntos de entrada (rama `feat/inbound-media`)
+> Reemplazada por el prompt 11 (`11-adjuntos-y-audios.md`): no la corras.
+
 - Parsear `image`, `audio`, `document`, `video`, `sticker`, `location`, `reaction`, `interactive`/`button`: guardar `mediaId`, `mime`, caption o título. Lo desconocido: "(mensaje de tipo X)" y el payload crudo.
 - Proxy: `GET /inbox/.../media/:messageId?exp=&sig=` firmado con HMAC (`MEDIA_URL_SECRET`, obligatorio, sin fallback) y vencimiento de 60 min. El backend pide la URL temporal a Meta (`GET /{media_id}`) y hace stream del archivo con el Bearer. Link vencido o firma mala: 403.
 - Meta borra la media a los 30 días: dejalo escrito en el README; copiar a storage propio queda para cuando un cliente lo pida.

@@ -149,14 +149,19 @@ export class ConversationsService {
     }
     const maxAttempts = this.config.get('JOB_MAX_ATTEMPTS');
     const type = event.kind === 'text' ? 'TEXT' : 'UNSUPPORTED';
+    // An attachment's caption is its content (the inbox preview and the
+    // previous release show it); otherwise `[image]`, `[audio]`... as before.
     const content =
-      event.kind === 'text' ? event.text : `[${event.messageType}]`;
+      event.kind === 'text'
+        ? event.text
+        : (event.media?.caption ?? `[${event.messageType}]`);
+    const media = event.media;
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Both upserts lock their row until commit (contact first, then
       // conversation, always in this order), which serializes concurrent
       // inbound transactions of the same conversation.
-      const profileName = event.kind === 'text' ? event.profileName : undefined;
+      const profileName = event.profileName;
       const [contact] = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO contact
           (id, business_id, wa_id, profile_name, created_at, updated_at)
@@ -201,10 +206,14 @@ export class ConversationsService {
       const [message] = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO message
           (id, conversation_id, context_id, wa_message_id, direction, type,
-           content, status, author, created_at, updated_at)
+           content, status, author, media_kind, media_id, media_mime,
+           media_size, media_filename, media_voice, created_at, updated_at)
         VALUES (gen_random_uuid(), ${conversation.id}::uuid, ${contextId}::uuid,
           ${event.waMessageId}, 'INBOUND', ${type}::message_type, ${content},
-          'RECEIVED', 'USER', ${UTC_NOW}, ${UTC_NOW})
+          'RECEIVED', 'USER', ${media?.kind ?? null}::text,
+          ${media?.mediaId ?? null}::text, ${media?.mime ?? null}::text,
+          ${media?.size ?? null}::int, ${media?.filename ?? null}::text,
+          ${media?.voice ?? null}::boolean, ${UTC_NOW}, ${UTC_NOW})
         ON CONFLICT (wa_message_id) DO NOTHING
         RETURNING id`;
       if (!message) {

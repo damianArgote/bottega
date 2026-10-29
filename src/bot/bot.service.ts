@@ -25,6 +25,7 @@ import {
   type WhatsAppClient,
   type WhatsAppClientFactory,
 } from '../whatsapp/whatsapp.client.js';
+import { AttachmentPreparer } from './attachment-preparer.js';
 import { CommandService } from './command.service.js';
 import { matchCommand } from './commands.js';
 import { JobError } from './job-error.js';
@@ -84,6 +85,7 @@ export class BotService {
     private readonly contexts: ContextService,
     private readonly commands: CommandService,
     private readonly effects: ToolEffectsService,
+    private readonly attachments: AttachmentPreparer,
   ) {}
 
   async process(job: InboundJob): Promise<ProcessResult> {
@@ -151,6 +153,13 @@ export class BotService {
     const command =
       inbound.type === MessageType.TEXT ? matchCommand(inbound.content) : null;
 
+    const isLastAttempt = job.attempts >= job.maxAttempts;
+    // Before anything else: an audio is transcribed even when the bot will
+    // not answer, so the inbox shows it (stored at once, never redone).
+    const attachment = command
+      ? null
+      : await this.attachments.prepare(inbound, conversation, isLastAttempt);
+
     let generated: GeneratedOutcome | null = null;
     if (botMayReply(conversation) && !command) {
       const contextId = conversation.activeContextId ?? inbound.contextId;
@@ -165,8 +174,9 @@ export class BotService {
           id: inbound.id,
           type: inbound.type,
           content: inbound.content,
+          ...(attachment ? { attachment } : {}),
         },
-        isLastAttempt: job.attempts >= job.maxAttempts,
+        isLastAttempt,
       });
       generated = {
         contextId,

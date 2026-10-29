@@ -16,18 +16,27 @@ export interface BusinessAiLimits {
   aiDailyCapPerConversation: number | null;
   /** Catalog items (prompt 10); null uses CATALOG_MAX_ITEMS_PER_BUSINESS. */
   catalogItemCap: number | null;
+  /** Longest audio transcribed (prompt 11); null uses MEDIA_AUDIO_MAX_SECONDS. */
+  audioMaxSeconds: number | null;
+  /** Attachments per conversation per day; null uses MEDIA_MAX_PER_CONVERSATION_PER_DAY. */
+  mediaDailyCapPerConversation: number | null;
 }
 
-/** A PUT of the limits: the catalog cap is optional (absent: unchanged). */
-export type BusinessLimitsUpdate = Omit<BusinessAiLimits, 'catalogItemCap'> & {
-  catalogItemCap?: number | null;
-};
+/** Limits a PUT may leave out (absent: unchanged). */
+type OptionalLimit =
+  'catalogItemCap' | 'audioMaxSeconds' | 'mediaDailyCapPerConversation';
+
+/** A PUT of the limits: only the two AI caps are required. */
+export type BusinessLimitsUpdate = Omit<BusinessAiLimits, OptionalLimit> &
+  Partial<Pick<BusinessAiLimits, OptionalLimit>>;
 
 /** The caps that apply to one conversation (defaults resolved). */
 export interface ConversationAiLimits {
   businessId: string;
   monthlyCap: number;
   dailyCap: number;
+  audioMaxSeconds: number;
+  mediaDailyCap: number;
 }
 
 export interface BusinessAiUsage {
@@ -43,6 +52,8 @@ const limitsSelect = {
   aiMonthlyCap: true,
   aiDailyCapPerConversation: true,
   catalogItemCap: true,
+  audioMaxSeconds: true,
+  mediaDailyCapPerConversation: true,
 } as const;
 
 /**
@@ -116,6 +127,11 @@ export class AiLimitsService {
       dailyCap:
         business.aiDailyCapPerConversation ??
         this.config.get('AI_MAX_INTERACTIONS_PER_USER_PER_DAY'),
+      audioMaxSeconds:
+        business.audioMaxSeconds ?? this.config.get('MEDIA_AUDIO_MAX_SECONDS'),
+      mediaDailyCap:
+        business.mediaDailyCapPerConversation ??
+        this.config.get('MEDIA_MAX_PER_CONVERSATION_PER_DAY'),
     };
   }
 

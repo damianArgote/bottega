@@ -9,6 +9,9 @@ import type { BusinessAccess } from '../auth/business-access.guard.js';
 import type { SessionUser } from '../auth/auth.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AppConfigService } from '../config/app-config.service.js';
+import { captionOf } from '../media/attachment-text.js';
+import { signedMediaPath } from '../media/media-url.js';
 
 export type InboxView = 'mine' | 'unassigned' | 'pending' | 'resolved';
 
@@ -65,7 +68,16 @@ const messageItem = {
   status: true,
   errorCode: true,
   createdAt: true,
+  mediaKind: true,
+  mediaId: true,
+  mediaMime: true,
+  mediaFilename: true,
+  mediaVoice: true,
+  transcript: true,
+  mediaError: true,
 } satisfies Prisma.MessageSelect;
+
+type MessageRow = Prisma.MessageGetPayload<{ select: typeof messageItem }>;
 
 /** Cursors are opaque to the web: base64url JSON. */
 function encodeCursor(value: object): string {
@@ -101,7 +113,49 @@ const seqSchema = z.string().regex(/^\d{1,19}$/, 'must be a message seq');
 /** Reads of the inbox, always scoped to the route's business. */
 @Injectable()
 export class InboxQueriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: AppConfigService,
+  ) {}
+
+  /**
+   * A message for the inbox: its attachment as `media` (null for plain
+   * text), with a signed link to the proxy when there is a file in Meta.
+   */
+  private messageView(businessId: string, row: MessageRow) {
+    const {
+      mediaKind,
+      mediaId,
+      mediaMime,
+      mediaFilename,
+      mediaVoice,
+      transcript,
+      mediaError,
+      ...message
+    } = row;
+    return {
+      ...message,
+      seq: row.seq.toString(),
+      media: mediaKind
+        ? {
+            kind: mediaKind,
+            mime: mediaMime,
+            filename: mediaFilename,
+            caption: captionOf(row),
+            voice: mediaVoice,
+            transcript,
+            error: mediaError,
+            url: mediaId
+              ? signedMediaPath(
+                  this.config.get('MEDIA_URL_SECRET'),
+                  businessId,
+                  row.id,
+                )
+              : null,
+          }
+        : null,
+    };
+  }
 
   /**
    * GET /conversations: one view, newest first by (lastMessageAt, id),
@@ -279,7 +333,7 @@ export class InboxQueriesService {
       page.reverse();
     }
     return {
-      messages: page.map((m) => ({ ...m, seq: m.seq.toString() })),
+      messages: page.map((m) => this.messageView(access.businessId, m)),
       hasMore: rows.length > MESSAGES_PAGE_SIZE,
     };
   }

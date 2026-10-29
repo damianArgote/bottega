@@ -114,6 +114,12 @@ describe('AI limits and usage routes (integration, HTTP)', () => {
   };
 
   const limits = { aiMonthlyCap: 100, aiDailyCapPerConversation: 5 };
+  /** The optional caps (catalog, attachments) a business has not set. */
+  const noOptionalCaps = {
+    catalogItemCap: null,
+    audioMaxSeconds: null,
+    mediaDailyCapPerConversation: null,
+  };
 
   it('PUT /admin/businesses/:id/limits requires the ADMIN_API_KEY', async () => {
     await http().put(`/admin/businesses/${a}/limits`).send(limits).expect(401);
@@ -124,11 +130,11 @@ describe('AI limits and usage routes (integration, HTTP)', () => {
       .put(`/admin/businesses/${a}/limits`)
       .set('X-Admin-Api-Key', ADMIN_KEY)
       .send(limits)
-      .expect(200, { ...limits, catalogItemCap: null });
+      .expect(200, { ...limits, ...noOptionalCaps });
     await http()
       .get(`/admin/businesses/${a}/limits`)
       .set('X-Admin-Api-Key', ADMIN_KEY)
-      .expect(200, { ...limits, catalogItemCap: null });
+      .expect(200, { ...limits, ...noOptionalCaps });
   });
 
   it('null goes back to the default; out-of-range values are rejected', async () => {
@@ -143,7 +149,7 @@ describe('AI limits and usage routes (integration, HTTP)', () => {
       {
         aiMonthlyCap: null,
         aiDailyCapPerConversation: null,
-        catalogItemCap: null,
+        ...noOptionalCaps,
       },
     );
 
@@ -160,6 +166,50 @@ describe('AI limits and usage routes (integration, HTTP)', () => {
     await put({ aiMonthlyCap: 1_000_000, aiDailyCapPerConversation: 1 }).expect(
       200,
     );
+  });
+
+  it('sets and keeps the attachment limits like the catalog cap', async () => {
+    const put = (body: object) =>
+      http()
+        .put(`/admin/businesses/${a}/limits`)
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .send(body);
+
+    await put({
+      ...limits,
+      audioMaxSeconds: 60,
+      mediaDailyCapPerConversation: 3,
+    })
+      .expect(200)
+      .expect((res) =>
+        expect(res.body).toMatchObject({
+          audioMaxSeconds: 60,
+          mediaDailyCapPerConversation: 3,
+        }),
+      );
+    // Left out: unchanged.
+    await put(limits)
+      .expect(200)
+      .expect((res) =>
+        expect(res.body).toMatchObject({
+          audioMaxSeconds: 60,
+          mediaDailyCapPerConversation: 3,
+        }),
+      );
+    // null goes back to the variable.
+    await put({ ...limits, audioMaxSeconds: null })
+      .expect(200)
+      .expect((res) =>
+        expect(res.body).toMatchObject({ audioMaxSeconds: null }),
+      );
+    for (const bad of [
+      { audioMaxSeconds: 4 },
+      { audioMaxSeconds: 601 },
+      { mediaDailyCapPerConversation: 0 },
+      { mediaDailyCapPerConversation: 1001 },
+    ]) {
+      await put({ ...limits, ...bad }).expect(400);
+    }
   });
 
   it('404 when the business does not exist', async () => {
