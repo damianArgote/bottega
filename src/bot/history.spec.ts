@@ -1,12 +1,60 @@
-import { historyContextIds, historyWhere, toHistoryItems } from './history.js';
+import {
+  type HistoryMessage,
+  historyContextIds,
+  historyWhere,
+  toHistoryItems,
+} from './history.js';
+
+const row = (
+  direction: 'INBOUND' | 'OUTBOUND',
+  content: string,
+  media: Partial<HistoryMessage> = {},
+): HistoryMessage => ({
+  direction,
+  content,
+  mediaKind: null,
+  mediaMime: null,
+  mediaFilename: null,
+  transcript: null,
+  ...media,
+});
 
 describe('history', () => {
+  it('turns attachments into text: transcripts for audio, labels for images and PDFs', () => {
+    expect(
+      toHistoryItems([
+        row('INBOUND', '[audio]', {
+          mediaKind: 'audio',
+          transcript: 'quiero un kilo',
+        }),
+        row('INBOUND', '[audio]', { mediaKind: 'audio' }),
+        row('INBOUND', '¿Tienen esta?', { mediaKind: 'image' }),
+        row('INBOUND', '[image]', { mediaKind: 'image' }),
+        row('INBOUND', 'Mi pedido', {
+          mediaKind: 'document',
+          mediaMime: 'application/pdf',
+          mediaFilename: 'pedido.pdf',
+        }),
+        row('INBOUND', 'Ubicación: KUBBO (1, 2)', { mediaKind: 'location' }),
+        row('INBOUND', '[video]', { mediaKind: 'video' }),
+      ]).map((item) => (item.kind === 'message' ? item.content : null)),
+    ).toEqual([
+      '[Audio transcrito] quiero un kilo',
+      '[Audio]',
+      '[Imagen] ¿Tienen esta?',
+      '[Imagen]',
+      '[PDF: pedido.pdf] Mi pedido',
+      'Ubicación: KUBBO (1, 2)',
+      '[video]',
+    ]);
+  });
+
   it('maps inbound to user and outbound to assistant, keeping order', () => {
     expect(
       toHistoryItems([
-        { direction: 'INBOUND', content: 'hola' },
-        { direction: 'OUTBOUND', content: '¡Hola! ¿Cómo te llamás?' },
-        { direction: 'INBOUND', content: 'Ana' },
+        row('INBOUND', 'hola'),
+        row('OUTBOUND', '¡Hola! ¿Cómo te llamás?'),
+        row('INBOUND', 'Ana'),
       ]),
     ).toEqual([
       { kind: 'message', role: 'user', content: 'hola' },

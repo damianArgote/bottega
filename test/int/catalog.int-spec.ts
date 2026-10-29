@@ -264,6 +264,8 @@ describe('Catalog (integration, HTTP)', () => {
         aiMonthlyCap: null,
         aiDailyCapPerConversation: null,
         catalogItemCap: 3,
+        audioMaxSeconds: null,
+        mediaDailyCapPerConversation: null,
       });
     const preview = await previewCsv(CSV);
 
@@ -294,6 +296,8 @@ describe('Catalog (integration, HTTP)', () => {
         aiMonthlyCap: 10,
         aiDailyCapPerConversation: null,
         catalogItemCap: 7,
+        audioMaxSeconds: null,
+        mediaDailyCapPerConversation: null,
       });
   });
 

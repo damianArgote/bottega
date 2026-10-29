@@ -1,3 +1,4 @@
+import { captionOf, isPdfMime } from '../media/attachment-text.js';
 import type { AiInputItem } from '../ai/ai.provider.js';
 import {
   type ContextEndReason,
@@ -67,13 +68,51 @@ export function historyWhere(
   };
 }
 
+/** The columns history reads from each message. */
+export type HistoryMessage = Pick<
+  Message,
+  | 'direction'
+  | 'content'
+  | 'mediaKind'
+  | 'mediaMime'
+  | 'mediaFilename'
+  | 'transcript'
+>;
+
 /** Maps stored messages (oldest first) to model input items. */
 export function toHistoryItems(
-  messages: readonly Pick<Message, 'direction' | 'content'>[],
+  messages: readonly HistoryMessage[],
 ): AiInputItem[] {
   return messages.map((message) => ({
     kind: 'message',
     role: message.direction === MessageDirection.INBOUND ? 'user' : 'assistant',
-    content: message.content,
+    content: historyText(message),
   }));
+}
+
+/**
+ * An inbound attachment as text: images and PDFs are not sent again (they
+ * cost tokens), audio goes as its transcript.
+ */
+export function historyText(message: HistoryMessage): string {
+  if (message.direction !== MessageDirection.INBOUND || !message.mediaKind) {
+    return message.content;
+  }
+  const caption = captionOf(message);
+  const withCaption = (label: string) =>
+    caption ? `${label} ${caption}` : label;
+  switch (message.mediaKind) {
+    case 'audio':
+      return message.transcript
+        ? `[Audio transcrito] ${message.transcript}`
+        : '[Audio]';
+    case 'image':
+      return withCaption('[Imagen]');
+    case 'document':
+      return withCaption(
+        `[${isPdfMime(message.mediaMime) ? 'PDF' : 'Documento'}: ${message.mediaFilename ?? 'sin nombre'}]`,
+      );
+    default:
+      return message.content;
+  }
 }

@@ -1,4 +1,12 @@
 import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
+import { AiUsageService } from '../../src/ai/ai-usage.service.js';
+import {
+  type AiTranscriber,
+  disabledTranscriber,
+} from '../../src/ai/transcriber.js';
+import { AttachmentPreparer } from '../../src/bot/attachment-preparer.js';
+import type { MediaSource } from '../../src/media/line-media.service.js';
+import { MediaFetchError } from '../../src/media/meta-media.client.js';
 import { AiProviderError, type AiProvider } from '../../src/ai/ai.provider.js';
 import { CatalogAiService } from '../../src/catalog/catalog-ai.service.js';
 import { CatalogService } from '../../src/catalog/catalog.service.js';
@@ -126,6 +134,7 @@ export function buildBotService(
   prisma: PrismaService,
   client: WhatsAppClient | WhatsAppClientFactory,
   generator: ReplyGenerator,
+  attachments: AttachmentPreparer = buildAttachmentPreparer(prisma),
 ): BotService {
   const content = new ContentService();
   const contexts = new ContextService(prisma);
@@ -142,6 +151,7 @@ export function buildBotService(
     contexts,
     commands,
     effects,
+    attachments,
   );
 }
 
@@ -165,5 +175,32 @@ export function buildCatalogService(
       config,
       new AiLimitsService(prisma, config),
     ),
+  );
+}
+
+/** A media source with no files (Meta is not reachable in tests). */
+const noMedia: MediaSource = {
+  info: () => Promise.reject(new MediaFetchError('media_gone', false)),
+  open: () => Promise.reject(new MediaFetchError('media_gone', false)),
+  download: () => Promise.reject(new MediaFetchError('media_gone', false)),
+};
+
+/**
+ * AttachmentPreparer with fakes for Meta and the transcriber. In echo mode
+ * (the default test config) attachments only get the fixed text.
+ */
+export function buildAttachmentPreparer(
+  prisma: PrismaService,
+  config = testConfig(),
+  media: MediaSource = noMedia,
+  transcriber: AiTranscriber = disabledTranscriber,
+): AttachmentPreparer {
+  return new AttachmentPreparer(
+    prisma,
+    config,
+    new AiLimitsService(prisma, config),
+    new AiUsageService(prisma),
+    media,
+    transcriber,
   );
 }
