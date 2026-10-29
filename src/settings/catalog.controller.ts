@@ -26,9 +26,12 @@ import {
   importIdSchema,
   itemBodySchema,
   mappingBodySchema,
+  sheetBodySchema,
   itemsQuerySchema,
   parseImportRequest,
 } from '../catalog/catalog.schemas.js';
+import { CatalogSheetService } from '../catalog/catalog-sheet.service.js';
+import { CatalogSyncScheduler } from '../catalog/catalog-sync.scheduler.js';
 import { CatalogService } from '../catalog/catalog.service.js';
 
 /**
@@ -38,7 +41,11 @@ import { CatalogService } from '../catalog/catalog.service.js';
 @Controller('inbox/businesses/:businessId/settings/catalog')
 @UseGuards(SessionGuard, BusinessAccessGuard, RoleGuard('OWNER'))
 export class CatalogController {
-  constructor(private readonly catalog: CatalogService) {}
+  constructor(
+    private readonly catalog: CatalogService,
+    private readonly sheets: CatalogSheetService,
+    private readonly scheduler: CatalogSyncScheduler,
+  ) {}
 
   @Post('imports')
   @HttpCode(HttpStatus.CREATED)
@@ -138,5 +145,35 @@ export class CatalogController {
       access.businessId,
       parseOrBadRequest(externalIdSchema, externalId, 'externalId'),
     );
+  }
+
+  /** The Google Sheet published as CSV and its last sync. */
+  @Get('sheet')
+  sheet(@CurrentBusiness() access: BusinessAccess) {
+    return this.sheets.get(access.businessId);
+  }
+
+  /** `{ url }` (null removes it); the first sync runs right away. */
+  @Put('sheet')
+  async putSheet(
+    @CurrentBusiness() access: BusinessAccess,
+    @Body() body: unknown,
+  ) {
+    const view = await this.sheets.set(
+      access.businessId,
+      parseOrBadRequest(sheetBodySchema, body ?? {}, 'body').url,
+    );
+    this.scheduler.schedule();
+    return view;
+  }
+
+  /** "Sincronizar ahora". */
+  @Post('sync')
+  @HttpCode(HttpStatus.OK)
+  sync(
+    @CurrentBusiness() access: BusinessAccess,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.sheets.sync(access.businessId, user.id);
   }
 }

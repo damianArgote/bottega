@@ -62,6 +62,11 @@ export const itemsQuerySchema = z
   })
   .strict();
 
+/** PUT .../catalog/sheet: the published sheet's link, or null to remove it. */
+export const sheetBodySchema = z
+  .object({ url: z.string().trim().min(1).max(2000).nullable() })
+  .strict();
+
 /** PUT .../imports/:importId/mapping: the confirmed or corrected mapping. */
 export const mappingBodySchema = z
   .object({ mapping: catalogMappingSchema })
