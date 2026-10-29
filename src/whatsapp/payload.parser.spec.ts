@@ -393,6 +393,18 @@ describe('parseWebhookPayload attachments', () => {
     ).toMatchObject({ text: 'Ubicación: (1.5, 2)' });
   });
 
+  it('keeps a message whose media object Meta sends in another shape', () => {
+    expect(
+      one({ ...META_IMAGE, image: { mime_type: 'image/jpeg' } }),
+    ).toMatchObject({ kind: 'unsupported', messageType: 'image' });
+    expect(
+      one({ ...META_IMAGE, image: { id: '1', file_size: '1234', caption: 7 } }),
+    ).toMatchObject({ media: { kind: 'image', mediaId: '1', size: 1234 } });
+    expect(
+      one({ ...META_LOCATION, location: { latitude: 'x' } }),
+    ).toMatchObject({ kind: 'unsupported', messageType: 'location' });
+  });
+
   it('leaves unknown types without media, as before', () => {
     expect(
       one({

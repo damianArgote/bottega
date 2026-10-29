@@ -93,11 +93,28 @@ export class MetaMediaClient {
 
   /**
    * The file's response (200, or 206 for a `range`), for streaming. Only a
-   * Meta https host receives the token; redirects are not followed.
+   * Meta https host receives the token; redirects are not followed. The
+   * timeout covers the response headers only: a long download (a big video
+   * to a slow phone) is not cut.
    */
   async open(
     accessToken: string,
     url: string,
+    range?: string,
+  ): Promise<Response> {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), this.options.timeoutMs);
+    try {
+      return await this.request(accessToken, url, abort.signal, range);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async request(
+    accessToken: string,
+    url: string,
+    signal: AbortSignal,
     range?: string,
   ): Promise<Response> {
     let target: URL;
@@ -117,7 +134,7 @@ export class MetaMediaClient {
           ...(range ? { Range: range } : {}),
         },
         redirect: 'manual',
-        signal: AbortSignal.timeout(this.options.timeoutMs),
+        signal,
       });
     } catch {
       throw new MediaFetchError('media_unavailable', true);
@@ -131,13 +148,20 @@ export class MetaMediaClient {
     return response;
   }
 
-  /** The whole file, stopping past `maxBytes`. */
+  /**
+   * The whole file, stopping past `maxBytes`. The timeout covers the whole
+   * download (the bot's job has to fit in the queue lease).
+   */
   async download(
     accessToken: string,
     url: string,
     maxBytes: number,
   ): Promise<Buffer> {
-    const response = await this.open(accessToken, url);
+    const response = await this.request(
+      accessToken,
+      url,
+      AbortSignal.timeout(this.options.timeoutMs),
+    );
     if (!response.body) {
       return Buffer.alloc(0);
     }

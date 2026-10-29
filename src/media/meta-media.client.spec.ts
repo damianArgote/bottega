@@ -130,3 +130,38 @@ describe('MetaMediaClient', () => {
     expect(isMetaMediaHost('evilfbsbx.com')).toBe(false);
   });
 });
+
+describe('MetaMediaClient timeouts', () => {
+  /** A file whose body arrives 60 ms after the headers. */
+  const slowBody = (signal: AbortSignal | null | undefined) =>
+    new Response(
+      new ReadableStream({
+        async pull(controller) {
+          await new Promise((resolve) => setTimeout(resolve, 60));
+          if (signal?.aborted) {
+            controller.error(new Error('aborted'));
+            return;
+          }
+          controller.enqueue(new TextEncoder().encode('slow'));
+          controller.close();
+        },
+      }),
+    );
+  const fetchImpl = vi.fn<typeof fetch>((_url, init) =>
+    Promise.resolve(slowBody(init?.signal)),
+  );
+  const slow = () =>
+    new MetaMediaClient({ apiVersion: 'v26.0', timeoutMs: 20 }, fetchImpl);
+
+  it('a stream for the inbox is not cut once the headers arrived', async () => {
+    const response = await slow().open(TOKEN, META_URL);
+    expect(await response.text()).toBe('slow');
+  });
+
+  it("the bot's download is bounded as a whole", async () => {
+    const error = await slow()
+      .download(TOKEN, META_URL, 100)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(MediaFetchError);
+  });
+});

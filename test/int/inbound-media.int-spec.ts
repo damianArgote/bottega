@@ -353,6 +353,66 @@ describe('Inbound attachments (integration, Meta and OpenAI mocked)', () => {
     expect(await prisma.handoffRequest.count()).toBe(1);
   });
 
+  it('an audio at the cap boundary is answered: the caps are checked once, before transcribing', async () => {
+    await prisma.business.updateMany({
+      data: { aiDailyCapPerConversation: 1, aiMonthlyCap: 1 },
+    });
+    await receive(voiceNote());
+
+    await drain();
+
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(lastSent()).toBe('¡Dale! Te lo anoto.');
+    expect(await prisma.handoffRequest.count()).toBe(0);
+  });
+
+  it('an attachment the bot did not read does not count for the daily attachment cap', async () => {
+    await prisma.business.updateMany({
+      data: { mediaDailyCapPerConversation: 1 },
+    });
+    info.mockResolvedValue({
+      url: META_URL,
+      mimeType: 'image/jpeg',
+      fileSize: 10,
+    });
+    download.mockResolvedValue(Buffer.from('jpeg'));
+    await conversations.recordInbound(textEvent('wamid.first', USER, 'hola'));
+    await drain();
+    await prisma.conversation.updateMany({ data: { paused: true } });
+    const paused = await receive({
+      kind: 'image',
+      mediaId: 'p',
+      mime: 'image/jpeg',
+    });
+    await drain();
+    expect((await message(paused)).mediaError).toBe('skipped');
+    expect(download).not.toHaveBeenCalled();
+
+    await prisma.conversation.updateMany({ data: { paused: false } });
+    respond.mockClear();
+    const next = await receive({
+      kind: 'image',
+      mediaId: 'q',
+      mime: 'image/jpeg',
+    });
+    await drain();
+
+    expect((await message(next)).mediaError).toBeNull();
+    expect(respond).toHaveBeenCalledTimes(1);
+  });
+
+  it('a size the webhook already reports is refused before the AI caps', async () => {
+    await prisma.business.updateMany({ data: { aiMonthlyCap: 1 } });
+    await conversations.recordInbound(textEvent('wamid.first', USER, 'hola'));
+    await drain();
+    const id = await receive(voiceNote({ size: 5_000_000 }));
+
+    await drain();
+
+    expect((await message(id)).mediaError).toBe('too_large');
+  });
+
   it('a voice note longer than the limit is not transcribed and answers the limit; the business can raise it', async () => {
     download.mockResolvedValue(oggOpusOf(185));
     const id = await receive(voiceNote());

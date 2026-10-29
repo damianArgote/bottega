@@ -44,7 +44,9 @@ export type MediaErrorCode =
   | 'unsupported_type'
   | 'transcription_failed'
   | 'empty_transcript'
-  | 'media_gone';
+  | 'media_gone'
+  /** Not read because the bot did not answer (paused, attended, agent off, echo). */
+  | 'skipped';
 
 /** What the reply generator gets about the inbound attachment. */
 export type PreparedAttachment =
@@ -103,6 +105,9 @@ export class AttachmentPreparer {
     if (!kind || !inbound.mediaId) {
       return { kind: 'rejected', reply: MEDIA_UNSUPPORTED_REPLY };
     }
+    if (inbound.mediaError === 'skipped') {
+      return null;
+    }
     if (inbound.mediaError) {
       return this.fromError(inbound, inbound.mediaError as MediaErrorCode);
     }
@@ -110,7 +115,9 @@ export class AttachmentPreparer {
       return { kind: 'audio', transcript: inbound.transcript };
     }
     if (this.config.get('BOT_REPLY_MODE') !== 'ai') {
-      return { kind: 'rejected', reply: MEDIA_UNSUPPORTED_REPLY };
+      // Echo mode answers its fixed text; nothing was read.
+      await this.store(inbound, { mediaError: 'skipped' });
+      return null;
     }
     const supported =
       kind === 'image' ||
@@ -123,10 +130,22 @@ export class AttachmentPreparer {
     const profile = await loadAgentProfile(this.prisma, conversation.id);
     const willReply = botMayReply(conversation) && profile.enabled;
     // Only the audio is worth reading without a reply (the inbox shows it).
+    // Marked, so it does not count as processed for the daily cap.
     if (!willReply && kind !== 'audio') {
+      await this.store(inbound, { mediaError: 'skipped' });
       return null;
     }
 
+    // The attachment's own limits first, then the prompt 09 caps.
+    const maxBytes =
+      kind === 'audio'
+        ? this.config.get('MEDIA_AUDIO_MAX_BYTES')
+        : kind === 'image'
+          ? this.config.get('MEDIA_IMAGE_MAX_BYTES')
+          : this.config.get('MEDIA_DOCUMENT_MAX_BYTES');
+    if ((inbound.mediaSize ?? 0) > maxBytes) {
+      return this.fail(inbound, 'too_large');
+    }
     const caps = await this.limits.forConversation(conversation.id);
     if (!caps) {
       throw new JobError('conversation_missing', false);
@@ -142,16 +161,6 @@ export class AttachmentPreparer {
       (await this.usage.countToday(conversation.id)) >= caps.dailyCap
     ) {
       return this.fail(inbound, 'ai_cap');
-    }
-
-    const maxBytes =
-      kind === 'audio'
-        ? this.config.get('MEDIA_AUDIO_MAX_BYTES')
-        : kind === 'image'
-          ? this.config.get('MEDIA_IMAGE_MAX_BYTES')
-          : this.config.get('MEDIA_DOCUMENT_MAX_BYTES');
-    if ((inbound.mediaSize ?? 0) > maxBytes) {
-      return this.fail(inbound, 'too_large');
     }
 
     let file: Buffer;
@@ -321,6 +330,7 @@ export class AttachmentPreparer {
       case 'media_gone':
         return { kind: 'rejected', reply: MEDIA_GONE_REPLY };
       case 'unsupported_type':
+      case 'skipped':
         return { kind: 'rejected', reply: MEDIA_UNSUPPORTED_REPLY };
     }
   }

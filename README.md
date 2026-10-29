@@ -573,7 +573,7 @@ cambian por negocio con `PUT /admin/businesses/<id>/limits`
 
 Lo que no se procesó queda en `media_error` (`too_long`, `too_large`,
 `daily_cap`, `ai_cap`, `unsupported_type`, `transcription_failed`,
-`empty_transcript`, `media_gone`) y la bandeja lo muestra. Nunca se loguean
+`empty_transcript`, `media_gone`, o `skipped` si el bot no lo leyó porque no iba a responder: pausada, atendida por una persona, agente apagado o modo echo) y la bandeja lo muestra. Solo cuentan para el tope diario de adjuntos los que de verdad se procesaron. Nunca se loguean
 en `info` la transcripción, el texto del adjunto ni el link de Meta.
 
 ### Catálogo

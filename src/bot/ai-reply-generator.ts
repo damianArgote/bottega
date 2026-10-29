@@ -143,7 +143,10 @@ export class AiReplyGenerator implements ReplyGenerator {
     // Usage rows are dated with the system clock (AiUsageService.record), so
     // the caps count with it too, not with the opening-hours clock.
     const usedThisMonth = await limits.countMonth(caps.businessId);
-    if (usedThisMonth >= caps.monthlyCap) {
+    // An audio's caps were checked once, before transcribing it (the
+    // transcription itself now counts): its reply is not cut by them.
+    const capsChecked = attachment?.kind === 'audio';
+    if (!capsChecked && usedThisMonth >= caps.monthlyCap) {
       await this.recordLimited(turn);
       if (await limits.monthlyCapHandoffDone(input.conversationId)) {
         // Handed off once this month already (a person gave the bot back).
@@ -154,7 +157,10 @@ export class AiReplyGenerator implements ReplyGenerator {
         effects: [{ kind: 'ai_monthly_cap_handoff' }],
       };
     }
-    if ((await usage.countToday(input.conversationId)) >= caps.dailyCap) {
+    if (
+      !capsChecked &&
+      (await usage.countToday(input.conversationId)) >= caps.dailyCap
+    ) {
       await this.recordLimited(turn);
       return { replies: [AI_LIMIT_REPLY], effects: [] };
     }

@@ -42,21 +42,34 @@ const contactSchema = z.object({
   profile: z.object({ name: z.string() }).optional(),
 });
 
-/** The fields of an image, audio, document, video or sticker object. */
-const mediaObject = z.object({
-  id: z.string().min(1),
-  mime_type: z.string().optional(),
-  file_size: z.number().int().nonnegative().optional(),
-  caption: z.string().optional(),
-  filename: z.string().optional(),
-  voice: z.boolean().optional(),
-});
+/**
+ * The fields of an image, audio, document, video or sticker object. Every
+ * optional field falls back to undefined when Meta sends another shape, and
+ * a whole object that does not fit (no id) is left out: the message is then
+ * kept as an attachment without media instead of being dropped.
+ */
+const mediaObject = z
+  .object({
+    id: z.string().min(1),
+    mime_type: z.string().optional().catch(undefined),
+    file_size: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .catch(undefined),
+    caption: z.string().optional().catch(undefined),
+    filename: z.string().optional().catch(undefined),
+    voice: z.boolean().optional().catch(undefined),
+  })
+  .optional()
+  .catch(undefined);
 
 const locationObject = z.object({
-  latitude: z.number(),
-  longitude: z.number(),
-  name: z.string().optional(),
-  address: z.string().optional(),
+  latitude: z.coerce.number(),
+  longitude: z.coerce.number(),
+  name: z.string().optional().catch(undefined),
+  address: z.string().optional().catch(undefined),
 });
 
 const MEDIA_TYPES = ['image', 'audio', 'document', 'video', 'sticker'] as const;
@@ -77,12 +90,12 @@ const messageSchema = z.object({
       list_reply: z.object({ title: z.string() }).optional(),
     })
     .optional(),
-  image: mediaObject.optional(),
-  audio: mediaObject.optional(),
-  document: mediaObject.optional(),
-  video: mediaObject.optional(),
-  sticker: mediaObject.optional(),
-  location: locationObject.optional(),
+  image: mediaObject,
+  audio: mediaObject,
+  document: mediaObject,
+  video: mediaObject,
+  sticker: mediaObject,
+  location: locationObject.optional().catch(undefined),
 });
 
 const statusSchema = z.object({
