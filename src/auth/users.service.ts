@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { MembershipRole } from '../generated/prisma/client.js';
@@ -79,6 +80,8 @@ export function normalizeEmail(email: string): string {
 /** Operators of businesses (no public sign-up: created by the admin API). */
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly hasher: PasswordHasher,
@@ -169,6 +172,21 @@ export class UsersService {
       user: memberView(row),
       temporaryPassword: createdUser ? temporaryPassword : null,
     };
+  }
+
+  /** Grants or removes the staff role (admin API only). 404 if unknown. */
+  async setStaff(userId: string, staff: boolean) {
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId },
+      data: { staff },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException('User not found');
+    }
+    this.logger.log(
+      `Staff role ${staff ? 'granted to' : 'removed from'} user ${userId}`,
+    );
+    return { id: userId, staff };
   }
 
   /**

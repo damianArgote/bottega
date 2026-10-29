@@ -36,6 +36,8 @@ import {
   messagesQuerySchema,
   parseOrBadRequest,
   registerNumberBodySchema,
+  staffBodySchema,
+  userIdSchema,
   resumeBodySchema,
   waIdSchema,
 } from './admin.schemas.js';
@@ -59,6 +61,15 @@ export class AdminController {
     private readonly users: UsersService,
     private readonly onboarding: LineOnboardingService,
   ) {}
+
+  /** `{ staff }`: grants or removes the BotSuite46 team role. */
+  @Put('users/:userId/staff')
+  setUserStaff(@Param('userId') userId: string, @Body() body: unknown) {
+    return this.users.setStaff(
+      parseOrBadRequest(userIdSchema, userId, 'userId'),
+      parseOrBadRequest(staffBodySchema, body ?? {}, 'body').staff,
+    );
+  }
 
   /** Adds an operator to the business (creates the user if new). */
   @Post('businesses/:id/users')

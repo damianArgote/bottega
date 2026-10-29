@@ -29,6 +29,10 @@ export const businessIdSchema = z.uuid();
 
 export const lineIdSchema = z.uuid();
 
+export const userIdSchema = z.uuid();
+
+export const staffBodySchema = z.object({ staff: z.boolean() }).strict();
+
 export const createBusinessBodySchema = z
   .object({
     name: z.string().trim().min(1).max(100),
