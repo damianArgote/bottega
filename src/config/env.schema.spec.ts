@@ -9,6 +9,7 @@ const SECRETS = {
   // 32 random bytes, base64.
   TOKEN_ENCRYPTION_KEY: 'Q2xhdmVEZVBydWViYU5vVXNhckVuUHJvZHVjY2lvbiE=',
   JWT_SECRET: 'jwt-secret-value-should-never-leak-0123456789',
+  MEDIA_URL_SECRET: 'media-secret-value-should-never-leak-0123456',
 };
 
 function validEnv(
@@ -24,6 +25,7 @@ function validEnv(
     ADMIN_API_KEY: SECRETS.ADMIN_API_KEY,
     TOKEN_ENCRYPTION_KEY: SECRETS.TOKEN_ENCRYPTION_KEY,
     JWT_SECRET: SECRETS.JWT_SECRET,
+    MEDIA_URL_SECRET: SECRETS.MEDIA_URL_SECRET,
     INBOX_ORIGIN: 'https://inbox.example.com',
     ...overrides,
   };
@@ -61,7 +63,7 @@ describe('parseEnv', () => {
       QUEUE_POLL_INTERVAL_MS: 1_000,
       QUEUE_IDLE_POLL_INTERVAL_MS: 600_000,
       QUEUE_CONCURRENCY: 2,
-      QUEUE_LEASE_MS: 120_000,
+      QUEUE_LEASE_MS: 180_000,
     });
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.DATABASE_URL_UNPOOLED).toBeUndefined();
@@ -109,6 +111,7 @@ describe('parseEnv', () => {
     'ADMIN_API_KEY',
     'TOKEN_ENCRYPTION_KEY',
     'JWT_SECRET',
+    'MEDIA_URL_SECRET',
     'INBOX_ORIGIN',
   ])('rejects a missing %s', (key) => {
     const error = captureError(validEnv({ [key]: undefined }));
@@ -169,6 +172,26 @@ describe('parseEnv', () => {
     expect(error.problems).toEqual([
       'JWT_SECRET: JWT_SECRET must be at least 32 characters',
     ]);
+  });
+
+  it('rejects a media URL secret shorter than 32 characters', () => {
+    const error = captureError(validEnv({ MEDIA_URL_SECRET: 'short-secret' }));
+
+    expect(error.problems).toEqual([
+      'MEDIA_URL_SECRET: MEDIA_URL_SECRET must be at least 32 characters',
+    ]);
+  });
+
+  it('applies the attachment and transcription defaults', () => {
+    expect(parseEnv(validEnv())).toMatchObject({
+      OPENAI_TRANSCRIBE_MODEL: 'gpt-4o-mini-transcribe',
+      OPENAI_TRANSCRIBE_TIMEOUT_MS: 30_000,
+      MEDIA_AUDIO_MAX_SECONDS: 120,
+      MEDIA_AUDIO_MAX_BYTES: 1_000_000,
+      MEDIA_IMAGE_MAX_BYTES: 5_000_000,
+      MEDIA_DOCUMENT_MAX_BYTES: 10_000_000,
+      MEDIA_MAX_PER_CONVERSATION_PER_DAY: 10,
+    });
   });
 
   it.each([
@@ -416,13 +439,15 @@ describe('parseEnv', () => {
 
       expect(error.problems).toEqual([
         expect.stringMatching(
-          /^QUEUE_LEASE_MS: QUEUE_LEASE_MS must be greater than 80000/,
+          /^QUEUE_LEASE_MS: QUEUE_LEASE_MS must be greater than 130000/,
         ),
       ]);
       // The same lease is fine in echo mode (no model calls).
       expect(
         parseEnv(validEnv({ QUEUE_LEASE_MS: '60000' })).QUEUE_LEASE_MS,
       ).toBe(60_000);
+      // The default lease covers the default AI job, transcription included.
+      expect(parseEnv(validEnv(ai)).QUEUE_LEASE_MS).toBe(180_000);
     });
   });
 

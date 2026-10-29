@@ -129,6 +129,13 @@ el token de la línea de cada conversación, no con el del entorno.
 | `OPENAI_MODEL` | Si `BOT_REPLY_MODE=ai` | — | ID del modelo. Elegilo de la [lista de modelos](https://developers.openai.com/api/docs/models). |
 | `OPENAI_TIMEOUT_MS` | No | `20000` | Tiempo máximo de cada llamada a OpenAI. |
 | `OPENAI_MAX_OUTPUT_TOKENS` | No | `300` | Tope de tokens por respuesta. |
+| `OPENAI_TRANSCRIBE_MODEL` | No | `gpt-4o-mini-transcribe` | Modelo que transcribe los audios que mandan los clientes. |
+| `OPENAI_TRANSCRIBE_TIMEOUT_MS` | No | `30000` | Tiempo máximo de cada transcripción. Cuenta en el peor caso de `QUEUE_LEASE_MS`. |
+| `MEDIA_AUDIO_MAX_SECONDS` | No | `120` | Duración máxima de un audio que el bot transcribe (por negocio: `audioMaxSeconds` en `PUT /admin/businesses/:id/limits`). |
+| `MEDIA_AUDIO_MAX_BYTES` | No | `1000000` | Tamaño máximo de un audio: más pesado, ni se baja. |
+| `MEDIA_IMAGE_MAX_BYTES` | No | `5000000` | Tamaño máximo de una imagen que el bot mira. |
+| `MEDIA_DOCUMENT_MAX_BYTES` | No | `10000000` | Tamaño máximo de un PDF que el bot lee. |
+| `MEDIA_MAX_PER_CONVERSATION_PER_DAY` | No | `10` | Adjuntos que el bot procesa por conversación por día (por negocio: `mediaDailyCapPerConversation`). |
 | `AI_MAX_INTERACTIONS_PER_USER_PER_DAY` | No | `30` | Tope diario de respuestas con IA por conversación, para los negocios sin tope propio (`PUT /admin/businesses/:id/limits`). |
 | `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` | No | `5000` | Tope mensual de respuestas con IA de todo un negocio (mes calendario de Argentina), para los negocios sin tope propio. |
 | `AI_HISTORY_LIMIT` | No | `12` | Mensajes del historial que recibe el modelo. |
@@ -146,7 +153,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos mientras hay trabajo. |
 | `QUEUE_IDLE_POLL_INTERVAL_MS` | No | `600000` | Cuánto espera cuando la última vuelta no encontró trabajo (10 min), para que Neon pueda apagarse. Un mensaje nuevo despierta al worker enseguida, y un reintento pendiente lo despierta a su hora. |
 | `QUEUE_CONCURRENCY` | No | `2` | Trabajos en paralelo (de conversaciones distintas). |
-| `QUEUE_LEASE_MS` | No | `120000` | Tiempo que un trabajo queda reservado. Con `ai` debe superar el peor caso (la app lo valida al arrancar). |
+| `QUEUE_LEASE_MS` | No | `180000` | Tiempo que un trabajo queda reservado. Con `ai` debe superar el peor caso: bajar un adjunto, transcribirlo, las vueltas del modelo y el envío (la app lo valida al arrancar; con los valores por defecto, 130000). Si lo tenés cargado en Render con un valor menor, subilo antes de desplegar. |
 
 **Administración**
 
@@ -155,6 +162,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `ADMIN_API_KEY` | Sí | — | Clave de la [API de administración](#api-de-administración). Mínimo 32 caracteres. Generala con `openssl rand -hex 32`. |
 | `PUBLIC_BASE_URL` | No | — | URL pública de esta API (por ejemplo `https://bottega-api.onrender.com`). Con ella el alta de una línea devuelve la URL completa del webhook. En Render no hace falta: se usa `RENDER_EXTERNAL_URL`, que Render define solo. |
 | `JWT_SECRET` | Sí | — | Firma las sesiones de la bandeja (JWT). Mínimo 32 caracteres: generala con `openssl rand -base64 48`. Usá una distinta por entorno; si la cambiás, todas las sesiones se cierran. |
+| `MEDIA_URL_SECRET` | Sí | — | Firma los links de la bandeja a los adjuntos (audios, fotos, documentos). Mínimo 32 caracteres: `openssl rand -base64 48`. Cargala en Render **antes** de desplegar: sin ella la app no arranca. Si la cambiás, solo vencen los links ya entregados. |
 | `INBOX_ORIGIN` | Sí | — | Origen de la bandeja web, el único que acepta CORS (con cookies). Solo esquema, dominio y puerto, sin barra final: `http://localhost:4200` en local, la URL publicada de la bandeja en Render. |
 | `VAPID_PUBLIC_KEY` | No | — | Clave pública para los avisos Web Push de la bandeja (ver [Avisos con la app cerrada](#avisos-con-la-app-cerrada-web-push)). Van las tres `VAPID_*` o ninguna: sin ninguna, los avisos quedan apagados; con algunas, la app no arranca. Generá el par con `npx web-push generate-vapid-keys`. |
 | `VAPID_PRIVATE_KEY` | No | — | Clave privada del mismo par. Es un secreto: cambiarla invalida todas las suscripciones guardadas. |
