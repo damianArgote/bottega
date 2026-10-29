@@ -25,6 +25,7 @@ import {
   externalIdSchema,
   importIdSchema,
   itemBodySchema,
+  mappingBodySchema,
   itemsQuerySchema,
   parseImportRequest,
 } from '../catalog/catalog.schemas.js';
@@ -63,6 +64,20 @@ export class CatalogController {
     return this.catalog.getImport(
       access.businessId,
       parseOrBadRequest(importIdSchema, importId, 'importId'),
+    );
+  }
+
+  /** Confirms or corrects the column mapping of a preview. */
+  @Put('imports/:importId/mapping')
+  confirmMapping(
+    @CurrentBusiness() access: BusinessAccess,
+    @Param('importId') importId: string,
+    @Body() body: unknown,
+  ) {
+    return this.catalog.confirmMapping(
+      access.businessId,
+      parseOrBadRequest(importIdSchema, importId, 'importId'),
+      parseOrBadRequest(mappingBodySchema, body ?? {}, 'body').mapping,
     );
   }
 

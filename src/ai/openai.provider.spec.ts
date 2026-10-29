@@ -153,6 +153,75 @@ describe('OpenAiProvider', () => {
     );
   });
 
+  it('sends images and PDFs as input parts and asks for strict JSON when given a format', async () => {
+    const { client, create } = fakeClient({
+      status: 'completed',
+      model: 'm',
+      output: [],
+      output_text: '{"rows":[]}',
+      usage: { input_tokens: 1, output_tokens: 1 } as OpenAiResponse['usage'],
+    });
+    const schema = {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    };
+
+    await new OpenAiProvider(options, client).respond({
+      model: 'm',
+      instructions: 'Extraé.',
+      input: [
+        {
+          kind: 'parts',
+          content: [
+            { kind: 'text', text: 'Lista de precios' },
+            { kind: 'image', dataUrl: 'data:image/png;base64,AAA' },
+            {
+              kind: 'file',
+              filename: 'lista.pdf',
+              dataUrl: 'data:application/pdf;base64,BBB',
+            },
+          ],
+        },
+      ],
+      tools: [],
+      maxOutputTokens: 100,
+      responseFormat: { name: 'catalog_rows', schema },
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: [
+          {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_text', text: 'Lista de precios' },
+              {
+                type: 'input_image',
+                detail: 'auto',
+                image_url: 'data:image/png;base64,AAA',
+              },
+              {
+                type: 'input_file',
+                filename: 'lista.pdf',
+                file_data: 'data:application/pdf;base64,BBB',
+              },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'catalog_rows',
+            schema,
+            strict: true,
+          },
+        },
+      }),
+    );
+  });
+
   it('extracts function calls from the output items', async () => {
     const { client } = fakeClient({
       status: 'completed',

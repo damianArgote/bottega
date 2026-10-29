@@ -16,6 +16,7 @@ import {
   externalIdSchema,
   importIdSchema,
   itemBodySchema,
+  mappingBodySchema,
   itemsQuerySchema,
   parseImportRequest,
 } from '../catalog/catalog.schemas.js';
@@ -53,6 +54,20 @@ export class AdminCatalogController {
     return this.catalog.getImport(
       parseOrBadRequest(businessIdSchema, id, 'id'),
       parseOrBadRequest(importIdSchema, importId, 'importId'),
+    );
+  }
+
+  /** Confirms or corrects the column mapping of a preview. */
+  @Put('imports/:importId/mapping')
+  confirmMapping(
+    @Param('id') id: string,
+    @Param('importId') importId: string,
+    @Body() body: unknown,
+  ) {
+    return this.catalog.confirmMapping(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      parseOrBadRequest(importIdSchema, importId, 'importId'),
+      parseOrBadRequest(mappingBodySchema, body ?? {}, 'body').mapping,
     );
   }
 
