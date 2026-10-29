@@ -168,6 +168,7 @@ describe('Auth (integration, HTTP)', () => {
           name: 'Ana',
           mustChangePassword: false,
         },
+        staff: false,
         businesses: [
           {
             id: businessId,

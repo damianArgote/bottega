@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { MembershipRole } from '../generated/prisma/client.js';
@@ -77,8 +78,17 @@ export function normalizeEmail(email: string): string {
 }
 
 /** Operators of businesses (no public sign-up: created by the admin API). */
+function emailInUse(): ConflictException {
+  return new ConflictException({
+    message: 'This email already has an account: use a new one',
+    code: 'EMAIL_IN_USE',
+  });
+}
+
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly hasher: PasswordHasher,
@@ -87,9 +97,15 @@ export class UsersService {
   /**
    * Adds a user to a business. A new email creates the user (argon2id
    * hash); an existing one only gets the membership, keeping its password
-   * and name. 404 for an unknown business, 409 if already a member.
+   * and name. 404 for an unknown business, 409 if already a member. With
+   * `newUserOnly`, an existing email is refused (409 `EMAIL_IN_USE`) instead
+   * of being attached, so the caller can only create accounts.
    */
-  async addToBusiness(businessId: string, input: AddUserInput) {
+  async addToBusiness(
+    businessId: string,
+    input: AddUserInput,
+    { newUserOnly = false }: { newUserOnly?: boolean } = {},
+  ) {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: { id: true },
@@ -102,6 +118,9 @@ export class UsersService {
       where: { email },
       select: userView,
     });
+    if (existing && newUserOnly) {
+      throw emailInUse();
+    }
     // Hashing is slow: do it outside the transaction, only for new users.
     const passwordHash = existing
       ? null
@@ -128,6 +147,10 @@ export class UsersService {
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
+        // A concurrent request created the same email first.
+        if (newUserOnly) {
+          throw emailInUse();
+        }
         throw new ConflictException(
           'This user already belongs to the business (or the email was just taken)',
         );
@@ -154,13 +177,14 @@ export class UsersService {
   async addMember(
     businessId: string,
     input: Omit<AddUserInput, 'password' | 'mustChangePassword'>,
+    options: { newUserOnly?: boolean } = {},
   ): Promise<{ user: MemberView; temporaryPassword: string | null }> {
     const temporaryPassword = randomBytes(12).toString('base64url');
-    const { user, createdUser } = await this.addToBusiness(businessId, {
-      ...input,
-      password: temporaryPassword,
-      mustChangePassword: true,
-    });
+    const { user, createdUser } = await this.addToBusiness(
+      businessId,
+      { ...input, password: temporaryPassword, mustChangePassword: true },
+      options,
+    );
     const row = await this.prisma.membership.findUniqueOrThrow({
       where: { userId_businessId: { userId: user.id, businessId } },
       select: memberSelect,
@@ -169,6 +193,21 @@ export class UsersService {
       user: memberView(row),
       temporaryPassword: createdUser ? temporaryPassword : null,
     };
+  }
+
+  /** Grants or removes the staff role (admin API only). 404 if unknown. */
+  async setStaff(userId: string, staff: boolean) {
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId },
+      data: { staff },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException('User not found');
+    }
+    this.logger.log(
+      `Staff role ${staff ? 'granted to' : 'removed from'} user ${userId}`,
+    );
+    return { id: userId, staff };
   }
 
   /**

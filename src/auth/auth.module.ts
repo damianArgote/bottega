@@ -8,6 +8,7 @@ import {
 } from './login-rate-limiter.js';
 import { PasswordHasher } from './password-hasher.js';
 import { SessionGuard } from './session.guard.js';
+import { StaffGuard } from './staff.guard.js';
 import { SessionTokens } from './session-tokens.js';
 import { UsersService } from './users.service.js';
 
@@ -19,6 +20,7 @@ import { UsersService } from './users.service.js';
     UsersService,
     AuthService,
     SessionGuard,
+    StaffGuard,
     {
       provide: SessionTokens,
       inject: [AppConfigService],
@@ -31,6 +33,12 @@ import { UsersService } from './users.service.js';
       useValue: new InMemoryLoginRateLimiter({ max: 5, windowMs: 60_000 }),
     },
   ],
-  exports: [PasswordHasher, UsersService, AuthService, SessionGuard],
+  exports: [
+    PasswordHasher,
+    UsersService,
+    AuthService,
+    SessionGuard,
+    StaffGuard,
+  ],
 })
 export class AuthModule {}

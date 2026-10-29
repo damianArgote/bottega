@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module.js';
 import { InboxModule } from './inbox/inbox.module.js';
 import { SettingsModule } from './settings/settings.module.js';
+import { StaffModule } from './staff/staff.module.js';
 import { AdminModule } from './admin/admin.module.js';
 import { BotModule } from './bot/bot.module.js';
 import { AppConfigModule } from './config/app-config.module.js';
@@ -26,6 +27,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module.js';
     AuthModule,
     InboxModule,
     SettingsModule,
+    StaffModule,
   ],
 })
 export class AppModule {}

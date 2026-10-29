@@ -29,6 +29,10 @@ export const businessIdSchema = z.uuid();
 
 export const lineIdSchema = z.uuid();
 
+export const userIdSchema = z.uuid();
+
+export const staffBodySchema = z.object({ staff: z.boolean() }).strict();
+
 export const createBusinessBodySchema = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -146,6 +150,11 @@ export const agentPreviewBodySchema = z
         message: 'the last message must be from the user',
       }),
   })
+  .strict();
+
+/** A business owner added by the team (temporary password, shown once). */
+export const addOwnerBodySchema = addUserBodySchema
+  .pick({ email: true, name: true })
   .strict();
 
 /** No body, or `{}`: the request carries no fields. */

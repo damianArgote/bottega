@@ -5,7 +5,7 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 ## Qué es y hacia dónde va
 - Hoy: bot comercial propio de BotSuite46 sobre un solo número. Ya resuelve webhook firmado (`src/whatsapp/signature.guard.ts`), idempotencia por `wamid` (`Message.waMessageId @unique`), cola en Postgres con `FOR UPDATE SKIP LOCKED` (`src/queue/queue.service.ts`), IA con herramientas validadas (`src/bot/tools`), pausa "humano" y respuesta humana por la API de admin (`src/admin`).
 - Objetivo de la primera etapa: (1) desplegarlo fuera de ngrok con la base en Neon, (2) que soporte varios negocios y números, cada uno con su propia app de Meta y credenciales cifradas, (3) que el agente de cada negocio se configure desde la base, (4) sumar una bandeja web donde una persona ve las conversaciones, responde y toma o devuelve el control al bot, y (5) un backoffice chico para editar el agente y ver los leads. El único negocio cargado al principio es BotSuite46; el bot se presenta como "BotSuite, IA de BotSuite46", nunca como "asistente virtual".
-- Orden de los prompts: 00, 01, 02, 02b, 03, 04, 05 (repo `bottega-inbox`), 05b. Después: 08 (alta de clientes; va antes porque hay clientes esperando), 07 (turnos con seña y eventos), 06. El texto completo de cada uno está en `docs/prompts/`: leé el del prompt en curso antes de empezar y no supongas su alcance.
+- Orden de los prompts: 00, 01, 02, 02b, 03, 04, 05 (repo `bottega-inbox`), 05b. Después: 08 (alta de clientes; va antes porque hay clientes esperando), 08d (alta desde la bandeja), 07 (turnos con seña y eventos), 06. El texto completo de cada uno está en `docs/prompts/`: leé el del prompt en curso antes de empezar y no supongas su alcance.
 - El bot es **un participante más de la bandeja**: mismo número, mismas conversaciones, misma tabla de mensajes (`Message.author`: `BOT` | `HUMAN` | `USER`). Nada de un sistema paralelo.
 
 ## Decisiones que no se discuten en cada tarea
@@ -16,7 +16,7 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 - Base: PostgreSQL en Neon. Migraciones siempre con `prisma migrate` (`prisma/migrations`); nunca `db push` ni `synchronize`.
 - Configuración: toda variable nueva se valida en `src/config/env.schema.ts` y se documenta en `README.md` y `.env.example`. Si falta un secreto obligatorio, la app no arranca. Nunca hay valores por defecto para secretos.
 - Arquitectura: monolito modular. Cada módulo expone servicios; los controladores solo validan (Zod) y delegan. Lógica de dominio sin dependencias de Nest cuando se pueda testear pura.
-- Todo dato de negocio lleva `businessId` y toda consulta de la bandeja filtra por el negocio del usuario. Un usuario nunca ve datos de otro negocio.
+- Todo dato de negocio lleva `businessId` y toda consulta de la bandeja filtra por el negocio del usuario. Un usuario nunca ve conversaciones, mensajes ni leads de otro negocio. El equipo (`STAFF`) solo da de alta negocios y líneas y ve su estado.
 
 ## Cómo trabajar
 - Una tarea = una rama = un PR chico. Commits en inglés, convencionales (`feat:`, `fix:`, `chore:`).
@@ -31,4 +31,4 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 ## Deuda conocida
 Lo que el código actual contradice o complica del plan, y qué prompt lo resuelve. Al cerrar un punto, sacalo de esta lista en el mismo PR.
 
-Nada pendiente por ahora. La API de admin (`/admin/...`, una sola `ADMIN_API_KEY`) sigue viendo todos los negocios a propósito: es la herramienta del equipo. Los dueños usan la bandeja y el backoffice (`/inbox/...`), que filtran por su negocio.
+Nada pendiente por ahora. La API de admin (`/admin/...`, una sola `ADMIN_API_KEY`) sigue viendo todos los negocios a propósito: es la herramienta del equipo. Los dueños usan la bandeja y el backoffice (`/inbox/...`), que filtran por su negocio. El rol `STAFF` (se da solo con `PUT /admin/users/:userId/staff`) usa `/staff/...` para dar de alta clientes desde la bandeja.

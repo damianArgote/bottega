@@ -521,6 +521,10 @@ model User {
   active             Boolean  @default(true)
   /// Set for a temporary password: the web asks for a new one first.
   mustChangePassword Boolean  @default(false) @map("must_change_password")
+  /// BotSuite46 team: onboards businesses and lines from the inbox and sees
+  /// every line's status (never other businesses' conversations or leads).
+  /// Granted only through the admin API.
+  staff              Boolean  @default(false)
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
