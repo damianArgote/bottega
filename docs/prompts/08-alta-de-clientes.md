@@ -60,6 +60,7 @@ Los errores de envío que ya están (131047, 131026, rate limit) no cambian.
 
 ## 08b · Web (rama `feat/whatsapp-connection`, repo `bottega-inbox`)
 - Pantalla **Configuración → WhatsApp**, solo para `OWNER`: muestra el estado de `GET /settings/whatsapp` como una lista de pasos (cuenta, número verificado, registrado, app suscripta, app publicada, nombre visible aprobado, primer mensaje recibido), cada uno con un texto claro de qué falta y quién lo hace. Polling cada 30 s mientras no esté `LIVE`.
+- Calidad de la línea siempre visible en esa pantalla (no solo durante el alta), con `number.qualityRating`: verde "Buena", amarilla "Media" y roja "Baja" (con el texto: "Meta puede limitar los envíos de este número si la calidad sigue baja"). Si no se pudo consultar, "Sin datos" y el `metaError`.
 - Cuando la línea pasa a `LIVE`, aviso en la bandeja: "Tu WhatsApp ya está conectado. Escribile al bot desde tu celular para probarlo."
 - Camino B (el cliente no nos da acceso): formulario para pegar WABA ID, App ID, App Secret y token contra un `PUT /inbox/businesses/:businessId/settings/whatsapp/credentials` (`OWNER`, misma validación que la de admin). Los campos secretos son `password`, se limpian al guardar y nunca se vuelven a mostrar.
 - Tests de los stores con el API mockeado: cada estado muestra su paso pendiente; un error de Meta muestra su texto, no el código.

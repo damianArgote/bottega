@@ -322,6 +322,28 @@ export class LineOnboardingService {
     return { lines: await Promise.all(lines.map((l) => this.statusOf(l))) };
   }
 
+  /**
+   * Every line of every business with its business (team view, admin API
+   * only: owners use {@link businessStatus}).
+   */
+  async allStatus() {
+    const lines = await this.prisma.line.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: {
+        ...statusSelect,
+        business: { select: { id: true, name: true, slug: true } },
+      },
+    });
+    return {
+      lines: await Promise.all(
+        lines.map(async ({ business, ...line }) => ({
+          business,
+          ...(await this.statusOf(line)),
+        })),
+      ),
+    };
+  }
+
   /** Never includes secrets, the verify token or the webhook key. */
   private async statusOf(line: StatusLine) {
     const step = onboardingStep(line);

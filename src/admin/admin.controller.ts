@@ -133,6 +133,12 @@ export class AdminController {
     );
   }
 
+  /** Every line of every business: state and quality (Meta cached 60 s). */
+  @Get('lines/status')
+  allLinesStatus() {
+    return this.onboarding.allStatus();
+  }
+
   /** What is missing to finish onboarding the line (Meta cached 60 s). */
   @Get('lines/:lineId/status')
   lineStatus(@Param('lineId') lineId: string) {
