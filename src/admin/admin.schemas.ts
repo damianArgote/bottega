@@ -33,12 +33,17 @@ export const userIdSchema = z.uuid();
 
 export const staffBodySchema = z.object({ staff: z.boolean() }).strict();
 
-/** A business's own AI cap; null goes back to the environment default. */
+/** A business's own cap; null goes back to the environment default. */
 const aiCap = z.number().int().min(1).max(1_000_000).nullable();
 
-/** PUT /admin/businesses/:id/limits: both caps, every time. */
+/** PUT /admin/businesses/:id/limits: both AI caps, every time. */
 export const aiLimitsBodySchema = z
-  .object({ aiMonthlyCap: aiCap, aiDailyCapPerConversation: aiCap })
+  .object({
+    aiMonthlyCap: aiCap,
+    aiDailyCapPerConversation: aiCap,
+    /** Optional: left out keeps the current cap. */
+    catalogItemCap: aiCap.optional(),
+  })
   .strict();
 
 export const createBusinessBodySchema = z

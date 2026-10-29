@@ -14,7 +14,14 @@ const CAP_THRESHOLDS = [80, 100] as const;
 export interface BusinessAiLimits {
   aiMonthlyCap: number | null;
   aiDailyCapPerConversation: number | null;
+  /** Catalog items (prompt 10); null uses CATALOG_MAX_ITEMS_PER_BUSINESS. */
+  catalogItemCap: number | null;
 }
+
+/** A PUT of the limits: the catalog cap is optional (absent: unchanged). */
+export type BusinessLimitsUpdate = Omit<BusinessAiLimits, 'catalogItemCap'> & {
+  catalogItemCap?: number | null;
+};
 
 /** The caps that apply to one conversation (defaults resolved). */
 export interface ConversationAiLimits {
@@ -35,6 +42,7 @@ export interface BusinessAiUsage {
 const limitsSelect = {
   aiMonthlyCap: true,
   aiDailyCapPerConversation: true,
+  catalogItemCap: true,
 } as const;
 
 /**
@@ -63,7 +71,7 @@ export class AiLimitsService {
 
   async put(
     businessId: string,
-    limits: BusinessAiLimits,
+    limits: BusinessLimitsUpdate,
   ): Promise<BusinessAiLimits> {
     await this.get(businessId);
     return this.prisma.business.update({

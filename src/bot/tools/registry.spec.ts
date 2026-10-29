@@ -5,12 +5,13 @@ import { MODE_PROFILES, type ToolName } from '../mode-profiles.js';
 import { DEFAULT_LEAD_FIELDS } from '../../agents/default-agent-profile.seed.js';
 import {
   planToolCall,
+  runToolCall,
   toolDefinitionsFor,
   toolHandlerFor,
   type ToolCallResult,
   type ToolOptions,
 } from './registry.js';
-import type { PlannedEffect, ToolContext } from './tool.js';
+import type { CatalogReader, PlannedEffect, ToolContext } from './tool.js';
 
 const { aesthetics, insurance } = loadContent(DEFAULT_CONTENT_DIR);
 
@@ -25,6 +26,9 @@ const ctx = (
   demoEnabled,
   leadFields: DEFAULT_LEAD_FIELDS,
 });
+
+/** A business with a catalog whose searches find nothing. */
+const noCatalog: CatalogReader = { search: () => Promise.resolve([]) };
 
 /** BotSuite46's profile: the demo and its four lead fields. */
 const options: ToolOptions = {
@@ -103,7 +107,7 @@ describe('tool registry', () => {
 
   it('offers each mode exactly its allowed tools, consistent with allowedModes', () => {
     for (const profile of Object.values(MODE_PROFILES)) {
-      const withDemo = { ...options, demo: insurance };
+      const withDemo = { ...options, demo: insurance, catalog: noCatalog };
       const names = toolDefinitionsFor(profile.mode, withDemo).map(
         (t) => t.name,
       );
@@ -369,5 +373,96 @@ describe('tool registry', () => {
         'tool_not_allowed',
       );
     });
+  });
+});
+
+describe('search_catalog', () => {
+  const chocolate = {
+    name: 'Chocolate amargo',
+    description: 'Cacao 70%',
+    category: 'Helados',
+    price: 1500,
+    currency: 'ARS',
+    attributes: {},
+  };
+  const search = vi.fn<CatalogReader['search']>();
+  const withCatalog = (mode: ToolContext['mode'] = 'COMMERCIAL') => ({
+    ...ctx(mode),
+    catalog: { search },
+  });
+  const args = { query: ' chocolate  amrgo ', category: null, max_price: 2000 };
+
+  beforeEach(() => {
+    search.mockReset();
+  });
+
+  it('is offered only to a business with a catalog, and only in commercial mode', () => {
+    const names = (
+      opts: ToolOptions,
+      mode: ToolContext['mode'] = 'COMMERCIAL',
+    ) => toolDefinitionsFor(mode, opts).map((t) => t.name);
+
+    expect(names(options)).not.toContain('search_catalog');
+    expect(names({ ...options, catalog: noCatalog })).toContain(
+      'search_catalog',
+    );
+    expect(
+      names({ ...options, catalog: noCatalog, demo: insurance }, 'DEMO'),
+    ).not.toContain('search_catalog');
+  });
+
+  it('searches with the cleaned arguments and plans no effect', async () => {
+    search.mockResolvedValue([chocolate]);
+
+    const result = await runToolCall(
+      call('search_catalog', args),
+      withCatalog(),
+    );
+
+    expect(search).toHaveBeenCalledWith({
+      query: 'chocolate amrgo',
+      category: null,
+      maxPrice: 2000,
+    });
+    expect(result).toEqual({
+      ok: true,
+      effect: null,
+      output: JSON.stringify({ ok: true, items: [chocolate] }),
+    });
+  });
+
+  it('says so when nothing is found', async () => {
+    search.mockResolvedValue([]);
+
+    const result = await runToolCall(
+      call('search_catalog', args),
+      withCatalog(),
+    );
+
+    expect(JSON.parse(result.output)).toEqual({
+      ok: true,
+      items: [],
+      note: 'Sin resultados en el catálogo',
+    });
+  });
+
+  it('is rejected without a catalog, in the demo, with bad arguments or through planToolCall', async () => {
+    const rejected = async (c: ToolContext, a: unknown = args) =>
+      (await runToolCall(call('search_catalog', a), c)).ok;
+
+    expect(await rejected(ctx('COMMERCIAL'))).toBe(false);
+    expect(await rejected(withCatalog('DEMO'))).toBe(false);
+    expect(await rejected(withCatalog(), { ...args, query: '  ' })).toBe(false);
+    expect(await rejected(withCatalog(), { ...args, max_price: -1 })).toBe(
+      false,
+    );
+    expect(await rejected(withCatalog(), { query: 'x' })).toBe(false);
+    expect(
+      planToolCall(call('search_catalog', args), withCatalog()),
+    ).toMatchObject({
+      ok: false,
+      reason: 'read_tool',
+    });
+    expect(search).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,8 @@ export type ToolName =
   | 'register_demo_request'
   | 'quote_insurance'
   | 'request_handoff'
-  | 'offer_options';
+  | 'offer_options'
+  | 'search_catalog';
 
 /**
  * Which editable content (see ContentService) feeds the mode's prompt. The
@@ -31,7 +32,12 @@ export const MODE_PROFILES: Readonly<Record<ConversationMode, ModeProfile>> = {
     mode: ConversationMode.COMMERCIAL,
     enterReply: 'EXIT_DEMO',
     resetReply: 'RESET_COMMERCIAL',
-    allowedTools: ['save_lead', 'request_handoff', 'offer_options'],
+    allowedTools: [
+      'save_lead',
+      'search_catalog',
+      'request_handoff',
+      'offer_options',
+    ],
     knowledge: { kind: 'commercial-info' },
   },
   [ConversationMode.DEMO]: {

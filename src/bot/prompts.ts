@@ -83,12 +83,19 @@ function section(title: string, body: string): string[] {
 export function buildCommercialInstructions(
   profile: PromptProfile,
   known: KnownLeadValues,
+  /** The business has a catalog (search_catalog is offered). */
+  { catalog = false }: { catalog?: boolean } = {},
 ): string {
   const asksForData = profile.leadFields.length > 0;
   const howTo = [
     `- En tu primer mensaje de la conversación, presentate como "${cleanText(profile.botName)}".`,
     '- Respondé consultas con la información del negocio de abajo. Si un dato está marcado [COMPLETAR] o no aparece, decí que el equipo lo confirma; no lo inventes.',
     '- Si te preguntan algo que no tiene que ver con el negocio, decí con amabilidad que solo podés ayudar con temas del negocio y no lo respondas.',
+    ...(catalog
+      ? [
+          '- Para precios, productos o disponibilidad usá search_catalog. Nunca digas un precio que no salga de sus resultados. Si no encuentra lo que buscan, decilo y ofrecé consultarlo con el equipo; si un ítem no tiene precio, decí que el equipo lo confirma.',
+        ]
+      : []),
     ...(asksForData
       ? [
           '- De a poco y sin presionar, pedí los datos de "Datos a pedir", uno por vez.',

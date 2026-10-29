@@ -134,6 +134,11 @@ export const envSchema = z
       5_000,
     ),
     AI_HISTORY_LIMIT: positiveInt('AI_HISTORY_LIMIT', 12),
+    // Default item cap of a business without its own (Business.catalogItemCap).
+    CATALOG_MAX_ITEMS_PER_BUSINESS: positiveInt(
+      'CATALOG_MAX_ITEMS_PER_BUSINESS',
+      2_000,
+    ),
     JOB_MAX_ATTEMPTS: positiveInt('JOB_MAX_ATTEMPTS', 4),
 
     // Background worker that drains the PostgreSQL job queue. Disabled in tests

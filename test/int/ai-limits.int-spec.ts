@@ -124,11 +124,11 @@ describe('AI limits and usage routes (integration, HTTP)', () => {
       .put(`/admin/businesses/${a}/limits`)
       .set('X-Admin-Api-Key', ADMIN_KEY)
       .send(limits)
-      .expect(200, limits);
+      .expect(200, { ...limits, catalogItemCap: null });
     await http()
       .get(`/admin/businesses/${a}/limits`)
       .set('X-Admin-Api-Key', ADMIN_KEY)
-      .expect(200, limits);
+      .expect(200, { ...limits, catalogItemCap: null });
   });
 
   it('null goes back to the default; out-of-range values are rejected', async () => {
@@ -140,7 +140,11 @@ describe('AI limits and usage routes (integration, HTTP)', () => {
     await put(limits).expect(200);
     await put({ aiMonthlyCap: null, aiDailyCapPerConversation: null }).expect(
       200,
-      { aiMonthlyCap: null, aiDailyCapPerConversation: null },
+      {
+        aiMonthlyCap: null,
+        aiDailyCapPerConversation: null,
+        catalogItemCap: null,
+      },
     );
 
     for (const body of [
@@ -149,6 +153,7 @@ describe('AI limits and usage routes (integration, HTTP)', () => {
       { aiMonthlyCap: 1.5, aiDailyCapPerConversation: null },
       { aiMonthlyCap: null },
       { ...limits, extra: 1 },
+      { ...limits, catalogItemCap: 0 },
     ]) {
       await put(body).expect(400);
     }
