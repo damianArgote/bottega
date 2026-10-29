@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { QueueSignal } from '../../src/queue/queue-signal.js';
 import {
   AiProviderError,
@@ -533,6 +534,38 @@ describe('AI reply pipeline (integration, mocked model)', () => {
 
       expect(respond).toHaveBeenCalledTimes(1);
       expect(lastSent()).toBe('ok');
+    });
+
+    it('logs 80% and 100% of the month once each, without message content', async () => {
+      await setLimits({ aiMonthlyCap: 5 });
+      respond.mockResolvedValue(text('ok'));
+      const log = vi.spyOn(Logger.prototype, 'log');
+      try {
+        for (const body of ['uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis']) {
+          await say(body);
+        }
+        const thresholds = log.mock.calls
+          .map(([line]) => String(line))
+          .filter((line) => line.includes('ai_monthly_cap_threshold'));
+        expect(thresholds.map((line) => JSON.parse(line) as unknown)).toEqual([
+          {
+            event: 'ai_monthly_cap_threshold',
+            businessId: (await botsuite()).id,
+            percent: 80,
+            used: 4,
+            cap: 5,
+          },
+          {
+            event: 'ai_monthly_cap_threshold',
+            businessId: (await botsuite()).id,
+            percent: 100,
+            used: 5,
+            cap: 5,
+          },
+        ]);
+      } finally {
+        log.mockRestore();
+      }
     });
 
     it('a new month starts the count again', async () => {

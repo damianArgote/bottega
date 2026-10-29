@@ -151,9 +151,9 @@ export class AiLimitsService {
 
   /**
    * Logs the 80% and 100% thresholds the business crossed going from
-   * `before` to `after` calls this month. Every call is counted in one
-   * turn's range, so each threshold is logged once a month (two concurrent
-   * turns may both log it).
+   * `before` (counted before a turn) to `after` (counted after its calls).
+   * Every call falls in some turn's range, so each threshold is logged once
+   * a month (two concurrent turns may both log it).
    */
   logThresholds(
     businessId: string,

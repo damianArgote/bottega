@@ -7,7 +7,10 @@ import {
   type AiResponse,
 } from '../ai/ai.provider.js';
 import { AI_MAX_MODEL_ROUNDS } from '../ai/ai-limits.js';
-import type { AiLimitsService } from '../ai/ai-limits.service.js';
+import type {
+  AiLimitsService,
+  ConversationAiLimits,
+} from '../ai/ai-limits.service.js';
 import type { AiUsageService } from '../ai/ai-usage.service.js';
 import {
   type AgentProfile,
@@ -149,11 +152,32 @@ export class AiReplyGenerator implements ReplyGenerator {
       return await this.answer(input, profile, turn);
     } finally {
       // Also after a retryable failure: its ERROR rows already count.
-      limits.logThresholds(
+      if (turn.calls > 0) {
+        await this.logThresholds(caps, usedThisMonth);
+      }
+    }
+  }
+
+  /**
+   * Logs the monthly thresholds this turn crossed. The count is read again
+   * after the turn's own rows, so concurrent turns of the business may both
+   * log a threshold but never all miss it. A failure here only skips the log.
+   */
+  private async logThresholds(
+    caps: ConversationAiLimits,
+    before: number,
+  ): Promise<void> {
+    try {
+      const after = await this.deps.limits.countMonth(caps.businessId);
+      this.deps.limits.logThresholds(
         caps.businessId,
         caps.monthlyCap,
-        usedThisMonth,
-        usedThisMonth + turn.calls,
+        before,
+        after,
+      );
+    } catch {
+      this.logger.warn(
+        `Monthly AI usage count failed business=${caps.businessId}: threshold log skipped`,
       );
     }
   }
