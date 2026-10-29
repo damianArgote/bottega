@@ -16,9 +16,13 @@ import {
   externalIdSchema,
   importIdSchema,
   itemBodySchema,
+  mappingBodySchema,
+  sheetBodySchema,
   itemsQuerySchema,
   parseImportRequest,
 } from '../catalog/catalog.schemas.js';
+import { CatalogSheetService } from '../catalog/catalog-sheet.service.js';
+import { CatalogSyncScheduler } from '../catalog/catalog-sync.scheduler.js';
 import { CatalogService } from '../catalog/catalog.service.js';
 import { AdminApiKeyGuard } from './admin-api-key.guard.js';
 import { businessIdSchema, parseOrBadRequest } from './admin.schemas.js';
@@ -30,7 +34,11 @@ import { businessIdSchema, parseOrBadRequest } from './admin.schemas.js';
 @Controller('admin/businesses/:id/catalog')
 @UseGuards(AdminApiKeyGuard)
 export class AdminCatalogController {
-  constructor(private readonly catalog: CatalogService) {}
+  constructor(
+    private readonly catalog: CatalogService,
+    private readonly sheets: CatalogSheetService,
+    private readonly scheduler: CatalogSyncScheduler,
+  ) {}
 
   /** A `text/csv` body (mapping in `?mapping=`) or `{ rows, mapping }`. */
   @Post('imports')
@@ -53,6 +61,20 @@ export class AdminCatalogController {
     return this.catalog.getImport(
       parseOrBadRequest(businessIdSchema, id, 'id'),
       parseOrBadRequest(importIdSchema, importId, 'importId'),
+    );
+  }
+
+  /** Confirms or corrects the column mapping of a preview. */
+  @Put('imports/:importId/mapping')
+  confirmMapping(
+    @Param('id') id: string,
+    @Param('importId') importId: string,
+    @Body() body: unknown,
+  ) {
+    return this.catalog.confirmMapping(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      parseOrBadRequest(importIdSchema, importId, 'importId'),
+      parseOrBadRequest(mappingBodySchema, body ?? {}, 'body').mapping,
     );
   }
 
@@ -103,6 +125,33 @@ export class AdminCatalogController {
     return this.catalog.removeItem(
       parseOrBadRequest(businessIdSchema, id, 'id'),
       parseOrBadRequest(externalIdSchema, externalId, 'externalId'),
+    );
+  }
+
+  /** The Google Sheet published as CSV and its last sync. */
+  @Get('sheet')
+  sheet(@Param('id') id: string) {
+    return this.sheets.get(parseOrBadRequest(businessIdSchema, id, 'id'));
+  }
+
+  /** `{ url }` (null removes it); the first sync runs right away. */
+  @Put('sheet')
+  async putSheet(@Param('id') id: string, @Body() body: unknown) {
+    const view = await this.sheets.set(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      parseOrBadRequest(sheetBodySchema, body ?? {}, 'body').url,
+    );
+    this.scheduler.schedule();
+    return view;
+  }
+
+  /** "Sincronizar ahora". */
+  @Post('sync')
+  @HttpCode(HttpStatus.OK)
+  sync(@Param('id') id: string) {
+    return this.sheets.sync(
+      parseOrBadRequest(businessIdSchema, id, 'id'),
+      null,
     );
   }
 }

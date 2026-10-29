@@ -3,9 +3,20 @@
  * interface; the OpenAI adapter maps it to the Responses API.
  */
 
+/**
+ * Content of a user message beyond plain text: an image or a PDF, as a
+ * base64 data URL (`data:<type>;base64,...`). Never logged.
+ */
+export type AiContentPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; dataUrl: string }
+  | { kind: 'file'; filename: string; dataUrl: string };
+
 /** One item of the conversation sent to the model, oldest first. */
 export type AiInputItem =
   | { kind: 'message'; role: 'user' | 'assistant'; content: string }
+  /** A user message with parts (the catalog's documents). */
+  | { kind: 'parts'; content: readonly AiContentPart[] }
   /** A tool call the model made in an earlier round of the same turn. */
   | { kind: 'tool_call'; callId: string; name: string; arguments: string }
   /** Our answer to that tool call (JSON text). */
@@ -27,6 +38,11 @@ export interface AiRequest {
   /** 'none': the model must answer with text (the tools stay defined). */
   toolChoice?: 'none';
   maxOutputTokens: number;
+  /**
+   * The text answer must be JSON matching this strict JSON Schema (the
+   * catalog's mapping and extraction). Still untrusted: validate it.
+   */
+  responseFormat?: { name: string; schema: Record<string, unknown> };
 }
 
 export interface AiToolCall {

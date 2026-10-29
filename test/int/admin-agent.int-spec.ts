@@ -1,5 +1,4 @@
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { CatalogService } from '../../src/catalog/catalog.service.js';
 import {
   AiProviderError,
   type AiProvider,
@@ -10,7 +9,13 @@ import { AgentsService } from '../../src/agents/agents.service.js';
 import { AgentPreviewService } from '../../src/bot/agent-preview.service.js';
 import { renderReply } from '../../src/bot/replies.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
-import { connectPrisma, createLine, resetDb, testConfig } from './helpers.js';
+import {
+  buildCatalogService,
+  connectPrisma,
+  createLine,
+  resetDb,
+  testConfig,
+} from './helpers.js';
 
 const MODEL = 'env-model';
 
@@ -63,7 +68,7 @@ describe('Admin agent profile and preview (integration)', () => {
       prisma,
       { respond },
       config,
-      new CatalogService(prisma, config),
+      buildCatalogService(prisma, config),
     );
   });
 

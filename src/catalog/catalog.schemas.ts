@@ -9,6 +9,14 @@ import type { ImportSource } from './catalog.service.js';
 
 /** CSV uploads up to 2 MB (configureHttp registers the text/csv parser). */
 export const CSV_MAX_BYTES = 2 * 1024 * 1024;
+/** PDF or photo uploads up to 10 MB (read by the model). */
+export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const DOCUMENT_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const;
 /** Rows per JSON import. */
 const MAX_JSON_ROWS = 5_000;
 
@@ -54,10 +62,22 @@ export const itemsQuerySchema = z
   })
   .strict();
 
+/** PUT .../catalog/sheet: the published sheet's link, or null to remove it. */
+export const sheetBodySchema = z
+  .object({ url: z.string().trim().min(1).max(2000).nullable() })
+  .strict();
+
+/** PUT .../imports/:importId/mapping: the confirmed or corrected mapping. */
+export const mappingBodySchema = z
+  .object({ mapping: catalogMappingSchema })
+  .strict();
+
 /**
  * The import source of a request: a `text/csv` body with the mapping as JSON
- * in `?mapping=`, or a JSON body `{ rows, mapping }`. Only these two types
- * are accepted, so a cross-site form cannot post one without CORS approval.
+ * in `?mapping=`, a JSON body `{ rows, mapping }`, or a PDF or photo
+ * (`application/pdf`, `image/jpeg`, `image/png`, `image/webp`) for the model
+ * to read. None of these is a type a cross-site form can post without CORS
+ * approval.
  */
 export function parseImportRequest(
   contentType: string | undefined,
@@ -88,7 +108,22 @@ export function parseImportRequest(
     );
     return { kind: 'rows', rows, ...(mapping ? { mapping } : {}) };
   }
-  throw new UnsupportedMediaTypeException('Send text/csv or application/json');
+  const documentType = DOCUMENT_TYPES.find((t) => t === type);
+  if (documentType) {
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      throw new BadRequestException('El archivo está vacío.');
+    }
+    if (mappingQuery !== undefined) {
+      throw new BadRequestException('A document has no column mapping');
+    }
+    return {
+      kind: 'document',
+      document: { mimeType: documentType, data: body },
+    };
+  }
+  throw new UnsupportedMediaTypeException(
+    'Send text/csv, application/json, application/pdf or an image',
+  );
 }
 
 function parseMappingQuery(

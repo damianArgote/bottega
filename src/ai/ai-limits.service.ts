@@ -120,18 +120,28 @@ export class AiLimitsService {
   }
 
   /**
-   * Model calls (OK or ERROR) of every conversation of the business in the
-   * calendar month of `now` (Argentina), through conversation and line.
+   * Model calls (OK or ERROR) of the business in the calendar month of `now`
+   * (Argentina): every conversation's (through conversation and line) plus
+   * the catalog's (column mapping, document extraction).
    */
-  countMonth(businessId: string, now = new Date()): Promise<number> {
+  async countMonth(businessId: string, now = new Date()): Promise<number> {
     const { start, end } = usageMonth(now);
-    return this.prisma.aiUsage.count({
-      where: {
-        day: { gte: start, lt: end },
-        outcome: { in: [AiOutcome.OK, AiOutcome.ERROR] },
-        conversation: { line: { businessId } },
-      },
-    });
+    const where = {
+      day: { gte: start, lt: end },
+      outcome: { in: [AiOutcome.OK, AiOutcome.ERROR] },
+    };
+    const [conversations, catalog] = await Promise.all([
+      this.prisma.aiUsage.count({
+        where: { ...where, conversation: { line: { businessId } } },
+      }),
+      this.prisma.catalogAiUsage.count({ where: { ...where, businessId } }),
+    ]);
+    return conversations + catalog;
+  }
+
+  /** The business's monthly cap (its own, or the environment default). */
+  async monthlyCapOf(businessId: string): Promise<number> {
+    return this.monthlyCap(await this.get(businessId));
   }
 
   /**

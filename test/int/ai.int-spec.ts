@@ -8,7 +8,6 @@ import {
   type AiResponse,
 } from '../../src/ai/ai.provider.js';
 import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
-import { CatalogService } from '../../src/catalog/catalog.service.js';
 import {
   AiUsageService,
   usageDay,
@@ -30,6 +29,7 @@ import { QueueService } from '../../src/queue/queue.service.js';
 import type { SendOutcome } from '../../src/whatsapp/whatsapp.client.js';
 import {
   buildBotService,
+  buildCatalogService,
   connectPrisma,
   createLine,
   resetDb,
@@ -126,7 +126,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       provider: { respond },
       usage: new AiUsageService(prisma),
       limits: new AiLimitsService(prisma, aiConfig),
-      catalog: new CatalogService(prisma, aiConfig),
+      catalog: buildCatalogService(prisma, aiConfig),
       prisma,
       content,
       config: aiConfig,

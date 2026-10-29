@@ -31,6 +31,11 @@ import {
   rowHash,
   type SourceRecord,
 } from './catalog-import.js';
+import {
+  type CatalogDocument,
+  CatalogAiService,
+  DOCUMENT_COLUMNS,
+} from './catalog-ai.service.js';
 import { csvRecords } from './csv.js';
 
 /** Previews keep their rows this long; then they can no longer be applied. */
@@ -56,10 +61,15 @@ export interface ImportSummary {
 
 export interface ImportView {
   id: string;
-  source: 'csv' | 'api' | 'sheet';
+  source: 'csv' | 'api' | 'sheet' | 'document';
   status: CatalogImportStatus;
   summary: ImportSummary;
   errors: RowError[];
+  /** The source's columns and the mapping used (null for old imports). */
+  headers: string[] | null;
+  mapping: CatalogMapping | null;
+  /** False while a model-proposed mapping waits for a person. */
+  mappingConfirmed: boolean;
   createdAt: Date;
   appliedAt: Date | null;
 }
@@ -103,10 +113,23 @@ export interface CatalogItemView {
   updatedAt: Date;
 }
 
-/** One source to import: a CSV file or rows sent as JSON. */
+/** One source to import: a CSV file, rows sent as JSON, or a document. */
 export type ImportSource =
   | { kind: 'csv'; text: string; mapping?: CatalogMapping }
-  | { kind: 'rows'; rows: SourceRecord[]; mapping?: CatalogMapping };
+  | { kind: 'rows'; rows: SourceRecord[]; mapping?: CatalogMapping }
+  | { kind: 'document'; document: CatalogDocument; mapping?: undefined };
+
+/** Source records of a preview and their row numbers. */
+interface StoredRecords {
+  records: SourceRecord[];
+  rows: number[];
+}
+
+/** business.catalog_mapping. */
+interface SavedMapping {
+  headers: string[];
+  mapping: CatalogMapping;
+}
 
 /** A single-item write (PUT .../items/:externalId). */
 export interface ItemBody {
@@ -123,6 +146,7 @@ const SOURCE_LABEL: Record<CatalogImportSource, ImportView['source']> = {
   CSV: 'csv',
   API: 'api',
   SHEET: 'sheet',
+  DOCUMENT: 'document',
 };
 
 const notFound = () => new NotFoundException('Import not found');
@@ -198,6 +222,7 @@ export class CatalogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: AppConfigService,
+    private readonly ai: CatalogAiService,
   ) {}
 
   /** Normalizes and validates the source and stores a preview. */
@@ -207,27 +232,70 @@ export class CatalogService {
     createdById: string | null,
   ): Promise<ImportView> {
     await this.assertBusiness(businessId);
-    const { records, mapping, rows } = this.recordsOf(source);
-    const normalized = normalizeSource(records, mapping, rows);
-    const diff = diffCatalog(
-      await this.prisma.catalogItem.findMany({
-        where: { businessId },
-        select: { externalId: true, rowHash: true, available: true },
-      }),
-      normalized.items,
+    if (source.kind === 'document') {
+      const records = await this.ai.extractRows(businessId, source.document);
+      return this.createPreview(businessId, createdById, {
+        source: CatalogImportSource.DOCUMENT,
+        headers: Object.values(DOCUMENT_COLUMNS),
+        records,
+        rows: records.map((_, index) => index + 1),
+        mapping: DOCUMENT_COLUMNS,
+        confirmed: true,
+      });
+    }
+    const parsed = this.parseSource(source);
+    const resolved = await this.resolveMapping(
+      businessId,
+      parsed.headers,
+      parsed.records,
+      source.mapping,
     );
-    await this.purgeExpired();
-    const created = await this.prisma.catalogImport.create({
-      data: {
-        businessId,
-        source: source.kind === 'csv' ? 'CSV' : 'API',
-        summary: { ...summaryOf(diff, normalized.errorCount) },
-        rowErrors: normalized.errors as unknown as Prisma.InputJsonValue,
-        rows: normalized.items as unknown as Prisma.InputJsonValue,
-        createdById,
-      },
+    return this.createPreview(businessId, createdById, {
+      source:
+        source.kind === 'csv'
+          ? CatalogImportSource.CSV
+          : CatalogImportSource.API,
+      ...parsed,
+      ...resolved,
     });
-    return this.importView(created);
+  }
+
+  /**
+   * Confirms or corrects the mapping of a preview: its rows are normalized
+   * again from the stored source records, and the mapping is saved for the
+   * next imports with these headers.
+   */
+  async confirmMapping(
+    businessId: string,
+    importId: string,
+    mapping: CatalogMapping,
+    now = new Date(),
+  ): Promise<ImportView> {
+    const found = await this.openImport(this.prisma, businessId, importId, now);
+    if (found.source === CatalogImportSource.DOCUMENT || !found.sourceRecords) {
+      throw new ConflictException({
+        message: 'Esta importación no tiene columnas para mapear.',
+        code: 'NO_MAPPING',
+      });
+    }
+    const headers = found.headers as string[];
+    assertColumns(mapping, headers);
+    const records = found.sourceRecords as unknown as StoredRecords;
+    const normalized = normalizeSource(records.records, mapping, records.rows);
+    const diff = await this.diffWith(businessId, normalized.items);
+    await this.saveMapping(businessId, headers, mapping);
+    return this.importView(
+      await this.prisma.catalogImport.update({
+        where: { id: found.id },
+        data: {
+          mapping,
+          mappingConfirmed: true,
+          summary: { ...summaryOf(diff, normalized.errorCount) },
+          rowErrors: normalized.errors as unknown as Prisma.InputJsonValue,
+          rows: normalized.items as unknown as Prisma.InputJsonValue,
+        },
+      }),
+    );
   }
 
   /**
@@ -245,6 +313,13 @@ export class CatalogService {
       async (tx) => {
         const cap = await this.lockBusiness(tx, businessId);
         const found = await this.openImport(tx, businessId, importId, now);
+        if (!found.mappingConfirmed) {
+          throw new ConflictException({
+            message:
+              'Confirmá o corregí el mapeo de columnas antes de aplicar la importación.',
+            code: 'MAPPING_NOT_CONFIRMED',
+          });
+        }
         const items = found.rows as unknown as CatalogItemInput[];
         const existing = await tx.catalogItem.findMany({
           where: { businessId },
@@ -276,6 +351,7 @@ export class CatalogService {
             status: CatalogImportStatus.APPLIED,
             appliedAt: now,
             rows: Prisma.DbNull,
+            sourceRecords: Prisma.DbNull,
             summary: {
               ...summaryOf(
                 diff,
@@ -313,7 +389,11 @@ export class CatalogService {
     return this.importView(
       await this.prisma.catalogImport.update({
         where: { id: found.id },
-        data: { status: CatalogImportStatus.DISCARDED, rows: Prisma.DbNull },
+        data: {
+          status: CatalogImportStatus.DISCARDED,
+          rows: Prisma.DbNull,
+          sourceRecords: Prisma.DbNull,
+        },
       }),
     );
   }
@@ -524,6 +604,159 @@ export class CatalogService {
     }));
   }
 
+  /**
+   * Normalizes, diffs and stores a preview (also the sheet sync's). Keeps
+   * the source records until apply, discard or 24 hours, for a mapping fix.
+   */
+  async createPreview(
+    businessId: string,
+    createdById: string | null,
+    input: {
+      source: CatalogImportSource;
+      headers: string[];
+      records: SourceRecord[];
+      rows: number[];
+      mapping: CatalogMapping;
+      confirmed: boolean;
+    },
+  ): Promise<ImportView> {
+    const normalized = normalizeSource(
+      input.records,
+      input.mapping,
+      input.rows,
+    );
+    const diff = await this.diffWith(businessId, normalized.items);
+    await this.purgeExpired();
+    const stored: StoredRecords = { records: input.records, rows: input.rows };
+    const created = await this.prisma.catalogImport.create({
+      data: {
+        businessId,
+        source: input.source,
+        summary: { ...summaryOf(diff, normalized.errorCount) },
+        rowErrors: normalized.errors as unknown as Prisma.InputJsonValue,
+        rows: normalized.items as unknown as Prisma.InputJsonValue,
+        sourceRecords: stored as unknown as Prisma.InputJsonValue,
+        headers: input.headers,
+        mapping: input.mapping,
+        mappingConfirmed: input.confirmed,
+        createdById,
+      },
+    });
+    return this.importView(created);
+  }
+
+  /**
+   * The mapping of a source, in order: the one given (a person chose it, so
+   * it is saved), the saved one when the headers did not change, the known
+   * headers when they include the name and the price, a pending proposal
+   * for these headers, the model's proposal (unconfirmed: a person must
+   * confirm it before apply), or the known headers when the model is not
+   * available. 400 without a name column.
+   */
+  async resolveMapping(
+    businessId: string,
+    headers: string[],
+    records: readonly SourceRecord[],
+    given: CatalogMapping | undefined,
+  ): Promise<{ mapping: CatalogMapping; confirmed: boolean }> {
+    if (given) {
+      assertColumns(given, headers);
+      await this.saveMapping(businessId, headers, given);
+      return { mapping: given, confirmed: true };
+    }
+    const saved = await this.savedMapping(businessId, headers);
+    if (saved) {
+      return { mapping: saved, confirmed: true };
+    }
+    // Known name and price columns need no model and no confirmation (as
+    // before the model existed); the rest of the known ones come along.
+    const known = defaultMapping(headers);
+    if (known?.price) {
+      return { mapping: known, confirmed: true };
+    }
+    // A proposal already waiting for a person with these same headers is
+    // reused: the model is asked once per set of headers, not every sync.
+    const pending = await this.pendingProposal(businessId, headers);
+    if (pending) {
+      return { mapping: pending, confirmed: false };
+    }
+    const proposed = await this.ai.proposeMapping(businessId, headers, records);
+    if (proposed) {
+      return { mapping: proposed, confirmed: false };
+    }
+    const guessed = known;
+    if (!guessed) {
+      throw new BadRequestException(
+        'No encontramos la columna del nombre: indicá el mapeo de columnas (mapping.name).',
+      );
+    }
+    return { mapping: guessed, confirmed: true };
+  }
+
+  /** The newest unexpired, unconfirmed proposal for these same headers. */
+  private async pendingProposal(
+    businessId: string,
+    headers: readonly string[],
+    now = new Date(),
+  ): Promise<CatalogMapping | null> {
+    const candidates = await this.prisma.catalogImport.findMany({
+      where: {
+        businessId,
+        status: CatalogImportStatus.PREVIEW,
+        mappingConfirmed: false,
+        createdAt: { gte: new Date(now.getTime() - PREVIEW_TTL_MS) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { headers: true, mapping: true },
+      take: 10,
+    });
+    const match = candidates.find((c) =>
+      sameHeaders((c.headers as string[] | null) ?? [], headers),
+    );
+    return (match?.mapping as CatalogMapping | null | undefined) ?? null;
+  }
+
+  /** The saved mapping, when it was made for these same headers. */
+  async savedMapping(
+    businessId: string,
+    headers: readonly string[],
+  ): Promise<CatalogMapping | null> {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { catalogMapping: true },
+    });
+    const saved = business?.catalogMapping as SavedMapping | null | undefined;
+    if (!saved || !sameHeaders(saved.headers, headers)) {
+      return null;
+    }
+    return saved.mapping;
+  }
+
+  private async saveMapping(
+    businessId: string,
+    headers: readonly string[],
+    mapping: CatalogMapping,
+  ): Promise<void> {
+    const saved: SavedMapping = { headers: [...headers], mapping };
+    await this.prisma.business.update({
+      where: { id: businessId },
+      data: { catalogMapping: saved as unknown as Prisma.InputJsonValue },
+    });
+  }
+
+  private async diffWith(
+    businessId: string,
+    items: readonly CatalogItemInput[],
+  ): Promise<CatalogDiff> {
+    return diffCatalog(
+      await this.prisma.catalogItem.findMany({
+        where: { businessId },
+        select: { externalId: true, rowHash: true, available: true },
+      }),
+      items,
+    );
+  }
+
   /** The business's item cap (its own, or CATALOG_MAX_ITEMS_PER_BUSINESS). */
   private async lockBusiness(
     tx: Prisma.TransactionClient,
@@ -577,55 +810,39 @@ export class CatalogService {
         createdAt: { lt: new Date(now.getTime() - PREVIEW_TTL_MS) },
         NOT: { rows: { equals: Prisma.DbNull } },
       },
-      data: { rows: Prisma.DbNull },
+      data: { rows: Prisma.DbNull, sourceRecords: Prisma.DbNull },
     });
   }
 
-  private recordsOf(source: ImportSource): {
+  /** Headers, records and row numbers of a CSV or of JSON rows. */
+  parseSource(source: Extract<ImportSource, { kind: 'csv' | 'rows' }>): {
+    headers: string[];
     records: SourceRecord[];
-    mapping: CatalogMapping;
     rows: number[];
   } {
-    let headers: string[];
-    let records: SourceRecord[];
-    let rows: number[];
-    if (source.kind === 'csv') {
-      // Spreadsheet rows: the header is row 1, blank rows still count.
-      ({ headers, records, rows } = csvRecords(source.text));
-      if (headers.length === 0 || headers.every((h) => h === '')) {
-        throw new BadRequestException(
-          'El archivo está vacío o no tiene encabezados.',
-        );
-      }
-      const repeated = headers.find(
-        (h, i) => h !== '' && headers.indexOf(h) !== i,
-      );
-      if (repeated !== undefined) {
-        throw new BadRequestException(
-          `La columna "${repeated}" está repetida en los encabezados.`,
-        );
-      }
-    } else {
-      records = source.rows;
-      headers = [...new Set(records.flatMap((r) => Object.keys(r)))];
-      rows = records.map((_, index) => index + 1);
+    if (source.kind === 'rows') {
+      return {
+        headers: [...new Set(source.rows.flatMap((r) => Object.keys(r)))],
+        records: source.rows,
+        rows: source.rows.map((_, index) => index + 1),
+      };
     }
-    const mapping = source.mapping ?? defaultMapping(headers);
-    if (!mapping) {
+    // Spreadsheet rows: the header is row 1, blank rows still count.
+    const { headers, records, rows } = csvRecords(source.text);
+    if (headers.length === 0 || headers.every((h) => h === '')) {
       throw new BadRequestException(
-        'No encontramos la columna del nombre: indicá el mapeo de columnas (mapping.name).',
+        'El archivo está vacío o no tiene encabezados.',
       );
     }
-    const missing = Object.values(mapping).filter(
-      (column): column is string =>
-        column !== undefined && !headers.includes(column),
+    const repeated = headers.find(
+      (h, i) => h !== '' && headers.indexOf(h) !== i,
     );
-    if (missing.length > 0) {
+    if (repeated !== undefined) {
       throw new BadRequestException(
-        `El mapeo usa columnas que no están en el archivo: ${missing.map((c) => `"${c}"`).join(', ')}.`,
+        `La columna "${repeated}" está repetida en los encabezados.`,
       );
     }
-    return { records, mapping, rows };
+    return { headers, records, rows };
   }
 
   private async assertBusiness(businessId: string): Promise<void> {
@@ -644,6 +861,9 @@ export class CatalogService {
       status: found.status,
       summary: found.summary as unknown as ImportSummary,
       errors: found.rowErrors as unknown as RowError[],
+      headers: found.headers as string[] | null,
+      mapping: found.mapping as CatalogMapping | null,
+      mappingConfirmed: found.mappingConfirmed,
       createdAt: found.createdAt,
       appliedAt: found.appliedAt,
     };
@@ -685,4 +905,22 @@ async function updateItems(
       WHERE c.business_id = ${businessId}::uuid
         AND c.external_id = v.external_id`;
   }
+}
+
+/** 400 when the mapping names a column the source does not have. */
+function assertColumns(mapping: CatalogMapping, headers: readonly string[]) {
+  const missing = Object.values(mapping).filter(
+    (column): column is string =>
+      column !== undefined && !headers.includes(column),
+  );
+  if (missing.length > 0) {
+    throw new BadRequestException(
+      `El mapeo usa columnas que no están en el archivo: ${missing.map((c) => `"${c}"`).join(', ')}.`,
+    );
+  }
+}
+
+/** The same columns, in any order. */
+function sameHeaders(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((h) => b.includes(h));
 }
