@@ -128,6 +128,11 @@ export const envSchema = z
       'AI_MAX_INTERACTIONS_PER_USER_PER_DAY',
       30,
     ),
+    // Default monthly cap of a business without its own (Business.aiMonthlyCap).
+    AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH: positiveInt(
+      'AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH',
+      5_000,
+    ),
     AI_HISTORY_LIMIT: positiveInt('AI_HISTORY_LIMIT', 12),
     JOB_MAX_ATTEMPTS: positiveInt('JOB_MAX_ATTEMPTS', 4),
 

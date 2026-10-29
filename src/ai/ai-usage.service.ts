@@ -24,6 +24,25 @@ export function usageDay(now: Date): Date {
   return new Date(`${dayFormat.format(now)}T00:00:00.000Z`);
 }
 
+/** A calendar month in {@link USAGE_TIME_ZONE}. */
+export interface UsageMonth {
+  /** "2026-11". */
+  label: string;
+  /** First day of the month, as a usage day (UTC-midnight Date). */
+  start: Date;
+  /** First day of the next month (exclusive end). */
+  end: Date;
+}
+
+/** Calendar month of `now` in {@link USAGE_TIME_ZONE}. */
+export function usageMonth(now: Date): UsageMonth {
+  const label = dayFormat.format(now).slice(0, 7);
+  const start = new Date(`${label}-01T00:00:00.000Z`);
+  const end = new Date(start);
+  end.setUTCMonth(end.getUTCMonth() + 1);
+  return { label, start, end };
+}
+
 export interface AiUsageRecord {
   conversationId: string;
   model: string;

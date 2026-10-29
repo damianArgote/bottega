@@ -129,7 +129,8 @@ el token de la línea de cada conversación, no con el del entorno.
 | `OPENAI_MODEL` | Si `BOT_REPLY_MODE=ai` | — | ID del modelo. Elegilo de la [lista de modelos](https://developers.openai.com/api/docs/models). |
 | `OPENAI_TIMEOUT_MS` | No | `20000` | Tiempo máximo de cada llamada a OpenAI. |
 | `OPENAI_MAX_OUTPUT_TOKENS` | No | `300` | Tope de tokens por respuesta. |
-| `AI_MAX_INTERACTIONS_PER_USER_PER_DAY` | No | `30` | Tope diario de respuestas con IA por usuario. |
+| `AI_MAX_INTERACTIONS_PER_USER_PER_DAY` | No | `30` | Tope diario de respuestas con IA por conversación, para los negocios sin tope propio (`PUT /admin/businesses/:id/limits`). |
+| `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` | No | `5000` | Tope mensual de respuestas con IA de todo un negocio (mes calendario de Argentina), para los negocios sin tope propio. |
 | `AI_HISTORY_LIMIT` | No | `12` | Mensajes del historial que recibe el modelo. |
 
 > **ChatGPT Plus no da acceso a la API.** La API se paga aparte: necesitás
@@ -507,6 +508,29 @@ de la demo funcionan como los comandos (escribirlos a mano también funciona).
   datos obligatorios y pasa la conversación a Pendientes con un resumen, para
   que una persona del equipo cierre la venta.
 
+### Topes de IA
+
+Cada negocio tiene dos topes, que solo cambia el equipo
+(`PUT /admin/businesses/<id>/limits`):
+
+- **Mensual, de todo el negocio** (`aiMonthlyCap`, o
+  `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH`): llamadas al modelo de todas
+  sus conversaciones en el mes calendario de Argentina. Al llegar, el bot no
+  llama al modelo: guarda una fila `LIMITED`, responde "En un momento te
+  responde una persona del equipo." y pasa la conversación a Pendientes como
+  `request_handoff` (motivo `ai_monthly_cap`). Pasa una sola vez por
+  conversación en el mes: si alguien le devuelve el control al bot con el tope
+  todavía alcanzado, no responde ni abre otro pedido.
+- **Diario, por conversación** (`aiDailyCapPerConversation`, o
+  `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`): al llegar, responde el aviso de
+  límite diario, como siempre.
+
+Cuentan las llamadas `OK` y `ERROR`, no las `LIMITED`. Se revisa primero el
+mensual y después el diario; ninguno llama a OpenAI. Cuando un negocio pasa
+el 80% y el 100% del tope del mes queda un log `info`
+`ai_monthly_cap_threshold` con el id del negocio, el uso y el tope (dos
+turnos simultáneos pueden dejarlo dos veces).
+
 ### Pausa
 
 Mientras una conversación está pausada (por `humano` o por un admin):
@@ -589,6 +613,11 @@ del negocio: un `AGENT` recibe `403`.
 Cada cambio del perfil (backoffice, API de admin, restaurar o el seed) guarda
 una copia en `agent_profile_version`.
 
+`GET /inbox/businesses/<businessId>/settings/usage` da el consumo de IA del
+mes, con la misma respuesta que `GET /admin/businesses/<id>/usage`, a
+**cualquier** persona del negocio (`OWNER` o `AGENT`); `403` a alguien de
+otro negocio. Es de solo lectura: los topes los cambia el equipo.
+
 Los leads del negocio, también solo para sus `OWNER`, bajo
 `/inbox/businesses/<businessId>/leads`:
 
@@ -663,6 +692,9 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `GET /admin/businesses/<id>/agent` | Perfil del agente del negocio, con su `version`. `404` si el negocio no existe o no tiene perfil. |
 | `PUT /admin/businesses/<id>/agent` | Reemplaza el perfil entero (`enabled`, `botName`, `persona`, `businessInfo`, `faq`, `leadFields`, `handoffRules`, `outOfHoursMessage`, `openingHours`, `model`, `demoEnabled`). `openingHours` es opcional: `{ "mon": ["09:00-18:00"], "sat": ["10:00-13:00"] }` (`mon` a `sun`, hasta 4 rangos por día, en la zona horaria del negocio; un día que no está, cerrado). Lo crea si no existe; cada `PUT` sube `version` y guarda una copia (ver [Configuración del negocio](#configuración-del-negocio-backoffice)). Límites: `persona` ≤ 1.000 caracteres, `businessInfo` ≤ 8.000, `faq` ≤ 40, `leadFields` ≤ 8 (`key` en snake_case y único; `kind`: `text`, `phone`, `email` o `date`). |
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
+| `GET /admin/businesses/<id>/limits` | Los topes de IA propios del negocio: `{ "aiMonthlyCap", "aiDailyCapPerConversation" }` (`null`: usa la variable de entorno). `404` si el negocio no existe. |
+| `PUT /admin/businesses/<id>/limits` | Body `{ "aiMonthlyCap": number\|null, "aiDailyCapPerConversation": number\|null }`, los dos campos siempre (enteros de 1 a 1.000.000; `null` vuelve al valor por defecto: `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` y `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`). Solo el equipo cambia los topes: no hay ninguna ruta de `/inbox` ni de `/staff` que lo haga. `404` si el negocio no existe. |
+| `GET /admin/businesses/<id>/usage` | Respuestas con IA del mes contra el tope mensual: `{ "month": "2026-11", "used": 1234, "cap": 5000, "percent": 25, "capReached": false }`. Ver [Topes de IA](#topes-de-ia). |
 
 `limit` va de 1 a 200 (default 50). Errores: `400` parámetros inválidos,
 `404` conversación inexistente.
@@ -911,7 +943,8 @@ push a esas ramas.
 | Llegan eventos pero se ignoran | `WHATSAPP_PHONE_NUMBER_ID` no coincide con el número que recibe. | Copiá el ID correcto de API Setup. |
 | El usuario no recibió una respuesta | Envío `UNCERTAIN` o `FAILED`. | `GET /admin/messages?status=UNCERTAIN` (o `FAILED`). Los inciertos nunca se reenvían solos. |
 | El bot responde "Tuve un problema para responderte" | Error de OpenAI: sin crédito/cuota (`429`), modelo inválido, timeout. | Revisá Billing en platform.openai.com, `OPENAI_MODEL` y los logs. |
-| El bot responde "llegamos al límite" | Se alcanzó `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`. | Esperá al día siguiente o subí el tope. |
+| El bot responde "llegamos al límite" | Se alcanzó el tope diario de la conversación (el del negocio o `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`). | Esperá al día siguiente o subí el tope con `PUT /admin/businesses/:id/limits`. |
+| El bot responde "En un momento te responde una persona del equipo" y pasa la conversación a Pendientes | El negocio llegó a su tope mensual de respuestas con IA. | `GET /admin/businesses/:id/usage`; para ampliarlo, `PUT /admin/businesses/:id/limits`. |
 | `prisma migrate status` falla | Falta `DATABASE_URL`. | Corré desde la raíz del proyecto, con el `.env` completo. |
 | Prisma da `P1001` con Neon | La compute estaba apagada y tardó en despertar. | Agregá `connect_timeout=15` (y `sslmode=require`) a las dos URLs. |
 | El deploy en Render falla al migrar | Falta `DATABASE_URL_UNPOOLED` o apunta al pooler. | Usá la URL **directa** de Neon (sin `-pooler`). |

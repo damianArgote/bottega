@@ -91,7 +91,10 @@ respuesta del soporte.
 - **Conversaciones extra:** USD 10 cada 100 conversaciones por encima del
   plan. Una conversación es el chat con un contacto durante 24 horas.
 - **Mensajes de WhatsApp:** Meta los cobra directamente al negocio, con su
-  tarjeta. No están incluidos en el abono.
+  tarjeta. No están incluidos en el abono. Responder a quien le escribió al
+  negocio es gratis las primeras 1.000 respuestas del mes; los avisos que
+  manda el negocio (turnos, pedidos) y las promociones se pagan. Las tarifas
+  vigentes están en la guía de conexión: https://botsuite46.com/conectar
 - **Integraciones a medida** (por ejemplo, el sistema de gestión, agenda,
   facturación o stock que el negocio ya usa): USD 20 la hora, con un mínimo
   de 4 horas (USD 80), más USD 10 por mes por cada integración para
@@ -104,10 +107,46 @@ aviso por email al dueño de cada interesado o derivación, turnos a Google
 Calendar, resumen semanal por email y contacto nuevo a un CRM que tenga API
 pública.
 
+## Cómo se conecta el WhatsApp del negocio
+
+- Se conecta en una videollamada de 1 hora con el equipo. La guía
+  https://botsuite46.com/conectar muestra los pasos según la situación del
+  negocio y permite agendar la llamada por WhatsApp.
+- Todo queda a nombre del negocio: su cuenta comercial de Meta, su app y su
+  número. Meta le cobra los mensajes directamente al negocio.
+- Antes de la llamada hace falta: el Facebook personal con verificación en dos
+  pasos, el celular con el chip del número del bot (llega un código por SMS o
+  llamada), una tarjeta habilitada para pagos internacionales, el nombre que
+  van a ver los clientes, la web o el Instagram del negocio y una computadora.
+- Si el negocio no tiene cuenta comercial en Meta, se crea en unos 10 minutos.
+- El negocio elige cómo trabajar: le da acceso al equipo como empleado, solo
+  sobre su cuenta de WhatsApp y la app (el equipo no ve anuncios, página ni
+  pagos), o hace cada paso compartiendo pantalla mientras lo guiamos. Nunca
+  hace falta compartir la contraseña de Facebook.
+- El número puede ser un chip nuevo o el que el negocio ya usa en WhatsApp.
+  Un número funciona en un solo lugar: para pasar al bot el que ya se usa en
+  la app hay que borrar esa cuenta de WhatsApp y se pierde el historial de
+  chats, así que conviene hacer una copia antes. No hay que borrar nada hasta
+  que el equipo lo pida en la llamada.
+- Si el número ya tiene un bot de otra empresa, hay que avisar antes de
+  agendar: según el caso se conecta sin moverlo, se le pide al proveedor
+  anterior que lo libere o se usa un número nuevo.
+- En la llamada se elige un PIN de 6 dígitos para el número: hay que
+  guardarlo.
+- Una vez conectado, el número no se abre en la app de WhatsApp: eso lo
+  desconecta del bot.
+
 ## Plazos de implementación
 
-[COMPLETAR] El equipo confirma los plazos según el plan y las integraciones
-de cada negocio.
+- La conexión del número se hace en la videollamada de 1 hora.
+- Después, el equipo da de alta la cuenta en BotSuite46. No es instantáneo:
+  avisamos por WhatsApp cuando está lista. Ahí el negocio le escribe al bot
+  para probarlo y recibe el acceso a la bandeja, con una contraseña temporal
+  que cambia al entrar.
+- Meta revisa el nombre visible del número y puede tardar 1 o 2 días.
+
+[COMPLETAR] El equipo confirma los plazos de la configuración del asistente y
+de las integraciones según el plan de cada negocio.
 
 ## Disponibilidad y contacto
 

@@ -7,6 +7,10 @@ import {
   type AiResponse,
 } from '../ai/ai.provider.js';
 import { AI_MAX_MODEL_ROUNDS } from '../ai/ai-limits.js';
+import type {
+  AiLimitsService,
+  ConversationAiLimits,
+} from '../ai/ai-limits.service.js';
 import type { AiUsageService } from '../ai/ai-usage.service.js';
 import {
   type AgentProfile,
@@ -16,7 +20,11 @@ import type { AppConfigService } from '../config/app-config.service.js';
 import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { AI_FALLBACK_REPLY, AI_LIMIT_REPLY } from './ai-replies.js';
+import {
+  AI_FALLBACK_REPLY,
+  AI_LIMIT_REPLY,
+  AI_MONTHLY_CAP_REPLY,
+} from './ai-replies.js';
 import {
   demoRequestReplies,
   finalReply,
@@ -53,6 +61,8 @@ interface Turn {
   input: ReplyInput;
   model: string;
   agentProfileVersion: number | null;
+  /** Model calls made so far (each one counts for the monthly cap). */
+  calls: number;
 }
 
 export interface AiReplyGeneratorDeps {
@@ -60,6 +70,7 @@ export interface AiReplyGeneratorDeps {
   clock?: () => Date;
   provider: AiProvider;
   usage: AiUsageService;
+  limits: AiLimitsService;
   prisma: PrismaService;
   content: ContentService;
   config: AppConfigService;
@@ -70,10 +81,17 @@ export interface AiReplyGeneratorDeps {
  *
  * 0. Agent switched off (AgentProfile.enabled false, or no stored profile):
  *    no model call and no reply; the inbound message is already stored.
- * 1. Daily cap: when the conversation already made
- *    AI_MAX_INTERACTIONS_PER_USER_PER_DAY model calls today (OK or ERROR,
- *    day in America/Argentina/Buenos_Aires), no call is made: a LIMITED usage
- *    row is recorded and a fixed reply is returned.
+ * 1. Monthly cap: when the business's conversations already made its monthly
+ *    cap of model calls (Business.aiMonthlyCap, else
+ *    AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH; OK or ERROR, calendar month
+ *    in America/Argentina/Buenos_Aires), no call is made: a LIMITED usage
+ *    row is recorded and the conversation is handed off to a person with a
+ *    fixed reply, once a month per conversation (afterwards, no reply).
+ * 1b. Daily cap: when the conversation already made its daily cap of model
+ *    calls today (Business.aiDailyCapPerConversation, else
+ *    AI_MAX_INTERACTIONS_PER_USER_PER_DAY; same counting, Argentine day), no
+ *    call is made: a LIMITED usage row is recorded and a fixed reply is
+ *    returned.
  * 2. Builds the mode's instructions from the business's agent profile (its
  *    model, or OPENAI_MODEL) and the history of the active context.
  * 3. Runs up to {@link AI_MAX_MODEL_ROUNDS} model calls. Tool calls are
@@ -101,26 +119,88 @@ export class AiReplyGenerator implements ReplyGenerator {
     if (input.message.type !== 'TEXT') {
       return { replies: [UNSUPPORTED_REPLY], effects: [] };
     }
-    const { config, usage } = this.deps;
+    const { config, usage, limits } = this.deps;
     const turn: Turn = {
       input,
       model: profile.model ?? config.get('OPENAI_MODEL') ?? '',
       agentProfileVersion: profile.version,
+      calls: 0,
     };
-    const cap = config.get('AI_MAX_INTERACTIONS_PER_USER_PER_DAY');
-    if ((await usage.countToday(input.conversationId)) >= cap) {
-      await usage.record({
-        conversationId: input.conversationId,
-        model: turn.model,
-        inputTokens: 0,
-        outputTokens: 0,
-        latencyMs: 0,
-        outcome: AiOutcome.LIMITED,
-        agentProfileVersion: turn.agentProfileVersion,
-      });
+    const caps = await limits.forConversation(input.conversationId);
+    if (!caps) {
+      throw new JobError('conversation_missing', false);
+    }
+    // Usage rows are dated with the system clock (AiUsageService.record), so
+    // the caps count with it too, not with the opening-hours clock.
+    const usedThisMonth = await limits.countMonth(caps.businessId);
+    if (usedThisMonth >= caps.monthlyCap) {
+      await this.recordLimited(turn);
+      if (await limits.monthlyCapHandoffDone(input.conversationId)) {
+        // Handed off once this month already (a person gave the bot back).
+        return { replies: [], effects: [] };
+      }
+      return {
+        replies: [AI_MONTHLY_CAP_REPLY],
+        effects: [{ kind: 'ai_monthly_cap_handoff' }],
+      };
+    }
+    if ((await usage.countToday(input.conversationId)) >= caps.dailyCap) {
+      await this.recordLimited(turn);
       return { replies: [AI_LIMIT_REPLY], effects: [] };
     }
+    try {
+      return await this.answer(input, profile, turn);
+    } finally {
+      // Also after a retryable failure: its ERROR rows already count.
+      if (turn.calls > 0) {
+        await this.logThresholds(caps, usedThisMonth);
+      }
+    }
+  }
 
+  /**
+   * Logs the monthly thresholds this turn crossed. The count is read again
+   * after the turn's own rows, so concurrent turns of the business may both
+   * log a threshold but never all miss it. A failure here only skips the log.
+   */
+  private async logThresholds(
+    caps: ConversationAiLimits,
+    before: number,
+  ): Promise<void> {
+    try {
+      const after = await this.deps.limits.countMonth(caps.businessId);
+      this.deps.limits.logThresholds(
+        caps.businessId,
+        caps.monthlyCap,
+        before,
+        after,
+      );
+    } catch {
+      this.logger.warn(
+        `Monthly AI usage count failed business=${caps.businessId}: threshold log skipped`,
+      );
+    }
+  }
+
+  private async recordLimited(turn: Turn): Promise<void> {
+    await this.deps.usage.record({
+      conversationId: turn.input.conversationId,
+      model: turn.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: 0,
+      outcome: AiOutcome.LIMITED,
+      agentProfileVersion: turn.agentProfileVersion,
+    });
+  }
+
+  /** Steps 2 to 4: the model turn. */
+  private async answer(
+    input: ReplyInput,
+    profile: AgentProfile,
+    turn: Turn,
+  ): Promise<GeneratedReply> {
+    const { config } = this.deps;
     const items: AiInputItem[] = [
       ...(await this.history(input)),
       { kind: 'message', role: 'user', content: input.message.content },
@@ -246,9 +326,11 @@ export class AiReplyGenerator implements ReplyGenerator {
 
   /** One model call with its usage row. Null means "use the fallback". */
   private async call(
-    { input, model, agentProfileVersion }: Turn,
+    turn: Turn,
     request: AiRequest,
   ): Promise<AiResponse | null> {
+    const { input, model, agentProfileVersion } = turn;
+    turn.calls += 1;
     const started = Date.now();
     let response: AiResponse;
     try {
