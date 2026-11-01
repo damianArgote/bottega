@@ -19,6 +19,7 @@ export type ClaimedJob =
       messageId: string;
       pushReason: null;
       pushMessageId: null;
+      deliveryId: null;
     })
   | (ClaimedJobBase & {
       type: 'PUSH_NOTIFICATION';
@@ -26,11 +27,21 @@ export type ClaimedJob =
       pushReason: 'INBOUND' | 'HANDOFF';
       /** The message it shows; null for a handoff. */
       pushMessageId: string | null;
+      deliveryId: null;
+    })
+  | (ClaimedJobBase & {
+      type: 'WEBHOOK_DELIVERY';
+      messageId: null;
+      pushReason: null;
+      pushMessageId: null;
+      /** The webhook_delivery row it sends. */
+      deliveryId: string;
     });
 
 /** The bot's job: answers an inbound message. */
 export type InboundJob = Extract<ClaimedJob, { type: 'INBOUND_MESSAGE' }>;
 export type PushJob = Extract<ClaimedJob, { type: 'PUSH_NOTIFICATION' }>;
+export type WebhookJob = Extract<ClaimedJob, { type: 'WEBHOOK_DELIVERY' }>;
 
 export interface FailOptions {
   retryable: boolean;
@@ -52,9 +63,9 @@ const MAX_ERROR_LENGTH = 120;
  *   conversation is claimable, and the partial unique index
  *   `(conversation_id) WHERE status = 'PROCESSING' AND type =
  *   'INBOUND_MESSAGE'` is the last line of defense.
- * - PUSH_NOTIFICATION jobs run outside that order: they neither wait for
- *   the bot's jobs nor hold them back (a push retrying must not delay a
- *   reply).
+ * - PUSH_NOTIFICATION and WEBHOOK_DELIVERY jobs run outside that order:
+ *   they neither wait for the bot's jobs nor hold them back (a push or a
+ *   webhook retrying must not delay a reply).
  * - A crashed worker's job is reclaimed once its lease expires.
  */
 @Injectable()
@@ -76,7 +87,7 @@ export class QueueService {
           FROM processing_job j
           WHERE ((j.status = 'PENDING' AND j.run_after <= ${UTC_NOW})
               OR (j.status = 'PROCESSING' AND j.lease_expires_at < ${UTC_NOW}))
-            AND (j.type = 'PUSH_NOTIFICATION' OR NOT EXISTS (
+            AND (j.type IN ('PUSH_NOTIFICATION', 'WEBHOOK_DELIVERY') OR NOT EXISTS (
               SELECT 1 FROM processing_job older
               WHERE older.conversation_id = j.conversation_id
                 AND older.type = 'INBOUND_MESSAGE'
@@ -98,7 +109,8 @@ export class QueueService {
         RETURNING j.id, j.type::text AS type,
           j.conversation_id AS "conversationId", j.message_id AS "messageId",
           j.push_reason::text AS "pushReason",
-          j.push_message_id AS "pushMessageId", j.attempts,
+          j.push_message_id AS "pushMessageId",
+          j.delivery_id AS "deliveryId", j.attempts,
           j.max_attempts AS "maxAttempts", j.locked_by AS "lockedBy",
           j.created_at AS "createdAt"`;
       return rows[0] ?? null;

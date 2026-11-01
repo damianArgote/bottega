@@ -14,6 +14,8 @@ import { pollDelayMs } from '../queue/poll-delay.js';
 import {
   PUSH_JOB_PROCESSOR,
   type PushJobProcessor,
+  WEBHOOK_JOB_PROCESSOR,
+  type WebhookJobProcessor,
 } from '../queue/push-jobs.js';
 import { QueueSignal } from '../queue/queue-signal.js';
 import {
@@ -58,6 +60,10 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
     @Optional()
     @Inject(PUSH_JOB_PROCESSOR)
     private readonly push?: PushJobProcessor,
+    /** Absent in contexts without integrations: deliveries end SKIPPED. */
+    @Optional()
+    @Inject(WEBHOOK_JOB_PROCESSOR)
+    private readonly webhooks?: WebhookJobProcessor,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -112,10 +118,13 @@ export class BotWorker implements OnApplicationBootstrap, OnModuleDestroy {
     return true;
   }
 
-  /** The bot answers inbound messages; the push processor sends pushes. */
+  /** The bot answers inbound messages; the other processors send pushes and webhooks. */
   private async run(job: ClaimedJob): Promise<'done' | 'skipped'> {
     if (job.type === 'PUSH_NOTIFICATION') {
       return this.push ? this.push.process(job) : 'skipped';
+    }
+    if (job.type === 'WEBHOOK_DELIVERY') {
+      return this.webhooks ? this.webhooks.process(job) : 'skipped';
     }
     return (await this.bot.process(job)).outcome;
   }

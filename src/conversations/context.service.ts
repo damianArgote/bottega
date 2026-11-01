@@ -3,6 +3,7 @@ import { addSystemMessage } from '../inbox/system-messages.js';
 import { Injectable, Optional } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service.js';
 import { vapidDetails } from '../push/push-config.js';
+import { enqueueEvent } from '../integrations/events.js';
 import { enqueuePushJob } from '../queue/push-jobs.js';
 import {
   ContextEndReason,
@@ -114,8 +115,8 @@ export class ContextService {
   /**
    * Pauses the bot, opens a handoff request and leaves the conversation in
    * the inbox's "Pendientes" (PENDING, unassigned), with a system message,
-   * and enqueues the push to the business's people (when push is on).
-   * Returns the handoff request id.
+   * and enqueues the push to the business's people (when push is on) and
+   * the `handoff.requested` event (webhooks). Returns the handoff request id.
    */
   requestHuman(
     conversationId: string,
@@ -145,13 +146,15 @@ export class ContextService {
           maxAttempts: this.config.get('JOB_MAX_ATTEMPTS'),
         });
       }
+      await enqueueHandoffEvent(t, conversationId, handoff);
       return handoff.id;
     });
   }
 
   /**
    * Pauses the bot (idempotent) and opens a handoff request only when the
-   * conversation has none open. `pausedAt` keeps the original pause time.
+   * conversation has none open (then `handoff.requested` is enqueued).
+   * `pausedAt` keeps the original pause time.
    */
   pause(conversationId: string, reason: string, tx?: Tx): Promise<PauseResult> {
     return this.inTx(tx, async (t) => {
@@ -172,6 +175,7 @@ export class ContextService {
       const handoff = await t.handoffRequest.create({
         data: { conversationId, reason, status: HandoffStatus.OPEN },
       });
+      await enqueueHandoffEvent(t, conversationId, handoff);
       return { wasPaused: paused, handoffId: handoff.id, handoffCreated: true };
     });
   }
@@ -229,4 +233,22 @@ export class ContextService {
   private inTx<T>(tx: Tx | undefined, run: (tx: Tx) => Promise<T>) {
     return tx ? run(tx) : this.prisma.$transaction(run);
   }
+}
+
+function enqueueHandoffEvent(
+  tx: Tx,
+  conversationId: string,
+  handoff: { id: string; reason: string | null; createdAt: Date },
+): Promise<number> {
+  return enqueueEvent(tx, {
+    conversationId,
+    type: 'handoff.requested',
+    data: {
+      handoff: {
+        id: handoff.id,
+        reason: handoff.reason,
+        createdAt: handoff.createdAt.toISOString(),
+      },
+    },
+  });
 }

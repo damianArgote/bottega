@@ -22,6 +22,7 @@ WhatsApp Cloud** (sin BuilderBot ni librerías por QR), OpenAI y PostgreSQL.
 | 8–12 | [Conectar con WhatsApp (Meta)](#conectar-con-whatsapp-meta) |
 | — | [Cómo se comporta el bot](#cómo-se-comporta-el-bot) |
 | — | [API de administración](#api-de-administración) |
+| — | [Integraciones (n8n)](#integraciones-n8n) |
 | — | [Editar contenido](#editar-contenido) |
 | — | [Pruebas automáticas](#pruebas-automáticas) |
 | — | [Solución de problemas](#solución-de-problemas) |
@@ -1057,6 +1058,88 @@ Lo que se le pregunta a Meta se reutiliza 60 segundos por línea (para no
 gastar el límite de Meta con el polling de la web) y se vuelve a pedir después
 de cargar credenciales, registrar o suscribir. Nunca incluye el token, el App
 Secret, el verify token ni la clave del webhook.
+
+---
+
+## Integraciones (n8n)
+
+n8n (o el sistema propio del negocio) nunca corre dentro del backend. Se
+conecta de dos formas: recibe **eventos firmados** y lee por una **API de
+solo lectura** con una clave por negocio.
+
+### Eventos (webhooks)
+
+Cada negocio puede tener varias suscripciones: una URL `https` y los eventos
+que quiere.
+
+| Evento | Cuándo | `data` |
+| ------ | ------ | ------ |
+| `lead.updated` | El bot guarda un dato nuevo o distinto del lead | `lead` (`id`, `status`, `data`, `createdAt`) |
+| `handoff.requested` | La conversación pasa a una persona (pedido del usuario, del bot o pausa desde admin) | `handoff` (`id`, `reason`, `createdAt`) |
+| `conversation.resolved` | Alguien de la bandeja la resuelve (una vez, aunque se resuelva de nuevo) | `resolvedBy` (`id`, `name`) |
+
+El body es
+`{ "id", "type", "occurredAt", "businessId", "data": { ..., "conversation": { "id", "lineId" }, "contact": { "waId", "name" } } }`.
+Nunca lleva mensajes. `id` es el mismo para todas las suscripciones que
+reciben ese evento; sirve para no procesarlo dos veces.
+
+Se encola en la misma transacción que el cambio (si el cambio no se guarda,
+no hay evento) y lo manda el worker de la cola (`WORKER_ENABLED`), fuera del
+orden de la conversación: un webhook que reintenta nunca demora al bot. Un
+`2xx` es entregado; cualquier otra cosa (otro status, redirección, más de
+10 s, error de red) se reintenta hasta 6 intentos en total (5 s · 2^n, unos
+5 minutos entre todos) y queda en `lastError` de la suscripción
+(`http_500`, `timeout`, `network_error`). Una suscripción desactivada no
+manda lo pendiente.
+
+Cada pedido trae `X-Bottega-Event`, `X-Bottega-Event-Id`,
+`X-Bottega-Delivery` (el mismo en cada reintento), `X-Bottega-Timestamp`
+(segundos Unix) y `X-Bottega-Signature: sha256=<hex>`, el HMAC-SHA256 con el
+secreto de la suscripción sobre `<timestamp>.<body crudo>`. Para verificarlo
+(en n8n, un nodo Code con el body crudo):
+
+```js
+const crypto = require('crypto');
+const expected = 'sha256=' + crypto
+  .createHmac('sha256', SECRET)
+  .update(`${timestamp}.${rawBody}`)
+  .digest('hex');
+// Rechazá si no coincide o si el timestamp tiene más de 5 minutos.
+```
+
+### API de lectura
+
+Con una clave de integración (`btg_...`) en `X-Api-Key` o
+`Authorization: Bearer`. Cada clave solo ve su negocio. Se guarda solo su
+SHA-256: se muestra una vez, al crearla.
+
+| Ruta | Qué devuelve |
+| ---- | ------------ |
+| `GET /integrations/v1/leads?updatedSince=&cursor=` | Leads (`id`, `status`, `data`, `conversation`, `contact`, fechas) |
+| `GET /integrations/v1/conversations?updatedSince=&cursor=` | Conversaciones con su estado (`status`, `assignedTo`, `paused`, `unreadCount`, `lastMessageAt`, `windowExpiresAt`, `contact`), sin mensajes |
+
+De a 100, del cambio más viejo al más nuevo: `{ data, nextCursor }`. Para
+consultar periódicamente, guardá `nextCursor` y pedí con él la próxima vez
+(trae solo lo que cambió después). Clave faltante, mala o revocada: `401`.
+
+### Alta
+
+Con `X-Admin-Api-Key`, bajo `/admin/businesses/<businessId>/...`, o con
+sesión de equipo (`STAFF`) bajo `/staff/businesses/<businessId>/...` (cada
+cambio queda en el log con quién lo hizo):
+
+| Ruta | Qué hace |
+| ---- | -------- |
+| `GET .../webhooks` | Las suscripciones, con `lastSuccessAt`, `lastErrorAt` y `lastError`. Nunca el secreto. |
+| `POST .../webhooks` | Body `{ "url", "events": [...] }` (`https`; eventos de la tabla de arriba). Devuelve el `secret` (`whsec_...`) **solo esta vez**. |
+| `PATCH .../webhooks/<id>` | Body `{ "url"?, "events"?, "active"? }`. |
+| `POST .../webhooks/<id>/rotate-secret` | Secreto nuevo, solo esta vez; el anterior deja de firmar enseguida. |
+| `DELETE .../webhooks/<id>` | La borra con sus entregas pendientes. |
+| `GET .../integration-keys` | Las claves (`name`, `prefix`, `lastUsedAt`, `revokedAt`), nunca la clave. |
+| `POST .../integration-keys` | Body `{ "name" }`. Devuelve la `key` **solo esta vez**. |
+| `DELETE .../integration-keys/<id>` | La revoca enseguida (queda en la lista). |
+
+Una suscripción o clave de otro negocio responde `404`.
 
 ---
 
