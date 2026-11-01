@@ -116,7 +116,13 @@ export class ActionCallerService {
         const sameArguments =
           previous.argumentsHash === null ||
           previous.argumentsHash === argumentsHash;
-        if (previous.status !== AgentActionCallStatus.SUCCEEDED) {
+        // Only an effect's success stores its answer: a success without one
+        // was a query (the action was re-created as an effect meanwhile),
+        // so nothing was done and nothing can be replayed.
+        if (
+          previous.status !== AgentActionCallStatus.SUCCEEDED ||
+          previous.result === null
+        ) {
           return { ok: false, error: 'already_attempted', status: null };
         }
         if (!sameArguments) {
@@ -129,7 +135,11 @@ export class ActionCallerService {
           replayed: true,
         };
       }
-      // A query only reads: asking again is safe.
+      // A query only reads: asking again is safe. A record of another
+      // (deleted) action is kept as it is: this call is not recorded.
+      if (previous.actionId !== action.id) {
+        return this.send(action, request);
+      }
       callId = previous.id;
       await this.prisma.agentActionCall.update({
         where: { id: callId },

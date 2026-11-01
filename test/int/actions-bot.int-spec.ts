@@ -418,6 +418,51 @@ describe('Business actions in the bot (integration, mocked model)', () => {
     ]);
   });
 
+  it('a query re-created as an effect never takes the query answer as done', async () => {
+    await prisma.agentAction.updateMany({ data: { kind: 'QUERY' } });
+    respond
+      .mockResolvedValueOnce(reserve)
+      .mockRejectedValueOnce(new AiProviderError('openai_http_503', true));
+    await say('quiero turno el jueves a las 10');
+    expect(actionFetch).toHaveBeenCalledTimes(1);
+
+    // Re-created as an effect while the job waits.
+    const old = await prisma.agentAction.findFirstOrThrow();
+    await actions.delete(businessId, old.id);
+    await actions.create(businessId, booking);
+    respond.mockResolvedValueOnce(reserve);
+    await makeRunnable();
+    await worker.drain();
+
+    // Not run, and not told it was done: the fixed text.
+    expect(actionFetch).toHaveBeenCalledTimes(1);
+    expect(sent()).toEqual([ACTION_FAILED_REPLY]);
+  });
+
+  it("a query of another action never rewrites a deleted effect's call", async () => {
+    respond
+      .mockResolvedValueOnce(reserve)
+      .mockRejectedValueOnce(new AiProviderError('openai_http_503', true));
+    await say('quiero turno el jueves a las 10');
+    const effectCall = await prisma.agentActionCall.findFirstOrThrow();
+
+    const old = await prisma.agentAction.findFirstOrThrow();
+    await actions.delete(businessId, old.id);
+    await actions.create(businessId, { ...booking, kind: 'query' });
+    respond
+      .mockResolvedValueOnce(reserve)
+      .mockResolvedValueOnce(text('Hay lugar.'));
+    await makeRunnable();
+    await worker.drain();
+
+    expect(actionFetch).toHaveBeenCalledTimes(2);
+    expect(
+      await prisma.agentActionCall.findUniqueOrThrow({
+        where: { id: effectCall.id },
+      }),
+    ).toMatchObject({ actionId: null, status: 'SUCCEEDED' });
+  });
+
   it('a query action is asked again on a retried job (it only reads)', async () => {
     await prisma.agentAction.updateMany({ data: { kind: 'QUERY' } });
     respond
