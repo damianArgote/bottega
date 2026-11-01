@@ -27,6 +27,10 @@ describe('isPublicAddress', () => {
     'fc00::1',
     '::ffff:127.0.0.1',
     '::ffff:10.1.2.3',
+    '::ffff:7f00:1',
+    '::7f00:1',
+    '::127.0.0.1',
+    '::ffff:0:7f00:1',
     'not-an-ip',
   ])('rejects %s', (address) => {
     expect(isPublicAddress(address)).toBe(false);
@@ -135,6 +139,19 @@ describe('createSafeFetch', () => {
     );
     expect(single).toBe('93.184.216.34');
     expect(all).toEqual([{ address: '93.184.216.34', family: 4 }]);
+  });
+
+  it('with oversize "truncate", returns the status and the first bytes', async () => {
+    const resolve = () =>
+      Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
+    const cut = createSafeFetch(
+      { maxResponseBytes: 10, oversize: 'truncate' },
+      { resolve, request: fakeRequest(200, '{"a":"0123456789"}').request },
+    );
+
+    const response = await post(cut, 'https://x.example/');
+
+    expect(response.status).toBe(200);
   });
 
   it('returns the body under the cap and fails over it', async () => {

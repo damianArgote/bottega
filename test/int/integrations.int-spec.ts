@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import type { ClientRequest, IncomingMessage } from 'node:http';
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -12,7 +14,10 @@ import { ContextService } from '../../src/conversations/context.service.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import { ConversationActionsService } from '../../src/inbox/conversation-actions.service.js';
 import { createSafeFetch } from '../../src/integrations/safe-fetch.js';
-import { WEBHOOK_FETCH } from '../../src/integrations/webhook-delivery.service.js';
+import {
+  WEBHOOK_FETCH,
+  WEBHOOK_SAFE_FETCH_OPTIONS,
+} from '../../src/integrations/webhook-delivery.service.js';
 import { LeadsService } from '../../src/leads/leads.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { QueueService } from '../../src/queue/queue.service.js';
@@ -391,6 +396,55 @@ describe('Integrations: webhook events and read API (integration)', () => {
           where: { type: 'WEBHOOK_DELIVERY' },
         }),
       ).toMatchObject({ status: 'FAILED' });
+    });
+
+    it('a 2xx with a big body is delivered (the body is not needed)', async () => {
+      await subscribe(['lead.updated']);
+      const id = await conversationId();
+      const resolve = () =>
+        Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
+      // A receiver that answers 200 with 100 KB (n8n returning its data).
+      const request = vi.fn(() => {
+        const req = new EventEmitter() as ClientRequest;
+        req.end = (() => {
+          setImmediate(() => {
+            const res = new EventEmitter() as IncomingMessage;
+            res.statusCode = 200;
+            res.headers = {};
+            res.destroy = (() => res);
+            req.emit('response', res);
+            res.emit('data', Buffer.alloc(100 * 1024, 'x'));
+            res.emit('end');
+          });
+          return req;
+        }) as ClientRequest['end'];
+        return req;
+      });
+      hookFetch.mockImplementation(
+        createSafeFetch(
+          { maxResponseBytes: 64 * 1024, oversize: 'truncate' },
+          { resolve, request },
+        ),
+      );
+
+      await saveLead(id, { name: 'Juan' });
+      await drain();
+
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(await prisma.webhookDelivery.findFirstOrThrow()).toMatchObject({
+        lastError: null,
+        responseStatus: 200,
+      });
+      expect(
+        (await prisma.webhookDelivery.findFirstOrThrow()).deliveredAt,
+      ).not.toBeNull();
+    });
+
+    it('delivers through the same safe fetch the app uses', () => {
+      expect(WEBHOOK_SAFE_FETCH_OPTIONS).toEqual({
+        maxResponseBytes: 64 * 1024,
+        oversize: 'truncate',
+      });
     });
 
     it('does not follow a redirect: it is a failure to retry', async () => {

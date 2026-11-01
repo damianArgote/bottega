@@ -194,7 +194,8 @@ export class AgentActionsService {
 
   /**
    * "Probar": calls the action once with example arguments (validated with
-   * its parameters, 400 otherwise), marked `test: true` and with no
+   * its parameters; invalid ones answer `invalid_arguments` without calling),
+   * marked `test: true` and with no
    * conversation, and shows what it answered. Not recorded as a bot call.
    */
   async test(

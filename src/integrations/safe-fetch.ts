@@ -29,8 +29,9 @@ for (const [network, prefix] of [
   BLOCKED.addSubnet(network, prefix, 'ipv4');
 }
 for (const [network, prefix] of [
-  ['::', 128],
-  ['::1', 128],
+  // IPv4-compatible (::a.b.c.d, also :: and ::1) and SIIT (::ffff:0:a.b.c.d).
+  ['::', 96],
+  ['::ffff:0:0:0', 96],
   ['64:ff9b::', 96],
   ['64:ff9b:1::', 48],
   ['100::', 64],
@@ -93,6 +94,12 @@ export interface SafeFetchDeps {
 export interface SafeFetchOptions {
   /** The body is read up to this many bytes; more is ResponseTooLargeError. */
   maxResponseBytes: number;
+  /**
+   * Over the cap: `fail` (default) rejects with ResponseTooLargeError;
+   * `truncate` stops reading and returns the status with what fit (maybe nothing)
+   * (for callers that only need the status, like webhook deliveries).
+   */
+  oversize?: 'fail' | 'truncate';
 }
 
 /**
@@ -104,7 +111,7 @@ export interface SafeFetchOptions {
  * string body, headers and `signal`.
  */
 export function createSafeFetch(
-  { maxResponseBytes }: SafeFetchOptions,
+  { maxResponseBytes, oversize = 'fail' }: SafeFetchOptions,
   deps: SafeFetchDeps = {},
 ): typeof fetch {
   const resolve = deps.resolve ?? resolveAll;
@@ -156,17 +163,36 @@ export function createSafeFetch(
       req.on('response', (res: IncomingMessage) => {
         const chunks: Buffer[] = [];
         let size = 0;
+        let done = false;
         res.on('data', (chunk: Buffer) => {
+          if (done) {
+            return;
+          }
           size += chunk.length;
           if (size > maxResponseBytes) {
+            done = true;
             res.destroy();
-            reject(new ResponseTooLargeError());
+            if (oversize === 'truncate') {
+              finish();
+            } else {
+              reject(new ResponseTooLargeError());
+            }
             return;
           }
           chunks.push(chunk);
         });
-        res.on('error', reject);
+        res.on('error', (error) => {
+          if (!done) {
+            reject(error);
+          }
+        });
         res.on('end', () => {
+          if (!done) {
+            done = true;
+            finish();
+          }
+        });
+        function finish() {
           const status = res.statusCode ?? 0;
           const empty = status === 204 || status === 304;
           resolveResponse(
@@ -182,7 +208,7 @@ export function createSafeFetch(
               ),
             }),
           );
-        });
+        }
       });
       req.end(body);
     });

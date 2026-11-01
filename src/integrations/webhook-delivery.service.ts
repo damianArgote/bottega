@@ -5,7 +5,11 @@ import { LineCredentialsService } from '../lines/line-credentials.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { WebhookJobProcessor } from '../queue/push-jobs.js';
 import type { WebhookJob } from '../queue/queue.service.js';
-import { BlockedAddressError, ResponseTooLargeError } from './safe-fetch.js';
+import {
+  BlockedAddressError,
+  ResponseTooLargeError,
+  type SafeFetchOptions,
+} from './safe-fetch.js';
 import {
   SIGNATURE_HEADER,
   signWebhook,
@@ -16,6 +20,15 @@ import {
 export const WEBHOOK_FETCH = Symbol('WEBHOOK_FETCH');
 
 const TIMEOUT_MS = 10_000;
+
+/**
+ * The safe fetch of deliveries: only the status matters, so a big answer is
+ * cut, never a failure (a 2xx with a long body is still delivered).
+ */
+export const WEBHOOK_SAFE_FETCH_OPTIONS = {
+  maxResponseBytes: 64 * 1024,
+  oversize: 'truncate',
+} as const satisfies SafeFetchOptions;
 
 /** A static label for a failed request (never the URL or the body). */
 export function fetchErrorCode(error: unknown): string {
