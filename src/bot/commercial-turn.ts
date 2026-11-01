@@ -112,8 +112,13 @@ export async function runCommercialTurn(input: {
     outcome.kind === 'action_failed'
       ? outcome.effects
       : [];
-  // The business actions' own texts go first, as the bot sends them.
-  const fixed = actionReplies(effects);
+  // The business actions' own texts go first, as the bot sends them (also
+  // before a fallback: their call already happened).
+  const fixed = actionReplies(
+    outcome.kind === 'no_response' || outcome.kind === 'rounds_exceeded'
+      ? outcome.effects
+      : effects,
+  );
   const main =
     outcome.kind === 'handoff'
       ? renderReply('HUMAN_REQUESTED', names)

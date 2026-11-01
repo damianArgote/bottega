@@ -55,8 +55,12 @@ import { hasModule, type BusinessModules } from './modules.js';
 import type { PlannedEffect } from './tools/tool.js';
 import { isToolName, toolDefinitionsFor } from './tools/registry.js';
 
-const fallback = (): GeneratedReply => ({
-  replies: [AI_FALLBACK_REPLY],
+/**
+ * The controlled fallback, with no effects applied. Business actions' texts
+ * planned before go first: their call already happened.
+ */
+const fallback = (planned: readonly PlannedEffect[] = []): GeneratedReply => ({
+  replies: [...actionReplies(planned), AI_FALLBACK_REPLY],
   effects: [],
 });
 
@@ -273,12 +277,12 @@ export class AiReplyGenerator implements ReplyGenerator {
     );
     switch (outcome.kind) {
       case 'no_response':
-        return fallback();
+        return fallback(outcome.effects);
       case 'rounds_exceeded':
         this.logger.warn(
           `AI turn exceeded ${AI_MAX_MODEL_ROUNDS} rounds conversation=${input.conversationId}`,
         );
-        return fallback();
+        return fallback(outcome.effects);
       case 'action_failed':
         // Never a made-up result: what the business already said, then the
         // fixed text that offers a person.

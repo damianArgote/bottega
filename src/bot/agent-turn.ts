@@ -37,10 +37,18 @@ export type AgentTurnOutcome =
       effects: PlannedEffect[];
       calls: ToolCallTrace[];
     }
-  /** A model call gave no response (the caller already handled why). */
-  | { kind: 'no_response'; calls: ToolCallTrace[] }
+  /**
+   * A model call gave no response (the caller already handled why).
+   * `effects`: what was planned before (only business actions' texts are
+   * still sent: their call already happened).
+   */
+  | { kind: 'no_response'; effects: PlannedEffect[]; calls: ToolCallTrace[] }
   /** Still calling tools after {@link AI_MAX_MODEL_ROUNDS} calls. */
-  | { kind: 'rounds_exceeded'; calls: ToolCallTrace[] };
+  | {
+      kind: 'rounds_exceeded';
+      effects: PlannedEffect[];
+      calls: ToolCallTrace[];
+    };
 
 /**
  * One inbound turn against the model: up to {@link AI_MAX_MODEL_ROUNDS}
@@ -72,7 +80,7 @@ export async function runAgentTurn(
       ...(round === AI_MAX_MODEL_ROUNDS ? { toolChoice: 'none' as const } : {}),
     });
     if (!response) {
-      return { kind: 'no_response', calls };
+      return { kind: 'no_response', effects, calls };
     }
     if (response.toolCalls.length === 0) {
       return { kind: 'text', text: response.outputText, effects, calls };
@@ -108,7 +116,7 @@ export async function runAgentTurn(
       return { kind: 'handoff', effects, calls };
     }
   }
-  return { kind: 'rounds_exceeded', calls };
+  return { kind: 'rounds_exceeded', effects, calls };
 }
 
 /** request_handoff, or a demo request that closes with a handoff. */
