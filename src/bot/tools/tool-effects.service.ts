@@ -71,6 +71,9 @@ export class ToolEffectsService {
         case 'reply_buttons':
           // Sent with the reply (GeneratedOutcome.buttons): nothing to store.
           break;
+        case 'action_reply':
+          // Already one of the generated replies; the call is recorded.
+          break;
         case 'out_of_hours_notice':
           await tx.conversation.update({
             where: { id: conversationId },

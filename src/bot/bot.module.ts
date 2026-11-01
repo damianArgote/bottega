@@ -1,3 +1,4 @@
+import { ActionsModule } from '../actions/actions.module.js';
 import { BusinessModulesService } from './business-modules.service.js';
 import { Module } from '@nestjs/common';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai.provider.js';
@@ -31,6 +32,7 @@ import { BotWorker } from './worker.js';
 
 @Module({
   imports: [
+    ActionsModule,
     QueueModule,
     IntegrationsModule,
     CatalogModule,

@@ -1,3 +1,4 @@
+import { ActionsModule } from '../actions/actions.module.js';
 import { BusinessModulesService } from '../bot/business-modules.service.js';
 import { Module } from '@nestjs/common';
 import { AgentsService } from '../agents/agents.service.js';
@@ -26,6 +27,7 @@ import {
  */
 @Module({
   imports: [
+    ActionsModule,
     AiModule,
     AuthModule,
     CatalogModule,

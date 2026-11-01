@@ -21,11 +21,13 @@ import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import {
+  ACTION_FAILED_REPLY,
   AI_FALLBACK_REPLY,
   AI_LIMIT_REPLY,
   AI_MONTHLY_CAP_REPLY,
 } from './ai-replies.js';
 import {
+  actionReplies,
   demoRequestReplies,
   finalReply,
   offeredButtons,
@@ -230,7 +232,11 @@ export class AiReplyGenerator implements ReplyGenerator {
       currentItem(input),
     ];
     const demo = await this.demoOf(input);
-    const modules = await this.deps.modules.forBusiness(businessId, input.mode);
+    const modules = await this.deps.modules.forBusiness(businessId, input.mode, {
+      conversationId: input.conversationId,
+      messageId: input.message.id,
+    });
+    const actionNames = new Set(modules.actions?.tools.map((t) => t.name));
     const toolOptions = {
       demoEnabled: profile.demoEnabled,
       leadFields: profile.leadFields,
@@ -255,7 +261,11 @@ export class AiReplyGenerator implements ReplyGenerator {
       },
       (r) => this.call(turn, r),
       (rejected) => {
-        const tool = isToolName(rejected.name) ? rejected.name : 'unknown';
+        const tool = isToolName(rejected.name)
+          ? rejected.name
+          : actionNames.has(rejected.name)
+            ? `action:${rejected.name}`
+            : 'unknown';
         this.logger.warn(
           `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${rejected.reason}`,
         );
@@ -269,17 +279,31 @@ export class AiReplyGenerator implements ReplyGenerator {
           `AI turn exceeded ${AI_MAX_MODEL_ROUNDS} rounds conversation=${input.conversationId}`,
         );
         return fallback();
+      case 'action_failed':
+        // Never a made-up result: what the business already said, then the
+        // fixed text that offers a person.
+        return {
+          replies: [...actionReplies(outcome.effects), ACTION_FAILED_REPLY],
+          effects: outcome.effects,
+        };
       case 'handoff':
         // The handoff transition supplies the fixed confirmation reply,
         // after the demo request's summary (the insurance demo's close).
         return {
-          replies: demoRequestReplies(outcome.effects, names),
+          replies: [
+            ...actionReplies(outcome.effects),
+            ...demoRequestReplies(outcome.effects, names),
+          ],
           effects: outcome.effects,
         };
       case 'text': {
+        // The business's own texts go first, as they came.
+        const fixed = actionReplies(outcome.effects);
         const reply = finalReply(outcome.text, outcome.effects, names);
         if (!reply) {
-          return fallback();
+          return fixed.length > 0
+            ? { replies: fixed, effects: outcome.effects }
+            : fallback();
         }
         const notice = await this.outOfHoursNotice(input, profile);
         // Inside the demo every reply can leave it with a tap.
@@ -289,7 +313,7 @@ export class AiReplyGenerator implements ReplyGenerator {
             ? [EXIT_DEMO_BUTTON]
             : undefined);
         return {
-          replies: [notice ? `${reply}\n\n${notice.text}` : reply],
+          replies: [...fixed, notice ? `${reply}\n\n${notice.text}` : reply],
           effects: notice
             ? [...outcome.effects, notice.effect]
             : outcome.effects,
@@ -427,6 +451,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     });
     return buildCommercialInstructions(profile, leadValuesOf(lead), {
       catalog: hasModule(modules, 'catalog'),
+      actions: hasModule(modules, 'actions'),
     });
   }
 

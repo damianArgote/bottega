@@ -35,7 +35,9 @@ export type PlannedEffect =
   /** Not a tool: the generator added the out-of-hours notice on `day`. */
   | { kind: 'out_of_hours_notice'; day: string }
   /** Not a tool: the business reached its monthly AI cap (hands off). */
-  | { kind: 'ai_monthly_cap_handoff' };
+  | { kind: 'ai_monthly_cap_handoff' }
+  /** A business action's fixed text, sent as is; nothing to apply. */
+  | { kind: 'action_reply'; text: string };
 
 /** What a tool may read while planning. */
 export interface ToolContext {

@@ -1,3 +1,4 @@
+import type { ActionsModule } from '../actions/action-tools.js';
 import type { ToolName } from './mode-profiles.js';
 import type { CatalogReader } from './tools/tool.js';
 
@@ -13,6 +14,8 @@ export type ModuleName = 'catalog' | 'actions' | 'payments' | 'scheduling';
 export interface BusinessModules {
   /** Set only when the business has an available catalog item. */
   catalog?: CatalogReader;
+  /** Set only when the business has an active action (one tool each). */
+  actions?: ActionsModule;
 }
 
 /** Built-in tools that belong to a module (offered only when it is on). */

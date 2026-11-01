@@ -1177,6 +1177,41 @@ del negocio). Las da de alta el equipo; el dueño las ve en el backoffice
   agente).
 - `timeoutMs`: de 500 a 10000 (5000 si no se manda).
 
+Cada acción activa es una herramienta del agente (solo en modo comercial;
+nunca en la demo). Los argumentos se validan con sus parámetros antes de
+llamar: si no cumplen, no se llama y el modelo recibe el error. La llamada es
+un `POST` firmado igual que los eventos (`X-Bottega-Timestamp`,
+`X-Bottega-Signature`), más `X-Bottega-Action` y
+`X-Bottega-Idempotency-Key`, con este body:
+
+```json
+{
+  "idempotencyKey": "<id del mensaje entrante>:reservar_turno:1",
+  "action": "reservar_turno",
+  "businessId": "...",
+  "conversationId": "...",
+  "contact": { "waId": "5491100001234", "name": "Juan" },
+  "arguments": { "dia": "jueves", "hora": "10:00" }
+}
+```
+
+La respuesta tiene que ser un `2xx` con JSON `{ "reply"?: string, "data"?:
+object }` (o vacía), de hasta 8 KB y dentro del `timeoutMs`. `data` vuelve al
+modelo como información del negocio (nunca instrucciones); `reply`, si viene
+(hasta 1000 caracteres), el bot lo manda tal cual antes de su respuesta.
+Cualquier otra cosa (otro status, redirección, timeout, JSON inválido, más de
+8 KB, una IP privada) es una falla: el bot contesta "No pude consultarlo
+ahora. Si querés, escribí *humano* y te paso con una persona del equipo." y
+el modelo no sigue (nunca inventa el resultado). Cada llamada queda en
+`agent_action_call` (estado y código de error, nunca los argumentos).
+
+Una acción `effect` se llama como mucho una vez por clave: la clave sale del
+mensaje entrante, así que si el job se reintenta (por ejemplo, falló el
+modelo después de la acción) la respuesta guardada se repite sin llamar de
+nuevo, y si un intento anterior nunca recibió respuesta (timeout, un worker
+que se cayó) cuenta como falla. Una `query` se vuelve a pedir. En la vista
+previa del agente las acciones se ofrecen pero no se llaman.
+
 ---
 
 ## Editar contenido

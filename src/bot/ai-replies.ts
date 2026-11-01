@@ -50,3 +50,7 @@ export function insuranceRequestSummary(
     `⚠️ ${INSURANCE_DISCLAIMER}: no es una póliza ni un precio real.`,
   ].join('\n');
 }
+
+/** A business action failed: never a made-up result, a person instead. */
+export const ACTION_FAILED_REPLY =
+  'No pude consultarlo ahora. Si querés, escribí *humano* y te paso con una persona del equipo.';

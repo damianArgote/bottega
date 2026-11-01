@@ -1,3 +1,6 @@
+import { ActionCallerService } from '../../src/actions/action-caller.service.js';
+import { AgentActionsService } from '../../src/actions/agent-actions.service.js';
+import { BusinessModulesService } from '../../src/bot/business-modules.service.js';
 import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
 import { AiUsageService } from '../../src/ai/ai-usage.service.js';
 import {
@@ -202,5 +205,25 @@ export function buildAttachmentPreparer(
     new AiUsageService(prisma),
     media,
     transcriber,
+  );
+}
+
+/**
+ * The bot's modules service for tests that build the generator by hand:
+ * the real catalog and actions, with `actionFetch` as the actions' fetch.
+ */
+export function buildBusinessModules(
+  prisma: PrismaService,
+  config: AppConfigService,
+  actionFetch: typeof fetch = () =>
+    Promise.reject(new Error('No business action expected')),
+): BusinessModulesService {
+  const credentials = new LineCredentialsService(config);
+  const caller = new ActionCallerService(prisma, credentials, actionFetch);
+  return new BusinessModulesService(
+    buildCatalogService(prisma, config),
+    new AgentActionsService(prisma, credentials, caller),
+    caller,
+    prisma,
   );
 }
