@@ -1,3 +1,4 @@
+import { BusinessModulesService } from '../../src/bot/business-modules.service.js';
 import { Logger } from '@nestjs/common';
 import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
 import {
@@ -81,7 +82,7 @@ describe('Inbound attachments (integration, Meta and OpenAI mocked)', () => {
       provider: { respond },
       usage: new AiUsageService(prisma),
       limits: new AiLimitsService(prisma, config),
-      catalog: buildCatalogService(prisma, config),
+      modules: new BusinessModulesService(buildCatalogService(prisma, config)),
       prisma,
       content: new ContentService(),
       config,

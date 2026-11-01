@@ -1,0 +1,274 @@
+{
+  "commercial": [
+    {
+      "description": "Guarda datos del prospecto que el usuario dio en la conversación. Pasá solo los datos nuevos o corregidos y null en el resto. Nunca inventes datos.",
+      "name": "save_lead",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "business_name": {
+            "description": "Negocio. (máx. 200 caracteres).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "demo_feedback": {
+            "description": "Qué le pareció la demo (solo si la probó). (máx. 200 caracteres).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "industry": {
+            "description": "Rubro. (máx. 200 caracteres).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "name": {
+            "description": "Nombre. (máx. 200 caracteres).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "need": {
+            "description": "Necesidad. (máx. 200 caracteres).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "name",
+          "business_name",
+          "industry",
+          "need",
+          "demo_feedback",
+        ],
+        "type": "object",
+      },
+    },
+    {
+      "description": "Pasa la conversación a una persona del equipo y pausa el asistente. Usala si el usuario pide hablar con una persona, si la consulta no se puede resolver acá, o cuando eligió qué contratar o comprar y ya diste los datos obligatorios, para que el equipo cierre la venta.",
+      "name": "request_handoff",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Motivo breve de la derivación (máx. 200).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "reason",
+        ],
+        "type": "object",
+      },
+    },
+    {
+      "description": "Muestra de 1 a 3 opciones como botones debajo de tu respuesta (por ejemplo, los planes, o "🧪 Probar la demo"). Usala cuando le propongas elegir entre opciones concretas, en lugar de preguntar cuál prefiere o pedirle que escriba algo. Cada opción, de 20 caracteres como máximo. Igual escribí tu respuesta en texto.",
+      "name": "offer_options",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "options": {
+            "description": "De 1 a 3 opciones, cada una de 20 caracteres como máximo.",
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+        },
+        "required": [
+          "options",
+        ],
+        "type": "object",
+      },
+    },
+  ],
+  "demo": [
+    {
+      "description": "Deja lista la consulta FICTICIA de la demo para un asesor y pasa la conversación al equipo. Llamala solo cuando el usuario eligió un plan y te dio su nombre, con todos los datos del auto confirmados. No es una póliza ni un pago.",
+      "name": "register_demo_request",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "contactPreference": {
+            "description": "Cómo y cuándo prefiere que lo contacte el asesor, si lo dijo.",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "customerName": {
+            "description": "Nombre del cliente (máx. 100 caracteres).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "gnc": {
+            "description": "true si tiene GNC.",
+            "type": [
+              "boolean",
+              "null",
+            ],
+          },
+          "location": {
+            "description": "Localidad o código postal, como lo dijo.",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "model": {
+            "description": "Modelo del auto, por ejemplo "Gol Trend".",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "plan": {
+            "description": "Nombre exacto del plan que eligió.",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "priority": {
+            "description": "Qué busca: pagar menos, mejor cobertura o comparar.",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "version": {
+            "description": "Versión del auto, una de las de la tabla.",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "year": {
+            "description": "Año del modelo.",
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "zone": {
+            "description": "Zona de la tabla: CABA, GBA o Interior.",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "customerName",
+          "model",
+          "version",
+          "year",
+          "location",
+          "zone",
+          "gnc",
+          "priority",
+          "plan",
+          "contactPreference",
+        ],
+        "type": "object",
+      },
+    },
+    {
+      "description": "Calcula la cotización SIMULADA de la demo para un auto: devuelve los planes disponibles con su precio mensual y franquicia. Es la única fuente de precios: llamala de nuevo si cambia el auto, el año, la zona o el GNC.",
+      "name": "quote_insurance",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "gnc": {
+            "description": "true si el auto tiene GNC.",
+            "type": [
+              "boolean",
+              "null",
+            ],
+          },
+          "model": {
+            "description": "Modelo del auto, por ejemplo "Gol Trend".",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "year": {
+            "description": "Año del modelo, por ejemplo 2018.",
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "zone": {
+            "description": "Zona de la tabla donde vive el usuario (CABA, GBA o Interior), deducida de su localidad.",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "model",
+          "year",
+          "zone",
+          "gnc",
+        ],
+        "type": "object",
+      },
+    },
+    {
+      "description": "Pasa la conversación a una persona del equipo y pausa el asistente. Usala si el usuario pide hablar con una persona, si la consulta no se puede resolver acá, o cuando eligió qué contratar o comprar y ya diste los datos obligatorios, para que el equipo cierre la venta.",
+      "name": "request_handoff",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Motivo breve de la derivación (máx. 200).",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "reason",
+        ],
+        "type": "object",
+      },
+    },
+    {
+      "description": "Muestra de 1 a 3 opciones como botones debajo de tu respuesta (por ejemplo, los planes, o "🧪 Probar la demo"). Usala cuando le propongas elegir entre opciones concretas, en lugar de preguntar cuál prefiere o pedirle que escriba algo. Cada opción, de 20 caracteres como máximo. Igual escribí tu respuesta en texto.",
+      "name": "offer_options",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "options": {
+            "description": "De 1 a 3 opciones, cada una de 20 caracteres como máximo.",
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+        },
+        "required": [
+          "options",
+        ],
+        "type": "object",
+      },
+    },
+  ],
+}

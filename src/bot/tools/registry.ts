@@ -9,8 +9,8 @@ import type { DemoContent } from '../../content/content.schema.js';
 import { offerOptionsTool } from './offer-options.tool.js';
 import { saveLeadToolFor } from './save-lead.tool.js';
 import { searchCatalogTool } from './search-catalog.tool.js';
+import { moduleAllows, type BusinessModules } from '../modules.js';
 import type {
-  CatalogReader,
   PlannedEffect,
   ReadToolHandler,
   ToolContext,
@@ -50,8 +50,8 @@ export interface ToolOptions {
   leadFields: readonly LeadField[];
   /** The fictitious business of the active demo (DEMO mode only). */
   demo?: DemoContent;
-  /** Set only when the business has an available catalog item. */
-  catalog?: CatalogReader;
+  /** The business's modules (BusinessModulesService); absent: none. */
+  modules?: BusinessModules;
 }
 
 /** The handler of `name` for this business (save_lead is generated). */
@@ -73,12 +73,12 @@ const INSURANCE_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
 /** Tools allowed in `mode` for this business (and active demo). */
 function offeredTools(
   mode: ConversationMode,
-  { demoEnabled, leadFields, demo, catalog }: ToolOptions,
+  { demoEnabled, leadFields, demo, modules = {} }: ToolOptions,
 ): readonly ToolName[] {
   return MODE_PROFILES[mode].allowedTools.filter(
     (name) =>
+      moduleAllows(name, modules) &&
       (demoEnabled || name !== 'register_demo_request') &&
-      (catalog !== undefined || name !== 'search_catalog') &&
       (leadFields.length > 0 || name !== 'save_lead') &&
       (demo?.scenario === 'insurance' || !INSURANCE_TOOLS.has(name)),
   );

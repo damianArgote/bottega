@@ -1,3 +1,4 @@
+import { BusinessModulesService } from '../../src/bot/business-modules.service.js';
 import { Logger } from '@nestjs/common';
 import { QueueSignal } from '../../src/queue/queue-signal.js';
 import {
@@ -126,7 +127,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       provider: { respond },
       usage: new AiUsageService(prisma),
       limits: new AiLimitsService(prisma, aiConfig),
-      catalog: buildCatalogService(prisma, aiConfig),
+      modules: new BusinessModulesService(buildCatalogService(prisma, aiConfig)),
       prisma,
       content,
       config: aiConfig,

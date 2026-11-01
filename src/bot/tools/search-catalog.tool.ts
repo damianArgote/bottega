@@ -43,8 +43,9 @@ export const searchCatalogTool: ReadToolHandler<SearchArgs> = {
   }),
   schema,
   async read(args, ctx) {
-    const items = ctx.catalog
-      ? await ctx.catalog.search({
+    const catalog = ctx.modules?.catalog;
+    const items = catalog
+      ? await catalog.search({
           query: args.query,
           category: args.category,
           maxPrice: args.max_price,

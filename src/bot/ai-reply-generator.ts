@@ -16,7 +16,6 @@ import {
   type AgentProfile,
   loadAgentProfile,
 } from '../agents/agent-profile.js';
-import type { CatalogService } from '../catalog/catalog.service.js';
 import type { AppConfigService } from '../config/app-config.service.js';
 import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
@@ -49,6 +48,8 @@ import type {
 } from './reply-generator.js';
 import { leadValuesOf } from '../leads/lead-values.js';
 import { isOpenAt, localDay } from '../agents/opening-hours.js';
+import type { BusinessModulesService } from './business-modules.service.js';
+import { hasModule, type BusinessModules } from './modules.js';
 import type { PlannedEffect } from './tools/tool.js';
 import { isToolName, toolDefinitionsFor } from './tools/registry.js';
 
@@ -72,7 +73,7 @@ export interface AiReplyGeneratorDeps {
   provider: AiProvider;
   usage: AiUsageService;
   limits: AiLimitsService;
-  catalog: CatalogService;
+  modules: BusinessModulesService;
   prisma: PrismaService;
   content: ContentService;
   config: AppConfigService;
@@ -95,8 +96,9 @@ export interface AiReplyGeneratorDeps {
  *    call is made: a LIMITED usage row is recorded and a fixed reply is
  *    returned.
  * 2. Builds the mode's instructions from the business's agent profile (its
- *    model, or OPENAI_MODEL) and the history of the active context. In
- *    commercial mode, a business with available catalog items also gets
+ *    model, or OPENAI_MODEL) and the history of the active context. The
+ *    tools follow the business's modules (BusinessModulesService): e.g. in
+ *    commercial mode a business with available catalog items also gets
  *    search_catalog (a read-only tool that queries during the loop).
  * 3. Runs up to {@link AI_MAX_MODEL_ROUNDS} model calls. Tool calls are
  *    validated and planned in memory (registry) and their results fed back;
@@ -228,20 +230,16 @@ export class AiReplyGenerator implements ReplyGenerator {
       currentItem(input),
     ];
     const demo = await this.demoOf(input);
-    // The catalog belongs to the business: never inside the fictitious demo.
-    const catalog =
-      input.mode === ConversationMode.COMMERCIAL
-        ? await this.deps.catalog.readerFor(businessId)
-        : undefined;
+    const modules = await this.deps.modules.forBusiness(businessId, input.mode);
     const toolOptions = {
       demoEnabled: profile.demoEnabled,
       leadFields: profile.leadFields,
       ...(demo ? { demo } : {}),
-      ...(catalog ? { catalog } : {}),
+      modules,
     };
     const request = {
       model: turn.model,
-      instructions: await this.instructions(input, profile, demo, !!catalog),
+      instructions: await this.instructions(input, profile, demo, modules),
       tools: toolDefinitionsFor(input.mode, toolOptions),
       maxOutputTokens: config.get('OPENAI_MAX_OUTPUT_TOKENS'),
     };
@@ -417,7 +415,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     input: ReplyInput,
     profile: AgentProfile,
     demo: DemoContent | undefined,
-    catalog: boolean,
+    modules: BusinessModules,
   ): Promise<string> {
     const { prisma } = this.deps;
     if (demo) {
@@ -428,7 +426,7 @@ export class AiReplyGenerator implements ReplyGenerator {
       where: { conversationId: input.conversationId },
     });
     return buildCommercialInstructions(profile, leadValuesOf(lead), {
-      catalog,
+      catalog: hasModule(modules, 'catalog'),
     });
   }
 

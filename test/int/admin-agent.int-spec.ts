@@ -1,3 +1,4 @@
+import { BusinessModulesService } from '../../src/bot/business-modules.service.js';
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import {
   AiProviderError,
@@ -68,7 +69,7 @@ describe('Admin agent profile and preview (integration)', () => {
       prisma,
       { respond },
       config,
-      buildCatalogService(prisma, config),
+      new BusinessModulesService(buildCatalogService(prisma, config)),
     );
   });
 

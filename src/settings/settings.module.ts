@@ -1,3 +1,4 @@
+import { BusinessModulesService } from '../bot/business-modules.service.js';
 import { Module } from '@nestjs/common';
 import { AgentsService } from '../agents/agents.service.js';
 import { AiModule } from '../ai/ai.module.js';
@@ -41,6 +42,7 @@ import {
   providers: [
     AgentsService,
     AgentPreviewService,
+    BusinessModulesService,
     LeadsQueryService,
     BusinessAccessGuard,
     {
