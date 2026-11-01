@@ -28,10 +28,27 @@ export type AgentTurnOutcome =
     }
   /** A handoff was planned: the fixed handoff reply replaces model text. */
   | { kind: 'handoff'; effects: PlannedEffect[]; calls: ToolCallTrace[] }
-  /** A model call gave no response (the caller already handled why). */
-  | { kind: 'no_response'; calls: ToolCallTrace[] }
+  /**
+   * A business action failed: the turn stops at once and the bot answers
+   * ACTION_FAILED_REPLY (the model never answers about it).
+   */
+  | {
+      kind: 'action_failed';
+      effects: PlannedEffect[];
+      calls: ToolCallTrace[];
+    }
+  /**
+   * A model call gave no response (the caller already handled why).
+   * `effects`: what was planned before (only business actions' texts are
+   * still sent: their call already happened).
+   */
+  | { kind: 'no_response'; effects: PlannedEffect[]; calls: ToolCallTrace[] }
   /** Still calling tools after {@link AI_MAX_MODEL_ROUNDS} calls. */
-  | { kind: 'rounds_exceeded'; calls: ToolCallTrace[] };
+  | {
+      kind: 'rounds_exceeded';
+      effects: PlannedEffect[];
+      calls: ToolCallTrace[];
+    };
 
 /**
  * One inbound turn against the model: up to {@link AI_MAX_MODEL_ROUNDS}
@@ -63,7 +80,7 @@ export async function runAgentTurn(
       ...(round === AI_MAX_MODEL_ROUNDS ? { toolChoice: 'none' as const } : {}),
     });
     if (!response) {
-      return { kind: 'no_response', calls };
+      return { kind: 'no_response', effects, calls };
     }
     if (response.toolCalls.length === 0) {
       return { kind: 'text', text: response.outputText, effects, calls };
@@ -90,13 +107,16 @@ export async function runAgentTurn(
         }
       } else {
         onRejected?.(trace);
+        if (result.stop) {
+          return { kind: 'action_failed', effects, calls };
+        }
       }
     }
     if (effects.some(handsOff)) {
       return { kind: 'handoff', effects, calls };
     }
   }
-  return { kind: 'rounds_exceeded', calls };
+  return { kind: 'rounds_exceeded', effects, calls };
 }
 
 /** request_handoff, or a demo request that closes with a handoff. */
@@ -116,6 +136,13 @@ export function demoRequestReplies(
     effect.kind === 'register_demo_request'
       ? [insuranceRequestSummary(effect.request, names.demoBusinessName)]
       : [],
+  );
+}
+
+/** Business actions' fixed texts of this turn, in order (sent as is). */
+export function actionReplies(effects: readonly PlannedEffect[]): string[] {
+  return effects.flatMap((effect) =>
+    effect.kind === 'action_reply' ? [effect.text] : [],
   );
 }
 

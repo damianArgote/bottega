@@ -12,6 +12,7 @@ import type {
   CatalogSearchQuery,
 } from '../../catalog/catalog.service.js';
 import type { ToolName } from '../mode-profiles.js';
+import type { BusinessModules } from '../modules.js';
 
 /**
  * A validated tool call turned into a change to apply later, inside the
@@ -34,7 +35,9 @@ export type PlannedEffect =
   /** Not a tool: the generator added the out-of-hours notice on `day`. */
   | { kind: 'out_of_hours_notice'; day: string }
   /** Not a tool: the business reached its monthly AI cap (hands off). */
-  | { kind: 'ai_monthly_cap_handoff' };
+  | { kind: 'ai_monthly_cap_handoff' }
+  /** A business action's fixed text, sent as is; nothing to apply. */
+  | { kind: 'action_reply'; text: string };
 
 /** What a tool may read while planning. */
 export interface ToolContext {
@@ -48,10 +51,10 @@ export interface ToolContext {
   /** The business's lead fields: save_lead is generated from them. */
   leadFields: readonly LeadField[];
   /**
-   * The business's catalog, when it has an available item: search_catalog
-   * is offered only then (COMMERCIAL mode).
+   * The business's modules (catalog: search_catalog is offered only then,
+   * in COMMERCIAL mode). Absent: none.
    */
-  catalog?: CatalogReader;
+  modules?: BusinessModules;
 }
 
 /** Read-only search over one business's catalog (search_catalog). */

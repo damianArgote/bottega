@@ -89,6 +89,9 @@ enum JobType {
   INBOUND_MESSAGE
   /// Web Push to the inbox people; runs outside the conversation's order.
   PUSH_NOTIFICATION
+  /// One signed event to one webhook subscription (src/integrations); runs
+  /// outside the conversation's order.
+  WEBHOOK_DELIVERY
 
   @@map("job_type")
 }
@@ -160,6 +163,12 @@ model Business {
   /// Attachments processed per conversation per day; null uses
   /// MEDIA_MAX_PER_CONVERSATION_PER_DAY.
   mediaDailyCapPerConversation Int?      @map("media_daily_cap_per_conversation")
+  /// When the message templates are due for the daily sync (claimed by the
+  /// worker, then moved ahead); null: never synced, due now.
+  templatesSyncNextAt          DateTime? @map("templates_sync_next_at")
+  /// Last template sync attempt and its error code (null when it worked).
+  templatesSyncedAt            DateTime? @map("templates_synced_at")
+  templatesSyncError           String?   @map("templates_sync_error")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
@@ -172,6 +181,11 @@ model Business {
   catalogItems         CatalogItem[]
   catalogImports       CatalogImport[]
   catalogAiUsage       CatalogAiUsage[]
+  templates            Template[]
+  webhookSubscriptions WebhookSubscription[]
+  integrationKeys      IntegrationKey[]
+  agentActions         AgentAction[]
+  agentActionCalls     AgentActionCall[]
 
   @@map("business")
 }
@@ -479,6 +493,8 @@ model ProcessingJob {
   pushReason     PushReason? @map("push_reason")
   /// The message a push shows; null for a handoff.
   pushMessageId  String?     @map("push_message_id") @db.Uuid
+  /// Set only for WEBHOOK_DELIVERY jobs.
+  deliveryId     String?     @unique @map("delivery_id") @db.Uuid
   status         JobStatus   @default(PENDING)
   attempts       Int         @default(0)
   maxAttempts    Int         @map("max_attempts")
@@ -489,9 +505,10 @@ model ProcessingJob {
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message      Message?     @relation("JobMessage", fields: [messageId], references: [id], onDelete: Cascade)
-  pushMessage  Message?     @relation("PushMessage", fields: [pushMessageId], references: [id], onDelete: Cascade)
+  conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message?         @relation("JobMessage", fields: [messageId], references: [id], onDelete: Cascade)
+  pushMessage  Message?         @relation("PushMessage", fields: [pushMessageId], references: [id], onDelete: Cascade)
+  delivery     WebhookDelivery? @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
 
   @@index([status, runAfter])
   @@index([conversationId, createdAt])
@@ -749,4 +766,177 @@ model CatalogAiUsage {
 
   @@index([businessId, day])
   @@map("catalog_ai_usage")
+}
+
+/// A WhatsApp message template, copied from Meta (src/templates). Created
+/// and approved in Meta; Bottega only reads them. One that Meta no longer
+/// returns keeps its row with deletedAt set.
+model Template {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  wabaId     String    @map("waba_id")
+  /// Meta's template id.
+  metaId     String    @map("meta_id")
+  name       String
+  /// Language code, e.g. "es_AR".
+  language   String
+  /// MARKETING, UTILITY or AUTHENTICATION.
+  category   String
+  /// Meta's status: APPROVED, PENDING, REJECTED, PAUSED, DISABLED...
+  status     String
+  /// Meta's components (HEADER, BODY, FOOTER, BUTTONS) as returned.
+  components Json
+  deletedAt  DateTime? @map("deleted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, wabaId, name, language])
+  @@map("template")
+}
+
+/// Where a business receives signed events (n8n or its own system).
+model WebhookSubscription {
+  id              String    @id @default(uuid()) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  /// https only.
+  url             String
+  /// HMAC-SHA256 secret, encrypted with TOKEN_ENCRYPTION_KEY; shown once.
+  secretEncrypted String    @map("secret_encrypted")
+  /// Event types it receives, e.g. ["lead.updated"].
+  events          String[]
+  active          Boolean   @default(true)
+  lastSuccessAt   DateTime? @map("last_success_at")
+  /// Last failed attempt and why (http_500, timeout, network_error...).
+  lastErrorAt     DateTime? @map("last_error_at")
+  lastError       String?   @map("last_error")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([businessId])
+  @@map("webhook_subscription")
+}
+
+/// One event for one subscription; its WEBHOOK_DELIVERY job sends it.
+model WebhookDelivery {
+  id             String    @id @default(uuid()) @db.Uuid
+  subscriptionId String    @map("subscription_id") @db.Uuid
+  /// Shared by every delivery of the same event (X-Bottega-Event-Id).
+  eventId        String    @map("event_id") @db.Uuid
+  event          String
+  /// The JSON body sent (ids and the data needed, never chat history).
+  payload        Json
+  /// Last HTTP status received; null before an answer.
+  responseStatus Int?      @map("response_status")
+  lastError      String?   @map("last_error")
+  deliveredAt    DateTime? @map("delivered_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  job          ProcessingJob?
+
+  @@index([subscriptionId, createdAt])
+  @@map("webhook_delivery")
+}
+
+/// A key for the read-only integrations API (/integrations/v1) of one
+/// business. Only its SHA-256 is stored; the key is shown once.
+model IntegrationKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  name       String
+  keyHash    String    @unique @map("key_hash")
+  /// First characters of the key, to recognize it in a list.
+  prefix     String
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("integration_key")
+}
+
+/// What a business action does: QUERY returns data for the reply; EFFECT
+/// changes something in the business's system (called at most once per key).
+enum AgentActionKind {
+  QUERY
+  EFFECT
+
+  @@map("agent_action_kind")
+}
+
+/// A tool the business adds to its agent, resolved by n8n or its own
+/// service (prompt 07b). Only staff and the admin API create them.
+model AgentAction {
+  id              String          @id @default(uuid()) @db.Uuid
+  businessId      String          @map("business_id") @db.Uuid
+  /// snake_case, unique per business; the tool name the model sees.
+  name            String
+  /// For the model: information from the business, never instructions.
+  description     String
+  /// The arguments (a JSON Schema subset; see action-parameters.ts).
+  parameters      Json
+  /// https only; never called on a non-public address.
+  url             String
+  /// HMAC-SHA256 secret, encrypted with TOKEN_ENCRYPTION_KEY; shown once.
+  secretEncrypted String          @map("secret_encrypted")
+  kind            AgentActionKind
+  /// Up to 10 s.
+  timeoutMs       Int             @default(5000) @map("timeout_ms")
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  calls    AgentActionCall[]
+
+  @@unique([businessId, name])
+  @@map("agent_action")
+}
+
+enum AgentActionCallStatus {
+  /// Sent and not answered yet (or the worker died meanwhile).
+  PENDING
+  SUCCEEDED
+  FAILED
+
+  @@map("agent_action_call_status")
+}
+
+/// One call to a business action. For EFFECT actions the unique key (per
+/// business; it carries the action name) is what keeps a retried job from
+/// calling it again; `result` (the parsed answer) is replayed instead, only
+/// for the same arguments. Never stores the arguments, only their hash. It
+/// outlives its action, so a re-created action never repeats a key.
+model AgentActionCall {
+  id             String                @id @default(uuid()) @db.Uuid
+  businessId     String                @map("business_id") @db.Uuid
+  /// Null once the action is deleted (the history stays).
+  actionId       String?               @map("action_id") @db.Uuid
+  conversationId String?               @map("conversation_id") @db.Uuid
+  idempotencyKey String                @map("idempotency_key")
+  /// SHA-256 of the validated arguments: a retry with others never replays.
+  argumentsHash  String?               @map("arguments_hash")
+  status         AgentActionCallStatus @default(PENDING)
+  /// Static failure label (http_500, timeout, invalid_response...).
+  error          String?
+  responseStatus Int?                  @map("response_status")
+  /// `{ reply?, data? }` of a successful EFFECT call (replayed on retries).
+  result         Json?
+  createdAt      DateTime              @default(now()) @map("created_at")
+  finishedAt     DateTime?             @map("finished_at")
+
+  business Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  action   AgentAction? @relation(fields: [actionId], references: [id], onDelete: SetNull)
+
+  @@unique([actionId, idempotencyKey])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, createdAt])
+  @@map("agent_action_call")
 }

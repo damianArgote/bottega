@@ -300,6 +300,7 @@ describe('Web Push jobs (integration)', () => {
         messageId: null,
         pushMessageId: job.pushMessageId,
         pushReason: job.pushReason!,
+        deliveryId: null,
         attempts: job.attempts,
         maxAttempts: job.maxAttempts,
         lockedBy: 'w1',

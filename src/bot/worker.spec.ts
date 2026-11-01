@@ -22,6 +22,7 @@ const job = (id: string): ClaimedJob => ({
   createdAt: new Date(0),
   pushReason: null,
   pushMessageId: null,
+  deliveryId: null,
 });
 
 const pushJob: PushJob = {
@@ -30,6 +31,7 @@ const pushJob: PushJob = {
   conversationId: 'c1',
   messageId: null,
   pushReason: 'HANDOFF',
+  deliveryId: null,
   pushMessageId: null,
   attempts: 1,
   maxAttempts: 3,

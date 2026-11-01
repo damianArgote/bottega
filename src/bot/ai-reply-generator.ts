@@ -16,17 +16,18 @@ import {
   type AgentProfile,
   loadAgentProfile,
 } from '../agents/agent-profile.js';
-import type { CatalogService } from '../catalog/catalog.service.js';
 import type { AppConfigService } from '../config/app-config.service.js';
 import type { ContentService } from '../content/content.service.js';
 import { AiOutcome, ConversationMode } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import {
+  ACTION_FAILED_REPLY,
   AI_FALLBACK_REPLY,
   AI_LIMIT_REPLY,
   AI_MONTHLY_CAP_REPLY,
 } from './ai-replies.js';
 import {
+  actionReplies,
   demoRequestReplies,
   finalReply,
   offeredButtons,
@@ -49,11 +50,17 @@ import type {
 } from './reply-generator.js';
 import { leadValuesOf } from '../leads/lead-values.js';
 import { isOpenAt, localDay } from '../agents/opening-hours.js';
+import type { BusinessModulesService } from './business-modules.service.js';
+import { hasModule, type BusinessModules } from './modules.js';
 import type { PlannedEffect } from './tools/tool.js';
 import { isToolName, toolDefinitionsFor } from './tools/registry.js';
 
-const fallback = (): GeneratedReply => ({
-  replies: [AI_FALLBACK_REPLY],
+/**
+ * The controlled fallback, with no effects applied. Business actions' texts
+ * planned before go first: their call already happened.
+ */
+const fallback = (planned: readonly PlannedEffect[] = []): GeneratedReply => ({
+  replies: [...actionReplies(planned), AI_FALLBACK_REPLY],
   effects: [],
 });
 
@@ -72,7 +79,7 @@ export interface AiReplyGeneratorDeps {
   provider: AiProvider;
   usage: AiUsageService;
   limits: AiLimitsService;
-  catalog: CatalogService;
+  modules: BusinessModulesService;
   prisma: PrismaService;
   content: ContentService;
   config: AppConfigService;
@@ -95,8 +102,9 @@ export interface AiReplyGeneratorDeps {
  *    call is made: a LIMITED usage row is recorded and a fixed reply is
  *    returned.
  * 2. Builds the mode's instructions from the business's agent profile (its
- *    model, or OPENAI_MODEL) and the history of the active context. In
- *    commercial mode, a business with available catalog items also gets
+ *    model, or OPENAI_MODEL) and the history of the active context. The
+ *    tools follow the business's modules (BusinessModulesService): e.g. in
+ *    commercial mode a business with available catalog items also gets
  *    search_catalog (a read-only tool that queries during the loop).
  * 3. Runs up to {@link AI_MAX_MODEL_ROUNDS} model calls. Tool calls are
  *    validated and planned in memory (registry) and their results fed back;
@@ -228,20 +236,20 @@ export class AiReplyGenerator implements ReplyGenerator {
       currentItem(input),
     ];
     const demo = await this.demoOf(input);
-    // The catalog belongs to the business: never inside the fictitious demo.
-    const catalog =
-      input.mode === ConversationMode.COMMERCIAL
-        ? await this.deps.catalog.readerFor(businessId)
-        : undefined;
+    const modules = await this.deps.modules.forBusiness(businessId, input.mode, {
+      conversationId: input.conversationId,
+      messageId: input.message.id,
+    });
+    const actionNames = new Set(modules.actions?.tools.map((t) => t.name));
     const toolOptions = {
       demoEnabled: profile.demoEnabled,
       leadFields: profile.leadFields,
       ...(demo ? { demo } : {}),
-      ...(catalog ? { catalog } : {}),
+      modules,
     };
     const request = {
       model: turn.model,
-      instructions: await this.instructions(input, profile, demo, !!catalog),
+      instructions: await this.instructions(input, profile, demo, modules),
       tools: toolDefinitionsFor(input.mode, toolOptions),
       maxOutputTokens: config.get('OPENAI_MAX_OUTPUT_TOKENS'),
     };
@@ -257,7 +265,11 @@ export class AiReplyGenerator implements ReplyGenerator {
       },
       (r) => this.call(turn, r),
       (rejected) => {
-        const tool = isToolName(rejected.name) ? rejected.name : 'unknown';
+        const tool = isToolName(rejected.name)
+          ? rejected.name
+          : actionNames.has(rejected.name)
+            ? `action:${rejected.name}`
+            : 'unknown';
         this.logger.warn(
           `Tool call rejected conversation=${input.conversationId} tool=${tool} reason=${rejected.reason}`,
         );
@@ -265,23 +277,37 @@ export class AiReplyGenerator implements ReplyGenerator {
     );
     switch (outcome.kind) {
       case 'no_response':
-        return fallback();
+        return fallback(outcome.effects);
       case 'rounds_exceeded':
         this.logger.warn(
           `AI turn exceeded ${AI_MAX_MODEL_ROUNDS} rounds conversation=${input.conversationId}`,
         );
-        return fallback();
+        return fallback(outcome.effects);
+      case 'action_failed':
+        // Never a made-up result: what the business already said, then the
+        // fixed text that offers a person.
+        return {
+          replies: [...actionReplies(outcome.effects), ACTION_FAILED_REPLY],
+          effects: outcome.effects,
+        };
       case 'handoff':
         // The handoff transition supplies the fixed confirmation reply,
         // after the demo request's summary (the insurance demo's close).
         return {
-          replies: demoRequestReplies(outcome.effects, names),
+          replies: [
+            ...actionReplies(outcome.effects),
+            ...demoRequestReplies(outcome.effects, names),
+          ],
           effects: outcome.effects,
         };
       case 'text': {
+        // The business's own texts go first, as they came.
+        const fixed = actionReplies(outcome.effects);
         const reply = finalReply(outcome.text, outcome.effects, names);
         if (!reply) {
-          return fallback();
+          return fixed.length > 0
+            ? { replies: fixed, effects: outcome.effects }
+            : fallback();
         }
         const notice = await this.outOfHoursNotice(input, profile);
         // Inside the demo every reply can leave it with a tap.
@@ -291,7 +317,7 @@ export class AiReplyGenerator implements ReplyGenerator {
             ? [EXIT_DEMO_BUTTON]
             : undefined);
         return {
-          replies: [notice ? `${reply}\n\n${notice.text}` : reply],
+          replies: [...fixed, notice ? `${reply}\n\n${notice.text}` : reply],
           effects: notice
             ? [...outcome.effects, notice.effect]
             : outcome.effects,
@@ -417,7 +443,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     input: ReplyInput,
     profile: AgentProfile,
     demo: DemoContent | undefined,
-    catalog: boolean,
+    modules: BusinessModules,
   ): Promise<string> {
     const { prisma } = this.deps;
     if (demo) {
@@ -428,7 +454,8 @@ export class AiReplyGenerator implements ReplyGenerator {
       where: { conversationId: input.conversationId },
     });
     return buildCommercialInstructions(profile, leadValuesOf(lead), {
-      catalog,
+      catalog: hasModule(modules, 'catalog'),
+      actions: hasModule(modules, 'actions'),
     });
   }
 

@@ -2,7 +2,7 @@ import type { GraphClientOptions } from './graph-whatsapp.client.js';
 
 /** A Graph error, or a request that never got an answer (`network_error`). */
 export interface GraphFailure {
-  code: number | 'network_error';
+  code: number | 'network_error' | 'too_many_pages' | 'bad_paging';
   subcode: number | null;
   httpStatus: number | null;
   message: string;
@@ -24,6 +24,21 @@ export interface PhoneNumberInfo {
   nameStatus: string | null;
   qualityRating: string | null;
 }
+
+/** A message template as Meta returns it (components kept raw). */
+export interface MetaTemplate {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+  components: unknown[];
+}
+
+/** Pages followed at most (100 templates each); Meta allows far fewer. */
+const MAX_TEMPLATE_PAGES = 50;
+
+const TEMPLATE_FIELDS = 'id,name,language,category,status,components';
 
 export interface SubscribedApp {
   id: string;
@@ -52,10 +67,10 @@ function phoneNumber(raw: Json): PhoneNumberInfo {
 }
 
 /**
- * The Graph calls used to onboard a line: check credentials, list and
- * register numbers, read the app subscriptions and a number's state. Never
- * throws and never logs: the token, the app secret and the PIN only travel
- * in the request to Meta.
+ * The Graph calls that manage a business's account: check credentials, list
+ * and register numbers, read the app subscriptions and a number's state,
+ * list message templates. Never throws and never logs: the token, the app
+ * secret and the PIN only travel in the request to Meta.
  */
 export class GraphOnboardingClient {
   private readonly baseUrl: string;
@@ -159,15 +174,86 @@ export class GraphOnboardingClient {
     };
   }
 
-  private async request(
+  /**
+   * Every message template of a WhatsApp Business account
+   * (`GET /{waba-id}/message_templates`), following `paging.next`. Fails as a
+   * whole when any page fails, so a partial list is never taken for the
+   * full one. A `next` link outside the Graph API's origin is not followed
+   * (the token only goes to Meta); one with another API version is.
+   */
+  async messageTemplates(
+    wabaId: string,
+    token: string,
+  ): Promise<GraphResult<MetaTemplate[]>> {
+    const templates: MetaTemplate[] = [];
+    let url: string | null =
+      `${this.baseUrl}/${wabaId}/message_templates?fields=${TEMPLATE_FIELDS}&limit=100`;
+    for (let page = 0; url; page += 1) {
+      if (page >= MAX_TEMPLATE_PAGES) {
+        return failure('too_many_pages', 'template list has too many pages');
+      }
+      const result = await this.requestUrl('GET', url, token);
+      if (!result.ok) {
+        return result;
+      }
+      const data = Array.isArray(result.data['data'])
+        ? (result.data['data'] as Json[])
+        : [];
+      for (const raw of data) {
+        const template = metaTemplate(raw);
+        if (template) {
+          templates.push(template);
+        }
+      }
+      const next = (result.data['paging'] as Json | undefined)?.['next'];
+      if (typeof next !== 'string') {
+        url = null;
+      } else if (this.isGraphUrl(next)) {
+        url = next;
+      } else {
+        return failure('bad_paging', 'paging.next is not a Graph API link');
+      }
+    }
+    return { ok: true, data: templates };
+  }
+
+  /**
+   * Same scheme, host and port as the Graph API, without credentials in
+   * the URL: only then the token may go there. The version may differ
+   * (Meta may answer with a newer one).
+   */
+  private isGraphUrl(value: string): boolean {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+    return (
+      url.origin === new URL(this.baseUrl).origin &&
+      url.username === '' &&
+      url.password === ''
+    );
+  }
+
+  private request(
     method: 'GET' | 'POST',
     path: string,
     token: string,
     body?: Json,
   ): Promise<GraphResult<Json>> {
+    return this.requestUrl(method, `${this.baseUrl}/${path}`, token, body);
+  }
+
+  private async requestUrl(
+    method: 'GET' | 'POST',
+    url: string,
+    token: string,
+    body?: Json,
+  ): Promise<GraphResult<Json>> {
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl}/${path}`, {
+      response = await this.fetchImpl(url, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
@@ -217,4 +303,36 @@ export class GraphOnboardingClient {
       },
     };
   }
+}
+
+function failure(
+  code: 'too_many_pages' | 'bad_paging',
+  message: string,
+): { ok: false; error: GraphFailure } {
+  return {
+    ok: false,
+    error: { code, subcode: null, httpStatus: null, message },
+  };
+}
+
+/** A template from Meta's list; null when a required field is missing. */
+function metaTemplate(raw: Json): MetaTemplate | null {
+  const id = raw['id'];
+  const name = str(raw['name']);
+  const language = str(raw['language']);
+  if (
+    (typeof id !== 'string' && typeof id !== 'number') ||
+    !name ||
+    !language
+  ) {
+    return null;
+  }
+  return {
+    id: String(id),
+    name,
+    language,
+    category: str(raw['category']) ?? 'UNKNOWN',
+    status: str(raw['status']) ?? 'UNKNOWN',
+    components: Array.isArray(raw['components']) ? raw['components'] : [],
+  };
 }

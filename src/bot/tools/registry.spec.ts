@@ -107,7 +107,11 @@ describe('tool registry', () => {
 
   it('offers each mode exactly its allowed tools, consistent with allowedModes', () => {
     for (const profile of Object.values(MODE_PROFILES)) {
-      const withDemo = { ...options, demo: insurance, catalog: noCatalog };
+      const withDemo = {
+        ...options,
+        demo: insurance,
+        modules: { catalog: noCatalog },
+      };
       const names = toolDefinitionsFor(profile.mode, withDemo).map(
         (t) => t.name,
       );
@@ -388,7 +392,7 @@ describe('search_catalog', () => {
   const search = vi.fn<CatalogReader['search']>();
   const withCatalog = (mode: ToolContext['mode'] = 'COMMERCIAL') => ({
     ...ctx(mode),
-    catalog: { search },
+    modules: { catalog: { search } },
   });
   const args = { query: ' chocolate  amrgo ', category: null, max_price: 2000 };
 
@@ -403,11 +407,14 @@ describe('search_catalog', () => {
     ) => toolDefinitionsFor(mode, opts).map((t) => t.name);
 
     expect(names(options)).not.toContain('search_catalog');
-    expect(names({ ...options, catalog: noCatalog })).toContain(
+    expect(names({ ...options, modules: { catalog: noCatalog } })).toContain(
       'search_catalog',
     );
     expect(
-      names({ ...options, catalog: noCatalog, demo: insurance }, 'DEMO'),
+      names(
+        { ...options, modules: { catalog: noCatalog }, demo: insurance },
+        'DEMO',
+      ),
     ).not.toContain('search_catalog');
   });
 

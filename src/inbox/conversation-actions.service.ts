@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { BusinessAccess } from '../auth/business-access.guard.js';
 import type { SessionUser } from '../auth/auth.service.js';
+import { enqueueEvent } from '../integrations/events.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   type AttendanceChange,
@@ -18,6 +19,7 @@ import { addSystemMessage } from './system-messages.js';
 
 interface LockedRow {
   id: string;
+  status: string;
   assignedToId: string | null;
   activeContextId: string | null;
   assigneeName: string | null;
@@ -115,10 +117,18 @@ export class ConversationActionsService {
     user: SessionUser,
     conversationId: string,
   ): Promise<AttendanceView> {
-    return this.act(access, conversationId, () => ({
+    return this.act(access, conversationId, (row) => ({
       change: resolve(),
       note: `${user.name} resolvió la conversación`,
       closesHandoffs: true,
+      // Resolving it again sends no second event.
+      event:
+        row.status === 'RESOLVED'
+          ? undefined
+          : {
+              type: 'conversation.resolved' as const,
+              data: { resolvedBy: { id: user.id, name: user.name } },
+            },
     }));
   }
 
@@ -135,11 +145,17 @@ export class ConversationActionsService {
       note: string;
       /** The bot attends again: open handoff requests are done. */
       closesHandoffs?: boolean;
+      /** Enqueued for webhooks with the change (same transaction). */
+      event?: {
+        type: 'conversation.resolved';
+        data: Record<string, unknown>;
+      };
     } | null,
   ): Promise<AttendanceView> {
     return this.prisma.$transaction(async (tx) => {
       const [row] = await tx.$queryRaw<LockedRow[]>`
-        SELECT c.id, c.assigned_to_id AS "assignedToId",
+        SELECT c.id, c.status::text AS status,
+          c.assigned_to_id AS "assignedToId",
           c.active_context_id AS "activeContextId", u.name AS "assigneeName"
         FROM conversation c
         JOIN line l ON l.id = c.line_id
@@ -171,6 +187,13 @@ export class ConversationActionsService {
           author: 'HUMAN',
           text: decision.note,
         });
+        if (decision.event) {
+          await enqueueEvent(tx, {
+            conversationId: row.id,
+            type: decision.event.type,
+            data: decision.event.data,
+          });
+        }
       }
       const view = await tx.conversation.findUniqueOrThrow({
         where: { id: row.id },

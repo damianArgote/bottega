@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { actionParametersSchema } from '../actions/action-parameters.js';
 import type { CommercialTurnResult } from '../bot/commercial-turn.js';
 
 /**
@@ -11,13 +12,41 @@ export const SCENARIOS_DIR = fileURLToPath(
   new URL('../../scenarios/', import.meta.url),
 );
 
-const TOOL_NAMES = [
+const text = z.string().trim().min(1);
+const BUILT_IN_TOOLS = [
   'save_lead',
   'register_demo_request',
+  'quote_insurance',
   'request_handoff',
   'offer_options',
+  'search_catalog',
 ] as const;
-const text = z.string().trim().min(1);
+/** A built-in tool or a scenario action (snake_case). */
+const toolName = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
+
+/**
+ * A business action the scenario offers the agent, with a stubbed answer:
+ * `answer` is what it returns, or "fail" (the call fails). Never called for
+ * real.
+ */
+const actionSchema = z
+  .object({
+    name: toolName,
+    description: text,
+    parameters: actionParametersSchema,
+    kind: z.enum(['query', 'effect']),
+    answer: z.union([
+      z.literal('fail'),
+      z
+        .object({
+          reply: text.optional(),
+          data: z.record(z.string(), z.unknown()).optional(),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+export type ScenarioAction = z.infer<typeof actionSchema>;
 
 const turnSchema = z
   .object({
@@ -27,9 +56,9 @@ const turnSchema = z
     mustInclude: z.array(z.union([text, z.array(text).min(1)])).optional(),
     mustNotInclude: z.array(text).optional(),
     /** Each tool must be called and accepted in this turn. */
-    mustCallTool: z.array(z.enum(TOOL_NAMES)).optional(),
+    mustCallTool: z.array(toolName).optional(),
     /** Each tool must not be called at all (accepted or not). */
-    mustNotCallTool: z.array(z.enum(TOOL_NAMES)).optional(),
+    mustNotCallTool: z.array(toolName).optional(),
     /** No offer_options button in this turn may contain these texts. */
     mustNotOffer: z.array(text).optional(),
     /** Each text must be in an accepted offer_options button of this turn. */
@@ -58,9 +87,32 @@ const scenarioSchema = z
       })
       .strict()
       .optional(),
+    /** Business actions offered in every turn (stubbed answers). */
+    actions: z.array(actionSchema).optional(),
     turns: z.array(turnSchema).min(1),
   })
-  .strict();
+  .strict()
+  .superRefine((scenario, ctx) => {
+    // Tool assertions name a built-in tool or one of the scenario's actions.
+    const known = new Set<string>([
+      ...BUILT_IN_TOOLS,
+      ...(scenario.actions ?? []).map((a) => a.name),
+    ]);
+    scenario.turns.forEach((turn, index) => {
+      for (const tool of [
+        ...(turn.mustCallTool ?? []),
+        ...(turn.mustNotCallTool ?? []),
+      ]) {
+        if (!known.has(tool)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['turns', index],
+            message: `unknown tool ${tool}`,
+          });
+        }
+      }
+    });
+  });
 
 export type Scenario = z.infer<typeof scenarioSchema>;
 

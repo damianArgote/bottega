@@ -11,7 +11,8 @@ import {
   type AiProvider,
 } from '../ai/ai.provider.js';
 import { loadBusinessAgentProfile } from '../agents/agent-profile.js';
-import { CatalogService } from '../catalog/catalog.service.js';
+import { ConversationMode } from '../generated/prisma/client.js';
+import { BusinessModulesService } from './business-modules.service.js';
 import { AppConfigService } from '../config/app-config.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -50,7 +51,7 @@ export class AgentPreviewService {
     private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
     private readonly config: AppConfigService,
-    private readonly catalog: CatalogService,
+    private readonly modules: BusinessModulesService,
   ) {}
 
   async run(
@@ -72,7 +73,10 @@ export class AgentPreviewService {
         defaultModel: this.config.get('OPENAI_MODEL') ?? '',
         maxOutputTokens: this.config.get('OPENAI_MAX_OUTPUT_TOKENS'),
         messages,
-        catalog: await this.catalog.readerFor(businessId),
+        modules: await this.modules.forBusiness(
+          businessId,
+          ConversationMode.COMMERCIAL,
+        ),
         onCall: (response, latencyMs) =>
           this.logger.log(
             JSON.stringify({
