@@ -1094,8 +1094,9 @@ nunca ocupa todos los workers. Un
 (`http_500`, `timeout`, `network_error`). Una suscripción desactivada no
 manda lo pendiente. Antes de cada envío se resuelve el host y, si alguna de
 sus IPs es privada, de loopback, link-local o de metadata, no se llama y la
-entrega falla sin reintentos (`blocked_address`); la conexión va a la IP
-revisada (sin una segunda resolución). Las acciones propias (07b) usan el
+entrega falla sin reintentos (`blocked_address`); la conexión va solo a las
+IPs revisadas (sin una segunda resolución), probando la siguiente si una no
+conecta, y la resolución cuenta dentro del timeout. Las acciones propias (07b) usan el
 mismo envío.
 
 Cada pedido trae `X-Bottega-Event`, `X-Bottega-Event-Id`,
@@ -1208,9 +1209,14 @@ el modelo no sigue (nunca inventa el resultado). Cada llamada queda en
 Una acción `effect` se llama como mucho una vez por clave: la clave sale del
 mensaje entrante, así que si el job se reintenta (por ejemplo, falló el
 modelo después de la acción) la respuesta guardada se repite sin llamar de
-nuevo, y si un intento anterior nunca recibió respuesta (timeout, un worker
-que se cayó) cuenta como falla. Una `query` se vuelve a pedir. En la vista
-previa del agente las acciones se ofrecen pero no se llaman.
+nuevo, solo si el modelo la pide con los mismos argumentos (con otros, es una
+falla: nunca una respuesta vieja ni una segunda llamada). Si un intento
+anterior nunca recibió respuesta (timeout, un worker que se cayó) también
+cuenta como falla. Una `query` se vuelve a pedir. El registro de llamadas
+sobrevive a la acción: borrarla y crearla de nuevo con el mismo nombre no
+repite una clave. Si la acción respondió pero después el modelo no contesta,
+el bot manda igual el `reply` del negocio antes del mensaje de error. En la
+vista previa del agente las acciones se ofrecen pero no se llaman.
 
 ---
 

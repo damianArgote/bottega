@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import {
@@ -73,45 +74,68 @@ export class ActionCallerService {
   ) {}
 
   /**
-   * The bot's call. Each call is recorded by its idempotency key. An EFFECT
-   * action is called at most once per key: when the key was already used
-   * (a retried job), a success is replayed from the record and anything
-   * else (failed, or never answered) counts as failed without calling.
+   * The bot's call. Each call is recorded by its idempotency key, unique per
+   * business (it carries the action name, and the record outlives the
+   * action). An EFFECT action is called at most once per key: when the key
+   * was already used (a retried job), a success with the same arguments is
+   * replayed from the record; other arguments (`arguments_changed`), a
+   * failure or a call never answered (`already_attempted`) count as failed
+   * without calling.
    */
   async call(
     action: CallableAction,
     request: ActionRequest,
   ): Promise<ActionOutcome & { replayed?: true }> {
-    const key = { actionId: action.id, idempotencyKey: request.idempotencyKey };
+    const key = {
+      businessId: action.businessId,
+      idempotencyKey: request.idempotencyKey,
+    };
+    const argumentsHash = hashArguments(request.arguments);
+    let callId: string;
     try {
-      await this.prisma.agentActionCall.create({
-        data: {
-          ...key,
-          businessId: action.businessId,
-          conversationId: request.conversationId,
-        },
-      });
+      callId = (
+        await this.prisma.agentActionCall.create({
+          data: {
+            ...key,
+            actionId: action.id,
+            argumentsHash,
+            conversationId: request.conversationId,
+          },
+          select: { id: true },
+        })
+      ).id;
     } catch (error) {
       if (!isUniqueViolation(error)) {
         throw error;
       }
       const previous = await this.prisma.agentActionCall.findUniqueOrThrow({
-        where: { actionId_idempotencyKey: key },
+        where: { businessId_idempotencyKey: key },
       });
       if (action.kind === AgentActionKind.EFFECT) {
-        return previous.status === AgentActionCallStatus.SUCCEEDED
-          ? {
-              ok: true,
-              result: responseSchema.parse(previous.result ?? {}),
-              status: previous.responseStatus,
-              replayed: true,
-            }
-          : { ok: false, error: 'already_attempted', status: null };
+        // A record from before the hash existed counts as the same call.
+        const sameArguments =
+          previous.argumentsHash === null ||
+          previous.argumentsHash === argumentsHash;
+        if (previous.status !== AgentActionCallStatus.SUCCEEDED) {
+          return { ok: false, error: 'already_attempted', status: null };
+        }
+        if (!sameArguments) {
+          return this.failed(action, 'arguments_changed', null);
+        }
+        return {
+          ok: true,
+          result: responseSchema.parse(previous.result ?? {}),
+          status: previous.responseStatus,
+          replayed: true,
+        };
       }
       // A query only reads: asking again is safe.
+      callId = previous.id;
       await this.prisma.agentActionCall.update({
-        where: { id: previous.id },
+        where: { id: callId },
         data: {
+          actionId: action.id,
+          argumentsHash,
           status: AgentActionCallStatus.PENDING,
           error: null,
           responseStatus: null,
@@ -122,7 +146,7 @@ export class ActionCallerService {
 
     const outcome = await this.send(action, request);
     await this.prisma.agentActionCall.update({
-      where: { actionId_idempotencyKey: key },
+      where: { id: callId },
       data: outcome.ok
         ? {
             status: AgentActionCallStatus.SUCCEEDED,
@@ -228,4 +252,14 @@ function isUniqueViolation(error: unknown): boolean {
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === 'P2002'
   );
+}
+
+/** SHA-256 of the arguments as canonical JSON (keys sorted). */
+export function hashArguments(args: Record<string, unknown>): string {
+  const canonical = JSON.stringify(
+    Object.fromEntries(
+      Object.entries(args).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    ),
+  );
+  return createHash('sha256').update(canonical).digest('hex');
 }

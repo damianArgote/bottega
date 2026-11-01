@@ -909,15 +909,20 @@ enum AgentActionCallStatus {
   @@map("agent_action_call_status")
 }
 
-/// One call to a business action. For EFFECT actions the unique key is what
-/// keeps a retried job from calling it again; `result` (the parsed answer)
-/// is replayed instead. Never stores the arguments.
+/// One call to a business action. For EFFECT actions the unique key (per
+/// business; it carries the action name) is what keeps a retried job from
+/// calling it again; `result` (the parsed answer) is replayed instead, only
+/// for the same arguments. Never stores the arguments, only their hash. It
+/// outlives its action, so a re-created action never repeats a key.
 model AgentActionCall {
   id             String                @id @default(uuid()) @db.Uuid
   businessId     String                @map("business_id") @db.Uuid
-  actionId       String                @map("action_id") @db.Uuid
+  /// Null once the action is deleted (the history stays).
+  actionId       String?               @map("action_id") @db.Uuid
   conversationId String?               @map("conversation_id") @db.Uuid
   idempotencyKey String                @map("idempotency_key")
+  /// SHA-256 of the validated arguments: a retry with others never replays.
+  argumentsHash  String?               @map("arguments_hash")
   status         AgentActionCallStatus @default(PENDING)
   /// Static failure label (http_500, timeout, invalid_response...).
   error          String?
@@ -927,10 +932,11 @@ model AgentActionCall {
   createdAt      DateTime              @default(now()) @map("created_at")
   finishedAt     DateTime?             @map("finished_at")
 
-  business Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  action   AgentAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  business Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  action   AgentAction? @relation(fields: [actionId], references: [id], onDelete: SetNull)
 
   @@unique([actionId, idempotencyKey])
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, createdAt])
   @@map("agent_action_call")
 }

@@ -10,7 +10,10 @@ import {
 } from '../../src/ai/ai.provider.js';
 import { AiLimitsService } from '../../src/ai/ai-limits.service.js';
 import { AiUsageService } from '../../src/ai/ai-usage.service.js';
-import { ACTION_FAILED_REPLY } from '../../src/bot/ai-replies.js';
+import {
+  ACTION_FAILED_REPLY,
+  AI_FALLBACK_REPLY,
+} from '../../src/bot/ai-replies.js';
 import { AiReplyGenerator } from '../../src/bot/ai-reply-generator.js';
 import { BotWorker } from '../../src/bot/worker.js';
 import { ContentService } from '../../src/content/content.service.js';
@@ -360,6 +363,59 @@ describe('Business actions in the bot (integration, mocked model)', () => {
       status: 'FAILED',
       error: 'blocked_address',
     });
+  });
+
+  it('a deleted and re-created action never repeats an effect key of a retried job', async () => {
+    respond
+      .mockResolvedValueOnce(reserve)
+      .mockRejectedValueOnce(new AiProviderError('openai_http_503', true));
+    await say('quiero turno el jueves a las 10');
+    expect(actionFetch).toHaveBeenCalledTimes(1);
+
+    // The team deletes it and creates it again while the job waits.
+    const old = await prisma.agentAction.findFirstOrThrow();
+    await actions.delete(businessId, old.id);
+    await actions.create(businessId, booking);
+    respond
+      .mockResolvedValueOnce(reserve)
+      .mockResolvedValueOnce(text('Listo.'));
+    await makeRunnable();
+    await worker.drain();
+
+    expect(actionFetch).toHaveBeenCalledTimes(1);
+    expect(sent()).toEqual(['Te reservé el jueves a las 10.', 'Listo.']);
+    // The history survives the delete.
+    expect(await prisma.agentActionCall.count()).toBe(1);
+  });
+
+  it('a retried job whose model asks the effect with other arguments gets the fixed text: no stale answer, no second call', async () => {
+    respond
+      .mockResolvedValueOnce(reserve)
+      .mockRejectedValueOnce(new AiProviderError('openai_http_503', true));
+    await say('quiero turno el jueves a las 10');
+
+    respond.mockResolvedValueOnce(
+      tool('reservar_turno', { dia: 'viernes', hora: '11:00' }),
+    );
+    await makeRunnable();
+    await worker.drain();
+
+    expect(actionFetch).toHaveBeenCalledTimes(1);
+    expect(sent()).toEqual([ACTION_FAILED_REPLY]);
+  });
+
+  it("an effect's reply is still sent when the model then gives no answer", async () => {
+    respond
+      .mockResolvedValueOnce(reserve)
+      .mockRejectedValueOnce(new AiProviderError('openai_http_401', false));
+
+    await say('quiero turno el jueves a las 10');
+
+    expect(actionFetch).toHaveBeenCalledTimes(1);
+    expect(sent()).toEqual([
+      'Te reservé el jueves a las 10.',
+      AI_FALLBACK_REPLY,
+    ]);
   });
 
   it('a query action is asked again on a retried job (it only reads)', async () => {
