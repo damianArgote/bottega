@@ -1092,7 +1092,11 @@ nunca ocupa todos los workers. Un
 10 s, error de red) se reintenta hasta 6 intentos en total (5 s · 2^n, unos
 5 minutos entre todos) y queda en `lastError` de la suscripción
 (`http_500`, `timeout`, `network_error`). Una suscripción desactivada no
-manda lo pendiente.
+manda lo pendiente. Antes de cada envío se resuelve el host y, si alguna de
+sus IPs es privada, de loopback, link-local o de metadata, no se llama y la
+entrega falla sin reintentos (`blocked_address`); la conexión va a la IP
+revisada (sin una segunda resolución). Las acciones propias (07b) usan el
+mismo envío.
 
 Cada pedido trae `X-Bottega-Event`, `X-Bottega-Event-Id`,
 `X-Bottega-Delivery` (el mismo en cada reintento), `X-Bottega-Timestamp`
@@ -1143,6 +1147,71 @@ cambio queda en el log con quién lo hizo):
 
 Una suscripción o clave de otro negocio responde `404`.
 
+### Acciones propias
+
+Lo que Bottega no tiene (consultar stock en la tienda del negocio, reservar en
+su Google Calendar, cargar un pedido en su sistema) se hace con una acción:
+una herramienta más del agente que resuelve un flujo de n8n (u otro servicio
+del negocio). Las da de alta el equipo; el dueño las ve en el backoffice
+(`GET /inbox/businesses/<businessId>/settings/actions`) pero no las edita.
+
+| Ruta (`/admin/...` o `/staff/...`, como arriba) | Qué hace |
+| ---- | -------- |
+| `GET .../actions` | Las acciones del negocio. Nunca el secreto. |
+| `POST .../actions` | Body `{ "name", "description", "parameters"?, "url", "kind", "timeoutMs"?, "active"? }`. Devuelve el `secret` (`whsec_...`) **solo esta vez**. `409 ACTION_NAME_TAKEN` si el negocio ya tiene ese nombre. |
+| `PATCH .../actions/<id>` | Body con lo que cambia (no el nombre). |
+| `POST .../actions/<id>/rotate-secret` | Secreto nuevo, solo esta vez. |
+| `POST .../actions/<id>/test` | "Probar": body `{ "arguments": {...} }` (validados con sus parámetros); la llama una vez con `"test": true` y responde `{ ok, status, reply, data }` o `{ ok: false, status, error }`. |
+| `DELETE .../actions/<id>` | La borra. |
+
+- `name`: snake_case, único por negocio, distinto de las herramientas propias
+  del bot (`save_lead`, `search_catalog`, ...). Es el nombre que ve el modelo.
+- `description`: para el modelo; es información del negocio, no instrucciones.
+- `parameters`: `{ "properties": { "<nombre>": {...} }, "required": [...] }`,
+  hasta 8. Cada uno es `{ "type": "string", "maxLength": 1-500 }`,
+  `{ "type": "string", "enum": [...] }`, `{ "type": "number" | "integer",
+  "minimum"?, "maximum"? }` o `{ "type": "boolean" }`, con `description`
+  opcional.
+- `kind`: `query` (devuelve datos para la respuesta) o `effect` (hace algo en
+  el sistema del negocio; se ejecuta como mucho una vez por llamada del
+  agente).
+- `timeoutMs`: de 500 a 10000 (5000 si no se manda).
+
+Cada acción activa es una herramienta del agente (solo en modo comercial;
+nunca en la demo). Los argumentos se validan con sus parámetros antes de
+llamar: si no cumplen, no se llama y el modelo recibe el error. La llamada es
+un `POST` firmado igual que los eventos (`X-Bottega-Timestamp`,
+`X-Bottega-Signature`), más `X-Bottega-Action` y
+`X-Bottega-Idempotency-Key`, con este body:
+
+```json
+{
+  "idempotencyKey": "<id del mensaje entrante>:reservar_turno:1",
+  "action": "reservar_turno",
+  "businessId": "...",
+  "conversationId": "...",
+  "contact": { "waId": "5491100001234", "name": "Juan" },
+  "arguments": { "dia": "jueves", "hora": "10:00" }
+}
+```
+
+La respuesta tiene que ser un `2xx` con JSON `{ "reply"?: string, "data"?:
+object }` (o vacía), de hasta 8 KB y dentro del `timeoutMs`. `data` vuelve al
+modelo como información del negocio (nunca instrucciones); `reply`, si viene
+(hasta 1000 caracteres), el bot lo manda tal cual antes de su respuesta.
+Cualquier otra cosa (otro status, redirección, timeout, JSON inválido, más de
+8 KB, una IP privada) es una falla: el bot contesta "No pude consultarlo
+ahora. Si querés, escribí *humano* y te paso con una persona del equipo." y
+el modelo no sigue (nunca inventa el resultado). Cada llamada queda en
+`agent_action_call` (estado y código de error, nunca los argumentos).
+
+Una acción `effect` se llama como mucho una vez por clave: la clave sale del
+mensaje entrante, así que si el job se reintenta (por ejemplo, falló el
+modelo después de la acción) la respuesta guardada se repite sin llamar de
+nuevo, y si un intento anterior nunca recibió respuesta (timeout, un worker
+que se cayó) cuenta como falla. Una `query` se vuelve a pedir. En la vista
+previa del agente las acciones se ofrecen pero no se llaman.
+
 ---
 
 ## Editar contenido
@@ -1190,6 +1259,12 @@ aserciones sobre la respuesta: `mustInclude` (cada texto tiene que aparecer;
 una lista dentro significa "alguno de estos"), `mustNotInclude`,
 `mustCallTool` (llamada y aceptada) y `mustNotCallTool`. El texto se compara
 sin mayúsculas ni tildes. `npm test` valida el formato de los archivos.
+
+Un escenario puede ofrecer acciones propias (`actions`: `name`,
+`description`, `parameters`, `kind` y `answer`, que es la respuesta simulada
+`{ "reply"?, "data"? }` o `"fail"`); nunca se llama a nada real. Las
+aserciones de herramientas aceptan sus nombres. Ver
+`scenarios/botsuite46-acciones.json`.
 
 En GitHub, el workflow `.github/workflows/ci.yml` corre lint, las tres suites
 (con un Postgres propio) y el build en cada PR a `develop` o `main` y en cada

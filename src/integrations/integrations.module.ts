@@ -1,3 +1,4 @@
+import { createSafeFetch } from './safe-fetch.js';
 import { Module } from '@nestjs/common';
 import { AdminApiKeyGuard } from '../admin/admin-api-key.guard.js';
 import { AuthModule } from '../auth/auth.module.js';
@@ -13,6 +14,7 @@ import { IntegrationsReadService } from './integrations-read.service.js';
 import { IntegrationsService } from './integrations.service.js';
 import {
   WEBHOOK_FETCH,
+  WEBHOOK_SAFE_FETCH_OPTIONS,
   WebhookDeliveryService,
 } from './webhook-delivery.service.js';
 
@@ -36,7 +38,7 @@ import {
     WebhookDeliveryService,
     {
       provide: WEBHOOK_FETCH,
-      useValue: ((input, init) => fetch(input, init)) satisfies typeof fetch,
+      useValue: createSafeFetch(WEBHOOK_SAFE_FETCH_OPTIONS),
     },
     { provide: WEBHOOK_JOB_PROCESSOR, useExisting: WebhookDeliveryService },
   ],

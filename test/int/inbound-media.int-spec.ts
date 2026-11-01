@@ -32,7 +32,7 @@ import { oggOpusOf } from '../fixtures/ogg-opus.js';
 import {
   buildAttachmentPreparer,
   buildBotService,
-  buildCatalogService,
+  buildBusinessModules,
   connectPrisma,
   DEFAULT_PHONE_NUMBER_ID,
   resetDb,
@@ -81,7 +81,7 @@ describe('Inbound attachments (integration, Meta and OpenAI mocked)', () => {
       provider: { respond },
       usage: new AiUsageService(prisma),
       limits: new AiLimitsService(prisma, config),
-      catalog: buildCatalogService(prisma, config),
+      modules: buildBusinessModules(prisma, config),
       prisma,
       content: new ContentService(),
       config,

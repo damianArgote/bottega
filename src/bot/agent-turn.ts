@@ -28,6 +28,15 @@ export type AgentTurnOutcome =
     }
   /** A handoff was planned: the fixed handoff reply replaces model text. */
   | { kind: 'handoff'; effects: PlannedEffect[]; calls: ToolCallTrace[] }
+  /**
+   * A business action failed: the turn stops at once and the bot answers
+   * ACTION_FAILED_REPLY (the model never answers about it).
+   */
+  | {
+      kind: 'action_failed';
+      effects: PlannedEffect[];
+      calls: ToolCallTrace[];
+    }
   /** A model call gave no response (the caller already handled why). */
   | { kind: 'no_response'; calls: ToolCallTrace[] }
   /** Still calling tools after {@link AI_MAX_MODEL_ROUNDS} calls. */
@@ -90,6 +99,9 @@ export async function runAgentTurn(
         }
       } else {
         onRejected?.(trace);
+        if (result.stop) {
+          return { kind: 'action_failed', effects, calls };
+        }
       }
     }
     if (effects.some(handsOff)) {
@@ -116,6 +128,13 @@ export function demoRequestReplies(
     effect.kind === 'register_demo_request'
       ? [insuranceRequestSummary(effect.request, names.demoBusinessName)]
       : [],
+  );
+}
+
+/** Business actions' fixed texts of this turn, in order (sent as is). */
+export function actionReplies(effects: readonly PlannedEffect[]): string[] {
+  return effects.flatMap((effect) =>
+    effect.kind === 'action_reply' ? [effect.text] : [],
   );
 }
 

@@ -20,7 +20,9 @@ import {
   checkTurn,
   loadScenarioFile,
   SCENARIOS_DIR,
+  type ScenarioAction,
 } from '../scenarios/scenario.js';
+import { actionTools, type ActionsModule } from '../actions/action-tools.js';
 
 const content = loadContent(DEFAULT_CONTENT_DIR);
 
@@ -31,6 +33,22 @@ const PROFILES: Record<string, () => AgentProfile> = {
     version: null,
   }),
 };
+
+/** The scenario's actions with their stubbed answers (never called). */
+function stubbedActions(actions: ScenarioAction[]): ActionsModule {
+  const answers = new Map(actions.map((a) => [a.name, a.answer]));
+  return {
+    tools: actionTools(actions),
+    run: (name) => {
+      const answer = answers.get(name);
+      return Promise.resolve(
+        answer === 'fail' || answer === undefined
+          ? { ok: false, error: 'http_500', status: 500 }
+          : { ok: true, result: answer, status: 200 },
+      );
+    },
+  };
+}
 
 async function main(): Promise<void> {
   // Same validation as the app in AI mode: OPENAI_API_KEY and OPENAI_MODEL
@@ -69,6 +87,9 @@ async function main(): Promise<void> {
           maxOutputTokens: env.OPENAI_MAX_OUTPUT_TOKENS,
           messages,
           known,
+          ...(scenario.actions?.length
+            ? { modules: { actions: stubbedActions(scenario.actions) } }
+            : {}),
         });
         totals.calls += result.usage.calls;
         totals.inputTokens += result.usage.inputTokens;

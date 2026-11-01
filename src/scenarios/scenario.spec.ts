@@ -39,6 +39,38 @@ describe('scenario files', () => {
     ).toThrow();
   });
 
+  it('BotSuite46 has the business-action scenarios of prompt 07b', () => {
+    const file = loadScenarioFile(
+      join(SCENARIOS_DIR, 'botsuite46-acciones.json'),
+    );
+
+    expect(file.scenarios.map((s) => s.name)).toEqual([
+      'accion-reserva',
+      'accion-falla',
+      'accion-no-inventa',
+      'accion-datos-con-instrucciones',
+    ]);
+  });
+
+  it('accepts a tool assertion on an action only when the scenario declares it', () => {
+    const action = {
+      name: 'reservar',
+      description: 'Reserva.',
+      parameters: { properties: {} },
+      kind: 'effect',
+      answer: 'fail',
+    };
+    const scenario = (actions: unknown[]) => ({
+      business: 'botsuite46',
+      scenarios: [
+        { name: 'x', actions, turns: [{ user: 'hola', mustCallTool: ['reservar'] }] },
+      ],
+    });
+
+    expect(() => parseScenarioFile(scenario([action]))).not.toThrow();
+    expect(() => parseScenarioFile(scenario([]))).toThrow();
+  });
+
   it('BotSuite46 has the scenarios the prompt asks for, plus the ones of later fixes', () => {
     const file = loadScenarioFile(join(SCENARIOS_DIR, 'botsuite46.json'));
 

@@ -6,6 +6,11 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { WebhookJobProcessor } from '../queue/push-jobs.js';
 import type { WebhookJob } from '../queue/queue.service.js';
 import {
+  BlockedAddressError,
+  ResponseTooLargeError,
+  type SafeFetchOptions,
+} from './safe-fetch.js';
+import {
   SIGNATURE_HEADER,
   signWebhook,
   TIMESTAMP_HEADER,
@@ -17,11 +22,35 @@ export const WEBHOOK_FETCH = Symbol('WEBHOOK_FETCH');
 const TIMEOUT_MS = 10_000;
 
 /**
+ * The safe fetch of deliveries: only the status matters, so a big answer is
+ * cut, never a failure (a 2xx with a long body is still delivered).
+ */
+export const WEBHOOK_SAFE_FETCH_OPTIONS = {
+  maxResponseBytes: 64 * 1024,
+  oversize: 'truncate',
+} as const satisfies SafeFetchOptions;
+
+/** A static label for a failed request (never the URL or the body). */
+export function fetchErrorCode(error: unknown): string {
+  if (error instanceof BlockedAddressError) {
+    return 'blocked_address';
+  }
+  if (error instanceof ResponseTooLargeError) {
+    return 'response_too_large';
+  }
+  return error instanceof Error &&
+    (error.name === 'TimeoutError' || error.name === 'AbortError')
+    ? 'timeout'
+    : 'network_error';
+}
+
+/**
  * Sends one WEBHOOK_DELIVERY job: the stored event body, signed with the
- * subscription's secret, as a POST. A 2xx is delivered; anything else
- * (other status, redirect, timeout, network error) is recorded on the
- * delivery and the subscription and retried by the queue up to the job's
- * attempts. A subscription turned off (or deleted) ends the job SKIPPED.
+ * subscription's secret, as a POST through the SSRF-safe fetch (see
+ * createSafeFetch). A 2xx is delivered; anything else (other status,
+ * redirect, timeout, network error) is recorded on the delivery and the
+ * subscription and retried by the queue up to the job's attempts; a host
+ * that resolves to a non-public address fails without retries. A subscription turned off (or deleted) ends the job SKIPPED.
  * Never logs the URL, the secret or the body.
  */
 @Injectable()
@@ -83,16 +112,13 @@ export class WebhookDeliveryService implements WebhookJobProcessor {
       // The body is not needed; release the connection.
       await response.body?.cancel().catch(() => undefined);
     } catch (error) {
-      const code =
-        error instanceof Error &&
-        (error.name === 'TimeoutError' || error.name === 'AbortError')
-          ? 'timeout'
-          : 'network_error';
+      const code = fetchErrorCode(error);
       await this.recordFailure(delivery.id, subscription.id, code, null);
       this.logger.warn(
         `Webhook delivery ${delivery.id} (subscription ${subscription.id}): ${code}`,
       );
-      throw new JobError(code, true);
+      // A private address stays private: retrying it only burns attempts.
+      throw new JobError(code, code !== 'blocked_address');
     }
 
     if (status >= 200 && status < 300) {

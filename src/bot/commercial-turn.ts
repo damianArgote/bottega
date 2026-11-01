@@ -2,12 +2,18 @@ import type { AiProvider, AiRequest, AiResponse } from '../ai/ai.provider.js';
 import type { AgentProfile } from '../agents/agent-profile.js';
 import { ConversationMode } from '../generated/prisma/client.js';
 import type { LeadValues } from '../leads/lead-values.js';
-import { AI_FALLBACK_REPLY } from './ai-replies.js';
-import { finalReply, offeredButtons, runAgentTurn } from './agent-turn.js';
+import { ACTION_FAILED_REPLY, AI_FALLBACK_REPLY } from './ai-replies.js';
+import {
+  actionReplies,
+  finalReply,
+  offeredButtons,
+  runAgentTurn,
+} from './agent-turn.js';
 import { buildCommercialInstructions } from './prompts.js';
 import { renderReply } from './replies.js';
 import { toolDefinitionsFor } from './tools/registry.js';
-import type { CatalogReader, PlannedEffect } from './tools/tool.js';
+import { hasModule, type BusinessModules } from './modules.js';
+import type { PlannedEffect } from './tools/tool.js';
 
 export interface TurnMessage {
   role: 'user' | 'assistant';
@@ -56,8 +62,8 @@ export async function runCommercialTurn(input: {
   maxOutputTokens: number;
   messages: readonly TurnMessage[];
   known?: LeadValues;
-  /** The business's catalog, when it has available items. */
-  catalog?: CatalogReader;
+  /** The business's modules (BusinessModulesService); absent: none. */
+  modules?: BusinessModules;
   /** Called after every model call (for logging). */
   onCall?: (response: AiResponse, latencyMs: number) => void;
 }): Promise<CommercialTurnResult> {
@@ -67,7 +73,7 @@ export async function runCommercialTurn(input: {
   const toolOptions = {
     demoEnabled: profile.demoEnabled,
     leadFields: profile.leadFields,
-    ...(input.catalog ? { catalog: input.catalog } : {}),
+    modules: input.modules ?? {},
   };
   const usage = { calls: 0, inputTokens: 0, outputTokens: 0 };
 
@@ -86,7 +92,8 @@ export async function runCommercialTurn(input: {
       request: {
         model,
         instructions: buildCommercialInstructions(profile, input.known ?? {}, {
-          catalog: input.catalog !== undefined,
+          catalog: hasModule(toolOptions.modules, 'catalog'),
+          actions: hasModule(toolOptions.modules, 'actions'),
         }),
         tools: toolDefinitionsFor(mode, toolOptions),
         maxOutputTokens: input.maxOutputTokens,
@@ -99,13 +106,24 @@ export async function runCommercialTurn(input: {
 
   // Commercial mode: no demo business to name.
   const names = { demoBusinessName: '', botName: profile.botName };
-  const reply =
+  const effects =
+    outcome.kind === 'text' ||
+    outcome.kind === 'handoff' ||
+    outcome.kind === 'action_failed'
+      ? outcome.effects
+      : [];
+  // The business actions' own texts go first, as the bot sends them.
+  const fixed = actionReplies(effects);
+  const main =
     outcome.kind === 'handoff'
       ? renderReply('HUMAN_REQUESTED', names)
-      : outcome.kind === 'text'
-        ? (finalReply(outcome.text, outcome.effects, names) ??
-          AI_FALLBACK_REPLY)
-        : AI_FALLBACK_REPLY;
+      : outcome.kind === 'action_failed'
+        ? ACTION_FAILED_REPLY
+        : outcome.kind === 'text'
+          ? (finalReply(outcome.text, outcome.effects, names) ??
+            (fixed.length > 0 ? null : AI_FALLBACK_REPLY))
+          : AI_FALLBACK_REPLY;
+  const reply = [...fixed, ...(main ? [main] : [])].join('\n\n');
   return {
     reply,
     toolCalls: outcome.calls.map((c) => ({
@@ -114,10 +132,7 @@ export async function runCommercialTurn(input: {
       accepted: c.accepted,
       ...(c.reason ? { reason: c.reason } : {}),
     })),
-    effects:
-      outcome.kind === 'text' || outcome.kind === 'handoff'
-        ? outcome.effects
-        : [],
+    effects,
     buttons:
       outcome.kind === 'text' ? (offeredButtons(outcome.effects) ?? []) : [],
     model,

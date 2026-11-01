@@ -10,7 +10,7 @@ import { AgentPreviewService } from '../../src/bot/agent-preview.service.js';
 import { renderReply } from '../../src/bot/replies.js';
 import type { PrismaService } from '../../src/prisma/prisma.service.js';
 import {
-  buildCatalogService,
+  buildBusinessModules,
   connectPrisma,
   createLine,
   resetDb,
@@ -68,7 +68,7 @@ describe('Admin agent profile and preview (integration)', () => {
       prisma,
       { respond },
       config,
-      buildCatalogService(prisma, config),
+      buildBusinessModules(prisma, config),
     );
   });
 

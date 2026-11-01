@@ -1,3 +1,5 @@
+import { ActionsModule } from '../actions/actions.module.js';
+import { BusinessModulesService } from './business-modules.service.js';
 import { Module } from '@nestjs/common';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai.provider.js';
 import { AiModule } from '../ai/ai.module.js';
@@ -5,7 +7,6 @@ import { AiLimitsService } from '../ai/ai-limits.service.js';
 import { MediaModule } from '../media/media.module.js';
 import { AttachmentPreparer } from './attachment-preparer.js';
 import { CatalogModule } from '../catalog/catalog.module.js';
-import { CatalogService } from '../catalog/catalog.service.js';
 import { AiUsageService } from '../ai/ai-usage.service.js';
 import { AppConfigService } from '../config/app-config.service.js';
 import { ContentModule } from '../content/content.module.js';
@@ -31,6 +32,7 @@ import { BotWorker } from './worker.js';
 
 @Module({
   imports: [
+    ActionsModule,
     QueueModule,
     IntegrationsModule,
     CatalogModule,
@@ -46,6 +48,7 @@ import { BotWorker } from './worker.js';
   providers: [
     BotService,
     BotWorker,
+    BusinessModulesService,
     CommandService,
     ToolEffectsService,
     AttachmentPreparer,
@@ -58,7 +61,7 @@ import { BotWorker } from './worker.js';
         PrismaService,
         ContentService,
         AiLimitsService,
-        CatalogService,
+        BusinessModulesService,
       ],
       useFactory: (
         config: AppConfigService,
@@ -67,14 +70,14 @@ import { BotWorker } from './worker.js';
         prisma: PrismaService,
         content: ContentService,
         limits: AiLimitsService,
-        catalog: CatalogService,
+        modules: BusinessModulesService,
       ): ReplyGenerator =>
         config.get('BOT_REPLY_MODE') === 'ai'
           ? new AiReplyGenerator({
               provider,
               usage,
               limits,
-              catalog,
+              modules,
               prisma,
               content,
               config,

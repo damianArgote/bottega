@@ -29,7 +29,7 @@ import { QueueService } from '../../src/queue/queue.service.js';
 import type { SendOutcome } from '../../src/whatsapp/whatsapp.client.js';
 import {
   buildBotService,
-  buildCatalogService,
+  buildBusinessModules,
   connectPrisma,
   createLine,
   resetDb,
@@ -126,7 +126,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       provider: { respond },
       usage: new AiUsageService(prisma),
       limits: new AiLimitsService(prisma, aiConfig),
-      catalog: buildCatalogService(prisma, aiConfig),
+      modules: buildBusinessModules(prisma, aiConfig),
       prisma,
       content,
       config: aiConfig,
