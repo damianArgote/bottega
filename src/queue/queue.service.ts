@@ -66,6 +66,11 @@ const MAX_ERROR_LENGTH = 120;
  * - PUSH_NOTIFICATION and WEBHOOK_DELIVERY jobs run outside that order:
  *   they neither wait for the bot's jobs nor hold them back (a push or a
  *   webhook retrying must not delay a reply).
+ * - At most one WEBHOOK_DELIVERY runs at a time (all businesses), so a
+ *   client's endpoint that hangs never takes every worker slot from the bot.
+ *   A delivery whose worker died is claimable again once its lease expires
+ *   (it is the one PROCESSING). The partial unique index
+ *   `processing_job_one_webhook_processing_key` backs this up.
  * - A crashed worker's job is reclaimed once its lease expires.
  */
 @Injectable()
@@ -93,6 +98,12 @@ export class QueueService {
                 AND older.type = 'INBOUND_MESSAGE'
                 AND older.status IN ('PENDING', 'PROCESSING')
                 AND older.seq < j.seq
+            ))
+            AND (j.type <> 'WEBHOOK_DELIVERY' OR NOT EXISTS (
+              SELECT 1 FROM processing_job running
+              WHERE running.type = 'WEBHOOK_DELIVERY'
+                AND running.status = 'PROCESSING'
+                AND running.id <> j.id
             ))
           ORDER BY j.seq
           LIMIT 1

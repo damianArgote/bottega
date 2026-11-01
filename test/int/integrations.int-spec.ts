@@ -330,6 +330,41 @@ describe('Integrations: webhook events and read API (integration)', () => {
       expect(claimed.sort()).toEqual(['INBOUND_MESSAGE', 'WEBHOOK_DELIVERY']);
     });
 
+    it('runs one delivery at a time, so the bot always keeps a free worker', async () => {
+      await subscribe(['lead.updated']);
+      await subscribe(['lead.updated']);
+      const id = await conversationId();
+      await saveLead(id, { name: 'Juan' });
+      await conversationOf(USER, 'wamid.in.2', true);
+      const queue = app.get(QueueService);
+
+      const first = await queue.claimNext('w1');
+      const second = await queue.claimNext('w2');
+      const third = await queue.claimNext('w3');
+
+      expect(first?.type).toBe('WEBHOOK_DELIVERY');
+      expect(second?.type).toBe('INBOUND_MESSAGE');
+      expect(third).toBeNull();
+
+      // Once it finishes, the other delivery can run.
+      await queue.complete(first!);
+      expect((await queue.claimNext('w4'))?.type).toBe('WEBHOOK_DELIVERY');
+    });
+
+    it('takes over a delivery whose worker died (lease expired)', async () => {
+      await subscribe(['lead.updated']);
+      await subscribe(['lead.updated']);
+      const id = await conversationId();
+      await saveLead(id, { name: 'Juan' });
+      const queue = app.get(QueueService);
+      const stuck = await queue.claimNext('w1');
+      await prisma.$executeRaw`UPDATE processing_job SET lease_expires_at = now() - interval '1 day' WHERE id = ${stuck!.id}::uuid`;
+
+      const next = await queue.claimNext('w2');
+
+      expect(next?.type).toBe('WEBHOOK_DELIVERY');
+    });
+
     it('does not follow a redirect: it is a failure to retry', async () => {
       await subscribe(['lead.updated']);
       const id = await conversationId();

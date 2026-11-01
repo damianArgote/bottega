@@ -1085,7 +1085,9 @@ reciben ese evento; sirve para no procesarlo dos veces.
 
 Se encola en la misma transacción que el cambio (si el cambio no se guarda,
 no hay evento) y lo manda el worker de la cola (`WORKER_ENABLED`), fuera del
-orden de la conversación: un webhook que reintenta nunca demora al bot. Un
+orden de la conversación: un webhook que reintenta nunca demora al bot. Corre
+una entrega a la vez (de todos los negocios), así un endpoint que no contesta
+nunca ocupa todos los workers. Un
 `2xx` es entregado; cualquier otra cosa (otro status, redirección, más de
 10 s, error de red) se reintenta hasta 6 intentos en total (5 s · 2^n, unos
 5 minutos entre todos) y queda en `lastError` de la suscripción
