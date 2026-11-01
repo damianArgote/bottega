@@ -126,29 +126,34 @@ export function createSafeFetch(
     }
     init?.signal?.throwIfAborted();
     const host = url.hostname.replace(/^\[|\]$/g, '');
+    // The lookup counts inside the caller's timeout.
     const addresses = isIP(host)
       ? [{ address: host, family: isIP(host) }]
-      : await resolve(host);
+      : await untilAborted(resolve(host), init?.signal ?? undefined);
     if (
       addresses.length === 0 ||
       !addresses.every((a) => isPublicAddress(a.address))
     ) {
       throw new BlockedAddressError();
     }
-    const pinned = addresses[0]!;
-    // Hands the checked address to the socket, whatever it asks for.
+    const checked = addresses.map((a) => ({
+      address: a.address,
+      family: a.family,
+    }));
+    // Hands the socket only the checked addresses, whatever it asks for:
+    // all of them, so it tries the next one when one does not connect.
     const lookup: LookupFunction = (_hostname, options, callback) => {
       if (options.all) {
-        callback(null, [{ address: pinned.address, family: pinned.family }]);
+        callback(null, checked);
       } else {
-        callback(null, pinned.address, pinned.family);
+        callback(null, checked[0]!.address, checked[0]!.family);
       }
     };
 
     const body = typeof init?.body === 'string' ? init.body : undefined;
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
     return new Promise<Response>((resolveResponse, reject) => {
-      const req = request({
+      const options: RequestOptions & { autoSelectFamily: boolean } = {
         protocol: 'https:',
         hostname: host,
         servername: isIP(host) ? undefined : host,
@@ -157,8 +162,11 @@ export function createSafeFetch(
         method: init?.method ?? 'GET',
         headers,
         lookup,
+        // Tries each address (both families) until one connects.
+        autoSelectFamily: true,
         ...(init?.signal ? { signal: init.signal } : {}),
-      });
+      };
+      const req = request(options);
       req.on('error', reject);
       req.on('response', (res: IncomingMessage) => {
         const chunks: Buffer[] = [];
@@ -213,4 +221,29 @@ export function createSafeFetch(
       req.end(body);
     });
   };
+}
+
+/** `pending`, or the signal's reason as soon as it aborts. */
+function untilAborted<T>(
+  pending: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) {
+    return pending;
+  }
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason as Error);
+    signal.addEventListener('abort', onAbort, { once: true });
+    pending.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
 }

@@ -154,6 +154,48 @@ describe('createSafeFetch', () => {
     expect(response.status).toBe(200);
   });
 
+  it('offers the socket every checked address, so it can fall back to the next one', async () => {
+    const { request, seen } = fakeRequest(200);
+    const resolve = () =>
+      Promise.resolve([
+        { address: '2606:4700::1111', family: 6 },
+        { address: '93.184.216.34', family: 4 },
+      ]);
+    const safe = createSafeFetch({ maxResponseBytes: 100 }, { resolve, request });
+
+    await post(safe, 'https://dual.example.com/');
+
+    const options = seen[0]!;
+    expect(options).toMatchObject({ autoSelectFamily: true });
+    const lookup = options.lookup as LookupFunction;
+    const all = await new Promise((done) =>
+      lookup('dual.example.com', { all: true }, (_e, addresses) =>
+        done(addresses),
+      ),
+    );
+    expect(all).toEqual([
+      { address: '2606:4700::1111', family: 6 },
+      { address: '93.184.216.34', family: 4 },
+    ]);
+  });
+
+  it('counts the DNS lookup inside the timeout', async () => {
+    const { request, seen } = fakeRequest(200);
+    const resolve = () => new Promise<never>(() => undefined);
+    const safe = createSafeFetch({ maxResponseBytes: 100 }, { resolve, request });
+
+    const started = Date.now();
+    await expect(
+      safe('https://slow-dns.example.com/', {
+        method: 'POST',
+        body: '{}',
+        signal: AbortSignal.timeout(50),
+      }),
+    ).rejects.toMatchObject({ name: 'TimeoutError' });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(seen).toHaveLength(0);
+  });
+
   it('returns the body under the cap and fails over it', async () => {
     const resolve = () =>
       Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
