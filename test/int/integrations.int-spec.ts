@@ -11,6 +11,7 @@ import { AppConfigService } from '../../src/config/app-config.service.js';
 import { ContextService } from '../../src/conversations/context.service.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import { ConversationActionsService } from '../../src/inbox/conversation-actions.service.js';
+import { createSafeFetch } from '../../src/integrations/safe-fetch.js';
 import { WEBHOOK_FETCH } from '../../src/integrations/webhook-delivery.service.js';
 import { LeadsService } from '../../src/leads/leads.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
@@ -363,6 +364,33 @@ describe('Integrations: webhook events and read API (integration)', () => {
       const next = await queue.claimNext('w2');
 
       expect(next?.type).toBe('WEBHOOK_DELIVERY');
+    });
+
+    it('never calls a host that resolves to a private address, and does not retry it', async () => {
+      await subscribe(['lead.updated']);
+      const id = await conversationId();
+      const resolve = vi.fn(() =>
+        Promise.resolve([{ address: '10.0.0.7', family: 4 }]),
+      );
+      const request = vi.fn();
+      hookFetch.mockImplementation(
+        createSafeFetch({ maxResponseBytes: 1024 }, { resolve, request }),
+      );
+
+      await saveLead(id, { name: 'Juan' });
+      await drain();
+
+      expect(resolve).toHaveBeenCalledTimes(1);
+      expect(request).not.toHaveBeenCalled();
+      expect(await prisma.webhookDelivery.findFirstOrThrow()).toMatchObject({
+        lastError: 'blocked_address',
+        deliveredAt: null,
+      });
+      expect(
+        await prisma.processingJob.findFirstOrThrow({
+          where: { type: 'WEBHOOK_DELIVERY' },
+        }),
+      ).toMatchObject({ status: 'FAILED' });
     });
 
     it('does not follow a redirect: it is a failure to retry', async () => {

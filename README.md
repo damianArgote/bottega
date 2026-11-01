@@ -1092,7 +1092,11 @@ nunca ocupa todos los workers. Un
 10 s, error de red) se reintenta hasta 6 intentos en total (5 s · 2^n, unos
 5 minutos entre todos) y queda en `lastError` de la suscripción
 (`http_500`, `timeout`, `network_error`). Una suscripción desactivada no
-manda lo pendiente.
+manda lo pendiente. Antes de cada envío se resuelve el host y, si alguna de
+sus IPs es privada, de loopback, link-local o de metadata, no se llama y la
+entrega falla sin reintentos (`blocked_address`); la conexión va a la IP
+revisada (sin una segunda resolución). Las acciones propias (07b) usan el
+mismo envío.
 
 Cada pedido trae `X-Bottega-Event`, `X-Bottega-Event-Id`,
 `X-Bottega-Delivery` (el mismo en cada reintento), `X-Bottega-Timestamp`

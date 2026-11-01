@@ -1,3 +1,4 @@
+import { createSafeFetch } from './safe-fetch.js';
 import { Module } from '@nestjs/common';
 import { AdminApiKeyGuard } from '../admin/admin-api-key.guard.js';
 import { AuthModule } from '../auth/auth.module.js';
@@ -36,7 +37,8 @@ import {
     WebhookDeliveryService,
     {
       provide: WEBHOOK_FETCH,
-      useValue: ((input, init) => fetch(input, init)) satisfies typeof fetch,
+      // The response body is not used: a small cap is enough.
+      useValue: createSafeFetch({ maxResponseBytes: 64 * 1024 }),
     },
     { provide: WEBHOOK_JOB_PROCESSOR, useExisting: WebhookDeliveryService },
   ],
