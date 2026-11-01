@@ -61,6 +61,7 @@ const booking = {
   name: 'reservar_turno',
   description: 'Reserva un turno en la agenda del negocio.',
   parameters: {
+    type: 'object' as const,
     properties: {
       dia: { type: 'string' as const, maxLength: 30 },
       hora: { type: 'string' as const, maxLength: 5 },

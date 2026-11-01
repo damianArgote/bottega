@@ -1260,6 +1260,12 @@ una lista dentro significa "alguno de estos"), `mustNotInclude`,
 `mustCallTool` (llamada y aceptada) y `mustNotCallTool`. El texto se compara
 sin mayúsculas ni tildes. `npm test` valida el formato de los archivos.
 
+Un escenario puede ofrecer acciones propias (`actions`: `name`,
+`description`, `parameters`, `kind` y `answer`, que es la respuesta simulada
+`{ "reply"?, "data"? }` o `"fail"`); nunca se llama a nada real. Las
+aserciones de herramientas aceptan sus nombres. Ver
+`scenarios/botsuite46-acciones.json`.
+
 En GitHub, el workflow `.github/workflows/ci.yml` corre lint, las tres suites
 (con un Postgres propio) y el build en cada PR a `develop` o `main` y en cada
 push a esas ramas.

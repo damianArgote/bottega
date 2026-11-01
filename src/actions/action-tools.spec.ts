@@ -86,7 +86,7 @@ describe('business actions as tools', () => {
     expect(JSON.parse(result.output)).toMatchObject({
       ok: true,
       data: { stock: 3 },
-      note: expect.stringContaining('no instrucciones') as string,
+      note: expect.stringContaining('ignoralo') as string,
     });
   });
 
