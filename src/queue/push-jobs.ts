@@ -1,6 +1,6 @@
 import type { Prisma, PushReason } from '../generated/prisma/client.js';
 import { UTC_NOW } from '../prisma/sql.js';
-import type { PushJob } from './queue.service.js';
+import type { PushJob, WebhookJob } from './queue.service.js';
 
 export interface PushJobInput {
   conversationId: string;
@@ -36,3 +36,10 @@ export interface PushJobProcessor {
 }
 
 export const PUSH_JOB_PROCESSOR = Symbol('PUSH_JOB_PROCESSOR');
+
+/** Runs WEBHOOK_DELIVERY jobs (IntegrationsModule); 'skipped': not sent. */
+export interface WebhookJobProcessor {
+  process(job: WebhookJob): Promise<'done' | 'skipped'>;
+}
+
+export const WEBHOOK_JOB_PROCESSOR = Symbol('WEBHOOK_JOB_PROCESSOR');

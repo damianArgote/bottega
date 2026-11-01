@@ -14,6 +14,7 @@ import { ConversationsModule } from '../conversations/conversations.module.js';
 import { DemosModule } from '../demos/demos.module.js';
 import { LeadsModule } from '../leads/leads.module.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { IntegrationsModule } from '../integrations/integrations.module.js';
 import { PushModule } from '../push/push.module.js';
 import { QueueModule } from '../queue/queue.module.js';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module.js';
@@ -31,6 +32,7 @@ import { BotWorker } from './worker.js';
 @Module({
   imports: [
     QueueModule,
+    IntegrationsModule,
     CatalogModule,
     WhatsAppModule,
     ConversationsModule,
