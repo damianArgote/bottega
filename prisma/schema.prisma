@@ -160,6 +160,12 @@ model Business {
   /// Attachments processed per conversation per day; null uses
   /// MEDIA_MAX_PER_CONVERSATION_PER_DAY.
   mediaDailyCapPerConversation Int?      @map("media_daily_cap_per_conversation")
+  /// When the message templates are due for the daily sync (claimed by the
+  /// worker, then moved ahead); null: never synced, due now.
+  templatesSyncNextAt          DateTime? @map("templates_sync_next_at")
+  /// Last template sync attempt and its error code (null when it worked).
+  templatesSyncedAt            DateTime? @map("templates_synced_at")
+  templatesSyncError           String?   @map("templates_sync_error")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
@@ -172,6 +178,7 @@ model Business {
   catalogItems         CatalogItem[]
   catalogImports       CatalogImport[]
   catalogAiUsage       CatalogAiUsage[]
+  templates            Template[]
 
   @@map("business")
 }
@@ -749,4 +756,32 @@ model CatalogAiUsage {
 
   @@index([businessId, day])
   @@map("catalog_ai_usage")
+}
+
+/// A WhatsApp message template, copied from Meta (src/templates). Created
+/// and approved in Meta; Bottega only reads them. One that Meta no longer
+/// returns keeps its row with deletedAt set.
+model Template {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  wabaId     String    @map("waba_id")
+  /// Meta's template id.
+  metaId     String    @map("meta_id")
+  name       String
+  /// Language code, e.g. "es_AR".
+  language   String
+  /// MARKETING, UTILITY or AUTHENTICATION.
+  category   String
+  /// Meta's status: APPROVED, PENDING, REJECTED, PAUSED, DISABLED...
+  status     String
+  /// Meta's components (HEADER, BODY, FOOTER, BUTTONS) as returned.
+  components Json
+  deletedAt  DateTime? @map("deleted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, wabaId, name, language])
+  @@map("template")
 }
