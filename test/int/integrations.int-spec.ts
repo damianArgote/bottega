@@ -85,9 +85,13 @@ describe('Integrations: webhook events and read API (integration)', () => {
         .expect(201)
     ).body as Created;
   /** A conversation; the bot's job for its message is dropped unless kept. */
-  const conversationId = async (keepBotJob = false) => {
+  const conversationOf = async (
+    waId: string,
+    wamid: string,
+    keepBotJob = false,
+  ) => {
     await app.get(ConversationsService).recordInbound({
-      ...textEvent('wamid.in.1', USER, 'hola'),
+      ...textEvent(wamid, waId, 'hola'),
       timestamp: new Date(),
       profileName: 'Juan',
     });
@@ -96,8 +100,14 @@ describe('Integrations: webhook events and read API (integration)', () => {
         where: { type: 'INBOUND_MESSAGE' },
       });
     }
-    return (await prisma.conversation.findFirstOrThrow()).id;
+    return (
+      await prisma.conversation.findFirstOrThrow({
+        where: { contact: { waId } },
+      })
+    ).id;
   };
+  const conversationId = (keepBotJob = false) =>
+    conversationOf(USER, 'wamid.in.1', keepBotJob);
   const saveLead = (id: string, values: Record<string, string>) =>
     prisma.$transaction((tx) =>
       app.get(LeadsService).upsertFromConversation(id, values, tx),
@@ -277,6 +287,77 @@ describe('Integrations: webhook events and read API (integration)', () => {
       });
     });
 
+    it('enqueues nothing when the change rolls back', async () => {
+      await subscribe(['lead.updated']);
+      const id = await conversationId();
+
+      await expect(
+        prisma.$transaction(async (tx) => {
+          await app
+            .get(LeadsService)
+            .upsertFromConversation(id, { name: 'Juan' }, tx);
+          throw new Error('rollback');
+        }),
+      ).rejects.toThrow('rollback');
+
+      expect(await prisma.webhookDelivery.count()).toBe(0);
+      expect(
+        await prisma.processingJob.count({
+          where: { type: 'WEBHOOK_DELIVERY' },
+        }),
+      ).toBe(0);
+    });
+
+    it('never holds back the bot while an older delivery runs or retries', async () => {
+      await subscribe(['lead.updated']);
+      const id = await conversationId();
+      await saveLead(id, { name: 'Juan' });
+      const queue = app.get(QueueService);
+      const hook = await queue.claimNext('w1');
+      expect(hook?.type).toBe('WEBHOOK_DELIVERY');
+
+      await conversationOf(USER, 'wamid.in.2', true);
+      const inbound = await queue.claimNext('w2');
+      expect(inbound?.type).toBe('INBOUND_MESSAGE');
+
+      await queue.fail(inbound!, new Error('x'), { retryable: true });
+      await queue.fail(hook!, new Error('x'), { retryable: true });
+      await runRetriesNow();
+      const claimed = [
+        (await queue.claimNext('w3'))?.type,
+        (await queue.claimNext('w4'))?.type,
+      ];
+      expect(claimed.sort()).toEqual(['INBOUND_MESSAGE', 'WEBHOOK_DELIVERY']);
+    });
+
+    it('does not follow a redirect: it is a failure to retry', async () => {
+      await subscribe(['lead.updated']);
+      const id = await conversationId();
+      hookFetch.mockImplementation(() =>
+        Promise.resolve(
+          new Response(null, {
+            status: 302,
+            headers: { location: 'https://evil.example' },
+          }),
+        ),
+      );
+
+      await saveLead(id, { name: 'Juan' });
+      await drain();
+
+      expect(hookFetch.mock.calls[0]![1]!.redirect).toBe('manual');
+      expect(hookFetch).toHaveBeenCalledTimes(1);
+      expect(await prisma.webhookDelivery.findFirstOrThrow()).toMatchObject({
+        lastError: 'http_302',
+        deliveredAt: null,
+      });
+      expect(
+        await prisma.processingJob.findFirstOrThrow({
+          where: { type: 'WEBHOOK_DELIVERY' },
+        }),
+      ).toMatchObject({ status: 'PENDING', attempts: 1 });
+    });
+
     it('only enqueues for active subscriptions of the business that want the event', async () => {
       await subscribe(['handoff.requested']);
       const off = await subscribe(['lead.updated']);
@@ -345,8 +426,23 @@ describe('Integrations: webhook events and read API (integration)', () => {
         .expect(400);
     });
 
-    it('never touches another business subscription', async () => {
+    it('never touches another business subscription or key', async () => {
       const foreign = await subscribe(['lead.updated'], otherBusinessId);
+      await http()
+        .post(admin(`/webhooks/${foreign.id}/rotate-secret`))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .expect(404);
+      const foreignKey = (
+        await http()
+          .post(`/admin/businesses/${otherBusinessId}/integration-keys`)
+          .set('X-Admin-Api-Key', ADMIN_KEY)
+          .send({ name: 'x' })
+          .expect(201)
+      ).body as KeyCreated;
+      await http()
+        .delete(admin(`/integration-keys/${foreignKey.id}`))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .expect(404);
 
       await http()
         .patch(admin(`/webhooks/${foreign.id}`))
@@ -481,6 +577,38 @@ describe('Integrations: webhook events and read API (integration)', () => {
         .set('X-Api-Key', key)
         .expect(400);
     });
+
+    it('pages rows with the same updatedAt without skipping or repeating any', async () => {
+      const key = await createKey();
+      for (let i = 0; i < 101; i += 1) {
+        const id = await conversationOf(
+          `54911${String(i).padStart(8, '0')}`,
+          `wamid.p${i}`,
+        );
+        await saveLead(id, { name: `N${i}` });
+      }
+      await prisma.$executeRaw`UPDATE lead SET updated_at = '2026-10-01T00:00:00Z'`;
+
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 5; page += 1) {
+        const res = await http()
+          .get(`/integrations/v1/leads${cursor ? `?cursor=${cursor}` : ''}`)
+          .set('X-Api-Key', key)
+          .expect(200);
+        const body = res.body as {
+          data: { id: string }[];
+          nextCursor: string | null;
+        };
+        if (body.data.length === 0) {
+          break;
+        }
+        seen.push(...body.data.map((d) => d.id));
+        cursor = body.nextCursor;
+      }
+      expect(seen).toHaveLength(101);
+      expect(new Set(seen).size).toBe(101);
+    }, 60_000);
 
     it('rejects missing, wrong and revoked keys, and stores only the hash', async () => {
       const key = await createKey();
