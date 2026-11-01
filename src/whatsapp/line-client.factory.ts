@@ -18,7 +18,10 @@ function unavailableClient(message: string): WhatsAppClient {
     message,
     retryable: false,
   };
-  return { sendText: () => Promise.resolve(outcome) };
+  return {
+    sendText: () => Promise.resolve(outcome),
+    sendTemplate: () => Promise.resolve(outcome),
+  };
 }
 
 /**
@@ -71,6 +74,8 @@ export class LineWhatsAppClientFactory implements WhatsAppClientFactory {
     return {
       sendText: (to, body, options) =>
         this.graph.sendText(credentials, to, body, options),
+      sendTemplate: (to, template) =>
+        this.graph.sendTemplate(credentials, to, template),
       markRead: (waMessageId) => this.graph.markRead(credentials, waMessageId),
     };
   }

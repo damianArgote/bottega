@@ -1,5 +1,9 @@
 import { metaErrorKind } from './meta-errors.js';
-import type { ReplyButton, SendOptions } from './whatsapp.client.js';
+import type {
+  ReplyButton,
+  SendOptions,
+  TemplateMessage,
+} from './whatsapp.client.js';
 import { Logger } from '@nestjs/common';
 import { maskPhone, type SendOutcome } from './whatsapp.client.js';
 
@@ -65,7 +69,33 @@ export class GraphWhatsAppClient {
     body: string,
     options: SendOptions = {},
   ): Promise<SendOutcome> {
-    const outcome = await this.send(line, to, body, options.buttons ?? []);
+    const outcome = await this.send(
+      line,
+      messagePayload(to, body, options.buttons ?? []),
+    );
+    this.logOutcome(to, outcome);
+    return outcome;
+  }
+
+  /** Sends an approved template (`type: template`). */
+  async sendTemplate(
+    line: LineSendCredentials,
+    to: string,
+    template: TemplateMessage,
+  ): Promise<SendOutcome> {
+    const outcome = await this.send(line, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'template',
+      template: {
+        name: template.name,
+        language: { code: template.language },
+        ...(template.components.length > 0
+          ? { components: template.components }
+          : {}),
+      },
+    });
     this.logOutcome(to, outcome);
     return outcome;
   }
@@ -107,9 +137,7 @@ export class GraphWhatsAppClient {
 
   private async send(
     line: LineSendCredentials,
-    to: string,
-    body: string,
-    buttons: readonly ReplyButton[],
+    message: Record<string, unknown>,
   ): Promise<SendOutcome> {
     let response: Response;
     try {
@@ -121,7 +149,7 @@ export class GraphWhatsAppClient {
             Authorization: `Bearer ${line.accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(messagePayload(to, body, buttons)),
+          body: JSON.stringify(message),
           signal: AbortSignal.timeout(this.options.timeoutMs),
         },
       );

@@ -10,6 +10,18 @@ export interface SendOptions {
   buttons?: readonly ReplyButton[];
 }
 
+/**
+ * An approved message template with its values already placed: Meta's
+ * `template` object (`components` holds the header, body and button
+ * parameters, empty when the template has no variables).
+ */
+export interface TemplateMessage {
+  name: string;
+  /** Language code, e.g. "es_AR". */
+  language: string;
+  components: readonly Record<string, unknown>[];
+}
+
 /** Sends WhatsApp messages from one line. Never throws. */
 export interface WhatsAppClient {
   sendText(
@@ -17,6 +29,11 @@ export interface WhatsAppClient {
     body: string,
     options?: SendOptions,
   ): Promise<SendOutcome>;
+  /**
+   * Sends an approved template (allowed with the 24 h window closed).
+   * Optional: clients that only send text (or test doubles) leave it out.
+   */
+  sendTemplate?(to: string, template: TemplateMessage): Promise<SendOutcome>;
   /**
    * Marks an inbound message as read (best effort: false on any failure).
    * Optional: clients that cannot send (or test doubles) leave it out.

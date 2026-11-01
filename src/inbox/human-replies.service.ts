@@ -20,7 +20,9 @@ import { metaErrorKind } from '../whatsapp/meta-errors.js';
 import {
   maskPhone,
   WHATSAPP_CLIENT_FACTORY,
+  type ReplyButton,
   type SendOutcome,
+  type TemplateMessage,
   type WhatsAppClient,
   type WhatsAppClientFactory,
 } from '../whatsapp/whatsapp.client.js';
@@ -61,7 +63,14 @@ const UNCERTAIN_DETAIL =
   'Meta may or may not have accepted the message. It is NOT resent automatically: check the chat on the phone before sending it again.';
 
 const WINDOW_CLOSED_MESSAGE =
-  'The 24h customer service window is closed (the user has not written in the last 24 hours). WhatsApp only allows approved message templates outside the window, and this API does not send templates. Wait until the user writes again.';
+  'The 24h customer service window is closed (the user has not written in the last 24 hours). WhatsApp only allows approved message templates outside the window: send one from the inbox (POST .../conversations/:id/templates) or wait until the user writes again.';
+
+/** A template to send instead of free text (window not required). */
+export interface OutboundTemplate {
+  message: TemplateMessage;
+  /** Its quick reply buttons, kept on the message for the thread. */
+  buttons: ReplyButton[];
+}
 
 export interface ReplyConversation {
   id: string;
@@ -82,8 +91,9 @@ export function windowOpen(
 }
 
 /**
- * A text written by a person, sent now (admin API and inbox). The window is
- * checked before calling Meta (409 `WINDOW_CLOSED`). At most once: the row
+ * A text written by a person, sent now (admin API and inbox), or an approved
+ * template with its values (inbox). For text the window is checked before
+ * calling Meta (409 `WINDOW_CLOSED`); a template does not need it. At most once: the row
  * goes QUEUED → SENDING → SENT / FAILED / UNCERTAIN and an uncertain send
  * is never retried; the same idempotency key never sends twice. Meta's
  * 131047 (window closed) moves the conversation's window to now. With an
@@ -105,13 +115,15 @@ export class HumanRepliesService {
     text: string;
     idempotencyKey: string;
     author?: SessionUser;
+    /** Sends this template; `text` is its rendered text for the thread. */
+    template?: OutboundTemplate;
   }): Promise<HumanReplyResult> {
-    const { conversation, text, idempotencyKey: key, author } = input;
-    const previous = await this.findByKey(key);
+    const { conversation, text, idempotencyKey: key, author, template } = input;
+    const previous = await this.replayOf(key, conversation.id);
     if (previous) {
-      return replayed(previous, conversation.id);
+      return previous;
     }
-    if (!windowOpen(conversation)) {
+    if (!template && !windowOpen(conversation)) {
       throw new ConflictException({
         message: WINDOW_CLOSED_MESSAGE,
         code: 'WINDOW_CLOSED',
@@ -154,6 +166,11 @@ export class HumanRepliesService {
             status: MessageStatus.QUEUED,
             author: MessageAuthor.HUMAN,
             idempotencyKey: key,
+            ...(template?.buttons.length
+              ? {
+                  buttons: template.buttons as unknown as Prisma.InputJsonValue,
+                }
+              : {}),
           },
         });
         await recordOutboundActivity(tx, conversation.id, text);
@@ -170,11 +187,23 @@ export class HumanRepliesService {
       throw error;
     }
 
-    const result = await this.deliver(row, client, recipient);
+    const result = await this.deliver(row, client, recipient, template);
     this.logger.log(
       `Human reply ${row.id} to ${maskPhone(recipient)}: ${result.outcome}`,
     );
     return result;
+  }
+
+  /**
+   * The earlier result of this idempotency key, or null when it is new
+   * (409 when it was used for another conversation).
+   */
+  async replayOf(
+    idempotencyKey: string,
+    conversationId: string,
+  ): Promise<HumanReplyResult | null> {
+    const previous = await this.findByKey(idempotencyKey);
+    return previous ? replayed(previous, conversationId) : null;
   }
 
   /** Under the row lock: take it when nobody has it; 409 when someone else does. */
@@ -210,6 +239,7 @@ export class HumanRepliesService {
     row: Message,
     client: WhatsAppClient,
     waId: string,
+    template: OutboundTemplate | undefined,
   ): Promise<HumanReplyResult> {
     const { count } = await this.prisma.message.updateMany({
       where: { id: row.id, status: MessageStatus.QUEUED },
@@ -221,7 +251,9 @@ export class HumanRepliesService {
 
     let outcome: SendOutcome;
     try {
-      outcome = await client.sendText(waId, row.content);
+      outcome = template
+        ? await sendTemplate(client, waId, template.message)
+        : await client.sendText(waId, row.content);
     } catch {
       // The port should never throw; if it does, the request may have left.
       outcome = { kind: 'uncertain', reason: 'client threw' };
@@ -293,6 +325,23 @@ export class HumanRepliesService {
       }
     });
   }
+}
+
+function sendTemplate(
+  client: WhatsAppClient,
+  waId: string,
+  message: TemplateMessage,
+): Promise<SendOutcome> {
+  if (!client.sendTemplate) {
+    return Promise.resolve({
+      kind: 'rejected',
+      code: 'templates_unsupported',
+      httpStatus: null,
+      message: 'this client cannot send templates',
+      retryable: false,
+    });
+  }
+  return client.sendTemplate(waId, message);
 }
 
 function replayed(message: Message, conversationId: string): HumanReplyResult {

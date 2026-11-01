@@ -408,7 +408,8 @@ no llega ningún mensaje.
 2. Desde ese WhatsApp, **escribile primero al número de prueba**. Eso abre la
    ventana de atención de 24 horas.
 3. Fuera de esa ventana el bot no puede responder con texto libre (solo con
-   plantillas aprobadas, que este proyecto no envía).
+   plantillas aprobadas, que una persona puede mandar desde la bandeja; ver
+   "Plantillas").
 
 ### 11. Validar primero el modo echo
 
@@ -720,12 +721,32 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | `GET .../conversations/<id>/messages?before=&after=` | Mensajes de a 50, del más viejo al más nuevo, paginados por `seq` (orden de inserción, viene como texto). Sin parámetros, los últimos; `before=<seq>`, los anteriores; `after=<seq>`, los nuevos. Incluye los mensajes de sistema (`type: "SYSTEM"`). Cada mensaje trae `media` (o `null` si es texto): `{ kind, mime, filename, caption, voice, transcript, error, url }`, donde `url` es un link firmado al proxy de abajo (`null` para una ubicación). |
 | `GET .../media/<messageId>?exp=&sig=` | El archivo del adjunto, traído de Meta en el momento. **No pide sesión**: el control es la firma (HMAC con `MEDIA_URL_SECRET` sobre negocio, mensaje y vencimiento). El link es el mismo durante cada media hora y dura entre 60 y 90 minutos. Acepta `Range` (responde `206`, para reproducir audio en iPhone). Solo se muestran en el navegador audios, JPG, PNG, WebP, PDF y MP4; el resto se descarga. Firma mala o vencida, `403`; mensaje de otro negocio, `404`; Meta ya lo borró, `410`. |
 | `POST .../conversations/<id>/messages` | Body `{ "body", "clientId" }` (`clientId`: un UUID que genera la web por mensaje; reintentar con el mismo no manda dos veces). Revisa la ventana de 24 h **antes** de llamar a Meta: cerrada, `409` con `code: "WINDOW_CLOSED"`. Si nadie la tiene asignada, la toma quien responde; si la tiene otra persona, `409` con `code: "ALREADY_TAKEN"`. `200` enviado (o repetido), `202` incierto (no se reintenta), `502` rechazado por Meta (si Meta dice que la ventana está cerrada, `windowExpiresAt` pasa a ahora). |
+| `POST .../conversations/<id>/templates` | Body `{ "templateId", "values": [...], "clientId" }`: una plantilla aprobada, **también con la ventana cerrada**. `values` va uno por variable, en el orden de `variables` de `GET .../templates`. Antes de llamar a Meta: plantilla de otro negocio, `404`; no aprobada o borrada en Meta, `409` `TEMPLATE_NOT_APPROVED`; de otra cuenta de WhatsApp que la línea de la conversación, `409` `TEMPLATE_OTHER_ACCOUNT`; con encabezado de imagen, video o documento, botones especiales o de autenticación, `409` `TEMPLATE_UNSUPPORTED`; falta un valor (o tiene saltos de línea, tabs o más de 4 espacios seguidos), `400` `TEMPLATE_VALUES` con `missing`. El hilo guarda el texto ya completado y sus botones de respuesta rápida. Mismas reglas que una respuesta para `clientId`, la toma de la conversación y los estados `200`/`202`/`502`. |
+| `GET .../templates?lineId=` | Las plantillas del negocio según la última sincronización (las de las cuentas de sus líneas activas, o solo la de `lineId`), sin las borradas en Meta: `{ syncedAt, syncError, templates }`. Cada una trae `name`, `language`, `category`, `status`, `header`, `body`, `footer`, `buttons`, `variables` (`{ key, component, name, example }`), `sendable` y, si no se puede mandar desde la bandeja, `unsupportedReason`. |
+| `POST .../templates/sync` | Lee ya las plantillas de Meta (ver "Plantillas"). Devuelve `{ syncedAt, accounts: [{ wabaId, synced, deleted, error }] }`; `409` `NO_WHATSAPP_ACCOUNT` si ninguna línea activa tiene `wabaId` y token. |
 | `POST .../conversations/<id>/read` | Deja `unreadCount` en 0 y marca leído en WhatsApp el último entrante (si eso falla, se ignora). |
 | `GET .../lines` | Las líneas del negocio (`id`, `phoneNumberId`, `displayPhone`, `active`), nunca sus credenciales. |
 | `POST .../conversations/<id>/take` | Body `{ "force"?: true }`. La toma quien la pide (pasa a `OPEN`). `409` con `code: "ALREADY_TAKEN"` si la tiene otra persona, salvo `force`, que solo puede usar un `OWNER` (si no, `403`). |
 | `POST .../conversations/<id>/release` | La suelta: queda sin asignar y el bot sigue callado. Solo quien la tiene o un `OWNER` (si no, `409`). |
 | `POST .../conversations/<id>/handback` | "Devolver al bot": sin asignar, el bot vuelve a responder y pasa a `OPEN`. |
 | `POST .../conversations/<id>/resolve` | La resuelve (`RESOLVED`): sin asignar y con el bot activo; un mensaje nuevo del usuario la vuelve a abrir. |
+
+### Plantillas
+
+Las plantillas se crean y se aprueban en Meta (WhatsApp Manager de la cuenta
+del negocio); Bottega solo las lee. Para cada cuenta de WhatsApp Business de
+las líneas activas (`wabaId` + token de la línea) se pide
+`GET /{waba_id}/message_templates` con todas sus páginas. Las que Meta ya no
+devuelve quedan con `deletedAt` (no se borran) y vuelven si reaparecen. Si
+Meta falla, las filas de esa cuenta no cambian y el código queda en
+`templatesSyncError` del negocio (por ejemplo `meta_190`, token vencido). El
+token necesita el permiso `whatsapp_business_management` además de
+`whatsapp_business_messaging`.
+
+Corre una vez por día por negocio en el proceso del worker
+(`WORKER_ENABLED`), y a mano con `POST .../templates/sync`. La línea por
+defecto que se carga desde el `.env` no tiene `wabaId`: hay que cargarlo por
+la API de admin para usar plantillas.
 
 Cada acción devuelve `{ id, status, assignedTo, paused, version }` y deja un
 mensaje de sistema en el hilo ("Ana tomó la conversación"), que nunca se manda
@@ -888,7 +909,8 @@ curl -s -X POST -H "$H" -H 'Content-Type: application/json' \
 
 - Solo funciona **dentro de la ventana de 24 h** (el usuario escribió en las
   últimas 24 horas). Si no, responde `409`: fuera de la ventana WhatsApp exige
-  plantillas aprobadas y esta API no las envía.
+  plantillas aprobadas, que se mandan desde la bandeja
+  (`POST /inbox/.../conversations/<id>/templates`), no desde esta API.
 - Texto de 1 a 4096 caracteres. **No reanuda el bot**: para eso, usá `resume`.
 - `Idempotency-Key` (opcional): si repetís el mismo pedido con la misma clave,
   no se envía de nuevo y la respuesta es `"outcome": "replayed"`.

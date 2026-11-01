@@ -364,4 +364,71 @@ describe('GraphWhatsAppClient', () => {
       });
     });
   });
+
+  describe('sendTemplate', () => {
+    it('sends a template message with its language and components', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { messages: [{ id: 'wamid.tpl' }] }),
+      );
+      const components = [
+        { type: 'body', parameters: [{ type: 'text', text: 'Ana' }] },
+      ];
+
+      const outcome = await client.sendTemplate(LINE, TO, {
+        name: 'recordatorio',
+        language: 'es_AR',
+        components,
+      });
+
+      expect(outcome).toEqual({ kind: 'sent', waMessageId: 'wamid.tpl' });
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe('https://graph.facebook.com/v26.0/123/messages');
+      expect(JSON.parse(init?.body as string)).toEqual({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: TO,
+        type: 'template',
+        template: {
+          name: 'recordatorio',
+          language: { code: 'es_AR' },
+          components,
+        },
+      });
+    });
+
+    it('leaves components out for a template without variables', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { messages: [{ id: 'wamid.tpl' }] }),
+      );
+
+      await client.sendTemplate(LINE, TO, {
+        name: 'hola',
+        language: 'es',
+        components: [],
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string) as {
+        template: unknown;
+      };
+      expect(body.template).toEqual({ name: 'hola', language: { code: 'es' } });
+    });
+
+    it('classifies a Meta rejection like a text send', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(400, { error: { code: 132001, message: 'no template' } }),
+      );
+
+      const outcome = await client.sendTemplate(LINE, TO, {
+        name: 'x',
+        language: 'es',
+        components: [],
+      });
+
+      expect(outcome).toMatchObject({
+        kind: 'rejected',
+        code: 132001,
+        retryable: false,
+      });
+    });
+  });
 });
