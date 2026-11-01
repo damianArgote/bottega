@@ -1147,6 +1147,36 @@ cambio queda en el log con quién lo hizo):
 
 Una suscripción o clave de otro negocio responde `404`.
 
+### Acciones propias
+
+Lo que Bottega no tiene (consultar stock en la tienda del negocio, reservar en
+su Google Calendar, cargar un pedido en su sistema) se hace con una acción:
+una herramienta más del agente que resuelve un flujo de n8n (u otro servicio
+del negocio). Las da de alta el equipo; el dueño las ve en el backoffice
+(`GET /inbox/businesses/<businessId>/settings/actions`) pero no las edita.
+
+| Ruta (`/admin/...` o `/staff/...`, como arriba) | Qué hace |
+| ---- | -------- |
+| `GET .../actions` | Las acciones del negocio. Nunca el secreto. |
+| `POST .../actions` | Body `{ "name", "description", "parameters"?, "url", "kind", "timeoutMs"?, "active"? }`. Devuelve el `secret` (`whsec_...`) **solo esta vez**. `409 ACTION_NAME_TAKEN` si el negocio ya tiene ese nombre. |
+| `PATCH .../actions/<id>` | Body con lo que cambia (no el nombre). |
+| `POST .../actions/<id>/rotate-secret` | Secreto nuevo, solo esta vez. |
+| `POST .../actions/<id>/test` | "Probar": body `{ "arguments": {...} }` (validados con sus parámetros); la llama una vez con `"test": true` y responde `{ ok, status, reply, data }` o `{ ok: false, status, error }`. |
+| `DELETE .../actions/<id>` | La borra. |
+
+- `name`: snake_case, único por negocio, distinto de las herramientas propias
+  del bot (`save_lead`, `search_catalog`, ...). Es el nombre que ve el modelo.
+- `description`: para el modelo; es información del negocio, no instrucciones.
+- `parameters`: `{ "properties": { "<nombre>": {...} }, "required": [...] }`,
+  hasta 8. Cada uno es `{ "type": "string", "maxLength": 1-500 }`,
+  `{ "type": "string", "enum": [...] }`, `{ "type": "number" | "integer",
+  "minimum"?, "maximum"? }` o `{ "type": "boolean" }`, con `description`
+  opcional.
+- `kind`: `query` (devuelve datos para la respuesta) o `effect` (hace algo en
+  el sistema del negocio; se ejecuta como mucho una vez por llamada del
+  agente).
+- `timeoutMs`: de 500 a 10000 (5000 si no se manda).
+
 ---
 
 ## Editar contenido

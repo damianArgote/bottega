@@ -184,6 +184,8 @@ model Business {
   templates            Template[]
   webhookSubscriptions WebhookSubscription[]
   integrationKeys      IntegrationKey[]
+  agentActions         AgentAction[]
+  agentActionCalls     AgentActionCall[]
 
   @@map("business")
 }
@@ -503,9 +505,9 @@ model ProcessingJob {
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message      Message?     @relation("JobMessage", fields: [messageId], references: [id], onDelete: Cascade)
-  pushMessage  Message?     @relation("PushMessage", fields: [pushMessageId], references: [id], onDelete: Cascade)
+  conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message?         @relation("JobMessage", fields: [messageId], references: [id], onDelete: Cascade)
+  pushMessage  Message?         @relation("PushMessage", fields: [pushMessageId], references: [id], onDelete: Cascade)
   delivery     WebhookDelivery? @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
 
   @@index([status, runAfter])
@@ -858,4 +860,77 @@ model IntegrationKey {
 
   @@index([businessId])
   @@map("integration_key")
+}
+
+/// What a business action does: QUERY returns data for the reply; EFFECT
+/// changes something in the business's system (called at most once per key).
+enum AgentActionKind {
+  QUERY
+  EFFECT
+
+  @@map("agent_action_kind")
+}
+
+/// A tool the business adds to its agent, resolved by n8n or its own
+/// service (prompt 07b). Only staff and the admin API create them.
+model AgentAction {
+  id              String          @id @default(uuid()) @db.Uuid
+  businessId      String          @map("business_id") @db.Uuid
+  /// snake_case, unique per business; the tool name the model sees.
+  name            String
+  /// For the model: information from the business, never instructions.
+  description     String
+  /// The arguments (a JSON Schema subset; see action-parameters.ts).
+  parameters      Json
+  /// https only; never called on a non-public address.
+  url             String
+  /// HMAC-SHA256 secret, encrypted with TOKEN_ENCRYPTION_KEY; shown once.
+  secretEncrypted String          @map("secret_encrypted")
+  kind            AgentActionKind
+  /// Up to 10 s.
+  timeoutMs       Int             @default(5000) @map("timeout_ms")
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  calls    AgentActionCall[]
+
+  @@unique([businessId, name])
+  @@map("agent_action")
+}
+
+enum AgentActionCallStatus {
+  /// Sent and not answered yet (or the worker died meanwhile).
+  PENDING
+  SUCCEEDED
+  FAILED
+
+  @@map("agent_action_call_status")
+}
+
+/// One call to a business action. For EFFECT actions the unique key is what
+/// keeps a retried job from calling it again; `result` (the parsed answer)
+/// is replayed instead. Never stores the arguments.
+model AgentActionCall {
+  id             String                @id @default(uuid()) @db.Uuid
+  businessId     String                @map("business_id") @db.Uuid
+  actionId       String                @map("action_id") @db.Uuid
+  conversationId String?               @map("conversation_id") @db.Uuid
+  idempotencyKey String                @map("idempotency_key")
+  status         AgentActionCallStatus @default(PENDING)
+  /// Static failure label (http_500, timeout, invalid_response...).
+  error          String?
+  responseStatus Int?                  @map("response_status")
+  /// `{ reply?, data? }` of a successful EFFECT call (replayed on retries).
+  result         Json?
+  createdAt      DateTime              @default(now()) @map("created_at")
+  finishedAt     DateTime?             @map("finished_at")
+
+  business Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  action   AgentAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, idempotencyKey])
+  @@index([businessId, createdAt])
+  @@map("agent_action_call")
 }

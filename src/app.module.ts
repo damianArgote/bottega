@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module.js';
 import { InboxModule } from './inbox/inbox.module.js';
+import { ActionsModule } from './actions/actions.module.js';
 import { IntegrationsModule } from './integrations/integrations.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { StaffModule } from './staff/staff.module.js';
@@ -30,6 +31,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module.js';
     SettingsModule,
     StaffModule,
     IntegrationsModule,
+    ActionsModule,
   ],
 })
 export class AppModule {}
