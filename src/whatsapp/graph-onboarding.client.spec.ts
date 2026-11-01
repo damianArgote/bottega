@@ -85,6 +85,41 @@ describe('GraphOnboardingClient.messageTemplates', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('follows a next link of another Graph API version', async () => {
+    const next =
+      'https://graph.facebook.com/v27.0/waba1/message_templates?after=abc';
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, { data: [template('a')], paging: { next } }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { data: [template('b')] }));
+
+    const result = await client.messageTemplates('waba1', TOKEN);
+
+    expect(result).toEqual({
+      ok: true,
+      data: [template('a'), template('b')],
+    });
+    expect(fetchMock.mock.calls[1]![0]).toBe(next);
+  });
+
+  it.each([
+    'https://graph.facebook.com.evil.example/v26.0/x',
+    'https://graph.facebook.com@evil.example/v26.0/x',
+    'http://graph.facebook.com/v26.0/x',
+    'https://evil.example/https://graph.facebook.com/v26.0/x',
+    'not a url',
+  ])('never follows %s with the token', async (next) => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { data: [], paging: { next } }),
+    );
+
+    const result = await client.messageTemplates('waba1', TOKEN);
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'bad_paging' } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('skips entries without a name or language', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, { data: [{ id: '1' }, template('a')] }),

@@ -178,8 +178,8 @@ export class GraphOnboardingClient {
    * Every message template of a WhatsApp Business account
    * (`GET /{waba-id}/message_templates`), following `paging.next`. Fails as a
    * whole when any page fails, so a partial list is never taken for the
-   * full one. A `next` link outside the Graph API is not followed (the
-   * token only goes to Meta).
+   * full one. A `next` link outside the Graph API's origin is not followed
+   * (the token only goes to Meta); one with another API version is.
    */
   async messageTemplates(
     wabaId: string,
@@ -208,13 +208,32 @@ export class GraphOnboardingClient {
       const next = (result.data['paging'] as Json | undefined)?.['next'];
       if (typeof next !== 'string') {
         url = null;
-      } else if (next.startsWith(`${this.baseUrl}/`)) {
+      } else if (this.isGraphUrl(next)) {
         url = next;
       } else {
         return failure('bad_paging', 'paging.next is not a Graph API link');
       }
     }
     return { ok: true, data: templates };
+  }
+
+  /**
+   * Same scheme, host and port as the Graph API, without credentials in
+   * the URL: only then the token may go there. The version may differ
+   * (Meta may answer with a newer one).
+   */
+  private isGraphUrl(value: string): boolean {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+    return (
+      url.origin === new URL(this.baseUrl).origin &&
+      url.username === '' &&
+      url.password === ''
+    );
   }
 
   private request(
