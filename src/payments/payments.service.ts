@@ -287,6 +287,18 @@ export class PaymentsService {
       return 'unchanged';
     }
     if (
+      payment.status === PaymentStatus.APPROVED &&
+      payment.providerPaymentId === null
+    ) {
+      // A person marked it paid before this arrived: the same payment, not a
+      // second one. Only its provider id is recorded (no new event).
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: { providerPaymentId },
+      });
+      return 'unchanged';
+    }
+    if (
       payment.status === PaymentStatus.APPROVED ||
       payment.status === PaymentStatus.REVIEW
     ) {

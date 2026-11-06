@@ -347,6 +347,33 @@ describe('Payments: charges and Mercado Pago notifications (integration)', () =>
     });
   });
 
+  it('the provider payment of a charge a person already marked paid is recorded, not taken as paid twice', async () => {
+    const { payment } = await charge();
+    const user = await prisma.user.create({
+      data: { email: 'ana@example.com', name: 'Ana', passwordHash: 'x' },
+    });
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: 'APPROVED',
+        approvedBy: 'USER',
+        approvedByUserId: user.id,
+        approvedAt: new Date(),
+      },
+    });
+    remote = { status: 'approved', amount: 5000, reference: payment.id };
+
+    await notify().expect(200);
+
+    expect(await stored(payment.id)).toMatchObject({
+      status: 'APPROVED',
+      approvedBy: 'USER',
+      providerPaymentId: MP_PAYMENT,
+    });
+    expect(await prisma.handoffRequest.count()).toBe(0);
+    expect(await deliveries('payment.approved')).toBe(0);
+  });
+
   it('a second approved payment of the same charge goes to a person and changes nothing', async () => {
     const { payment } = await charge();
     remote = { status: 'approved', amount: 5000, reference: payment.id };
