@@ -8,6 +8,7 @@ import {
   StaffPaymentAccountsController,
 } from './payment-accounts.controllers.js';
 import { PaymentAccountsService } from './payment-accounts.service.js';
+import { PaymentExpiryScheduler } from './payment-expiry.scheduler.js';
 import { PaymentWebhookController } from './payment-webhook.controller.js';
 import { PaymentsService } from './payments.service.js';
 import {
@@ -30,6 +31,7 @@ import { TransferProvider } from './providers/transfer.provider.js';
   providers: [
     PaymentAccountsService,
     PaymentsService,
+    PaymentExpiryScheduler,
     MercadoPagoProvider,
     TransferProvider,
     AdminApiKeyGuard,

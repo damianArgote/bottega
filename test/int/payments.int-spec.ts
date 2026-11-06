@@ -9,14 +9,11 @@ import { AppConfigService } from '../../src/config/app-config.service.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import { LineCredentialsService } from '../../src/lines/line-credentials.service.js';
 import { PaymentAccountsService } from '../../src/payments/payment-accounts.service.js';
+import { PaymentExpiryScheduler } from '../../src/payments/payment-expiry.scheduler.js';
 import { PaymentsService } from '../../src/payments/payments.service.js';
 import { PAYMENT_FETCH } from '../../src/payments/providers/mercadopago.provider.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
-import {
-  createLine,
-    resetDb,
-  textEvent,
-} from './helpers.js';
+import { createLine, resetDb, textEvent } from './helpers.js';
 
 const BASE_URL = 'https://api.bottega.example';
 const SECRET = 'mp-webhook-secret-abcdef';
@@ -116,7 +113,7 @@ describe('Payments: charges and Mercado Pago notifications (integration)', () =>
         businessId,
         url: 'https://n8n.example.com/hook',
         secretEncrypted: app.get(LineCredentialsService).encrypt('whsec_x'),
-        events: ['payment.approved', 'payment.review'],
+        events: ['payment.approved', 'payment.review', 'payment.expired'],
       },
     });
   });
@@ -366,6 +363,54 @@ describe('Payments: charges and Mercado Pago notifications (integration)', () =>
       }),
     ).toBe(1);
     expect(await deliveries('payment.approved')).toBe(1);
+  });
+
+  describe('expiry', () => {
+    const expire = (id: string) =>
+      prisma.payment.update({
+        where: { id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+
+    it('expires a due pending payment once, with payment.expired', async () => {
+      const due = (await charge()).payment;
+      const later = (await charge(7000)).payment;
+      const paid = (await charge(9000)).payment;
+      await expire(due.id);
+      await expire(paid.id);
+      await prisma.payment.update({
+        where: { id: paid.id },
+        data: { status: 'APPROVED' },
+      });
+      const scheduler = app.get(PaymentExpiryScheduler);
+
+      expect(await scheduler.runDue()).toBe(1);
+      expect(await scheduler.runDue()).toBe(0);
+
+      expect((await stored(due.id)).status).toBe('EXPIRED');
+      expect((await stored(later.id)).status).toBe('PENDING');
+      expect((await stored(paid.id)).status).toBe('APPROVED');
+      expect(await deliveries('payment.expired')).toBe(1);
+      const delay = await scheduler.nextDelay();
+      expect(delay).toBeGreaterThan(23 * 60 * 60_000);
+    });
+
+    it('a payment already marked expired goes to review, even if paid in time (what it paid may be gone)', async () => {
+      const { payment } = await charge();
+      await expire(payment.id);
+      await app.get(PaymentExpiryScheduler).runDue();
+      remote = {
+        status: 'approved',
+        amount: 5000,
+        reference: payment.id,
+        approved: new Date(Date.now() - 120_000).toISOString(),
+      };
+
+      await notify().expect(200);
+
+      expect((await stored(payment.id)).status).toBe('REVIEW');
+      expect(await deliveries('payment.review')).toBe(1);
+    });
   });
 
   it('without an active default account it is 409 NO_PAYMENT_ACCOUNT', async () => {

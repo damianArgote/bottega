@@ -94,6 +94,7 @@ export function formatArs(amount: number): string {
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
   private readonly providers: Record<PaymentProviderKind, PaymentProvider>;
+  private created: ((expiresAt: Date) => void) | undefined;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -107,6 +108,11 @@ export class PaymentsService {
       [PaymentProviderKind.mercadopago]: mercadoPago,
       [PaymentProviderKind.transfer]: transfer,
     };
+  }
+
+  /** Called with each new charge's expiry (the expiry scheduler). */
+  onCreated(listener: (expiresAt: Date) => void): void {
+    this.created = listener;
   }
 
   /**
@@ -149,6 +155,7 @@ export class PaymentsService {
       account,
       expiresAt,
     });
+    this.created?.(payment.expiresAt);
     // Created before this request (same key): its own account and link.
     const paymentAccount =
       payment.accountId === account.id
