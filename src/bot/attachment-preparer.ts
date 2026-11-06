@@ -99,6 +99,8 @@ export class AttachmentPreparer {
     inbound: Message,
     conversation: Conversation,
     isLastAttempt: boolean,
+    /** Attachments read earlier in this burst: not PROCESSED yet, so not counted. */
+    readInTurn = 0,
   ): Promise<PreparedAttachment | null> {
     if (inbound.type === MessageType.TEXT) {
       return null;
@@ -154,7 +156,7 @@ export class AttachmentPreparer {
       throw new JobError('conversation_missing', false);
     }
     if (
-      (await this.processedToday(conversation.id, inbound.id)) >=
+      (await this.processedToday(conversation.id, inbound.id)) + readInTurn >=
       caps.mediaDailyCap
     ) {
       return this.fail(inbound, 'daily_cap');

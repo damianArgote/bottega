@@ -112,3 +112,68 @@ describe('Idle worker wake-up (integration)', () => {
     );
   });
 });
+
+describe('Background worker with a debounce (integration)', () => {
+  const sendText = vi.fn<(to: string, body: string) => Promise<SendOutcome>>();
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(AppConfigService)
+      .useValue(
+        testConfig({
+          WORKER_ENABLED: true,
+          QUEUE_POLL_INTERVAL_MS: 100,
+          QUEUE_IDLE_POLL_INTERVAL_MS: 600_000,
+          INBOUND_DEBOUNCE_MS: 1_000,
+        }),
+      )
+      .overrideProvider(WHATSAPP_CLIENT_FACTORY)
+      .useValue(fixedClientFactory({ sendText }))
+      .compile();
+    prisma = moduleRef.get(PrismaService);
+    await resetDb(prisma);
+    app = moduleRef.createNestApplication({ rawBody: true, logger: false });
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const receive = async (id: string, body: string) => {
+    const raw = textWebhook(id, body);
+    await request(app.getHttpServer())
+      .post('/webhooks/whatsapp')
+      .set('Content-Type', 'application/json')
+      .set('X-Hub-Signature-256', sign(raw))
+      .send(raw)
+      .expect(200);
+  };
+
+  it('wakes by itself when the moved wait ends and answers the burst once', async () => {
+    sendText.mockResolvedValue({ kind: 'sent', waMessageId: 'wamid.out' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    await receive('wamid.in.burst.1', 'hola');
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await receive('wamid.in.burst.2', 'quiero precio');
+    // Past the first message's wait: it restarted with the second one.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(sendText).not.toHaveBeenCalled();
+
+    await vi.waitFor(
+      async () => {
+        const job = await prisma.processingJob.findFirstOrThrow();
+        expect(job.status).toBe('COMPLETED');
+      },
+      { timeout: 3_000, interval: 20 },
+    );
+    expect(sendText).toHaveBeenCalledExactlyOnceWith(
+      USER,
+      'Hola! Soy BotSuite46 🤖 Recibí tu mensaje: "hola\nquiero precio"',
+    );
+    expect(await prisma.processingJob.count()).toBe(1);
+  });
+});

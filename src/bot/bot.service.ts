@@ -17,7 +17,7 @@ import {
   Prisma,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { InboundJob } from '../queue/queue.service.js';
+import { QueueService, type InboundJob } from '../queue/queue.service.js';
 import {
   maskPhone,
   WHATSAPP_CLIENT_FACTORY,
@@ -29,7 +29,11 @@ import { AttachmentPreparer } from './attachment-preparer.js';
 import { CommandService } from './command.service.js';
 import { matchCommand } from './commands.js';
 import { JobError } from './job-error.js';
-import { REPLY_GENERATOR, type ReplyGenerator } from './reply-generator.js';
+import {
+  REPLY_GENERATOR,
+  type ReplyGenerator,
+  type ReplyMessage,
+} from './reply-generator.js';
 import {
   ToolEffectsService,
   type GeneratedOutcome,
@@ -55,12 +59,13 @@ const SETTLED: ReadonlySet<MessageStatus> = new Set([
 ]);
 
 /**
- * Processes one inbound-message job in two phases:
+ * Processes one inbound-message job (its message and the ones that joined it,
+ * see ConversationsService.joinPendingJob) in two phases:
  *
  * 1. Generate: apply a deterministic command or call the reply generator,
  *    and persist the replies as QUEUED outbound messages (idempotency key
  *    `${jobId}:${index}`) in the same transaction that marks the inbound
- *    message PROCESSED (and applies the command's transition or the tool
+ *    messages PROCESSED (and applies the command's transition or the tool
  *    effects). That status is the phase marker: a retried job never
  *    generates, transitions or applies effects again.
  * 2. Send: deliver the QUEUED rows in order. Sending is at-most-once: a row
@@ -68,6 +73,9 @@ const SETTLED: ReadonlySet<MessageStatus> = new Set([
  *    the start of a run (crash mid-send) or with an uncertain outcome is
  *    marked UNCERTAIN and never resent.
  */
+/** A prepared attachment the turn really read (they count for the daily cap). */
+const READ_KINDS: ReadonlySet<string> = new Set(['audio', 'image', 'document']);
+
 /** Never used to send: only QUEUED rows are sent, and there are none. */
 const NO_SEND_CLIENT: WhatsAppClient = {
   sendText: () => Promise.reject(new Error('no QUEUED row to send')),
@@ -86,6 +94,7 @@ export class BotService {
     private readonly commands: CommandService,
     private readonly effects: ToolEffectsService,
     private readonly attachments: AttachmentPreparer,
+    private readonly queue: QueueService,
   ) {}
 
   async process(job: InboundJob): Promise<ProcessResult> {
@@ -105,7 +114,18 @@ export class BotService {
     // The PROCESSED status is the phase marker: once set, a retried job only
     // sends what was persisted, never re-generating or re-applying a command.
     if (inbound.status === MessageStatus.RECEIVED) {
-      const phase = await this.generateReplies(job, inbound, conversation);
+      // Messages only join a job before it first runs, so a retry reads the
+      // same burst. A command is always alone.
+      const grouped = await this.prisma.message.findMany({
+        where: { batchJobId: job.id, status: MessageStatus.RECEIVED },
+        orderBy: { seq: 'asc' },
+      });
+      const phase = await this.generateReplies(
+        job,
+        inbound,
+        grouped,
+        conversation,
+      );
       if (phase === 'skipped') {
         this.logger.log(
           `Job ${job.id}: a person attends the conversation (or the bot is paused), no reply to ${to}`,
@@ -138,16 +158,17 @@ export class BotService {
   /**
    * Phase 1. A text that is exactly a command applies its transition
    * (CommandService) and stores its fixed reply; anything else goes to the
-   * reply generator, whose planned tool effects (lead, demo request,
-   * handoff) are applied here (ToolEffectsService). Either way the replies,
-   * the transition or effects and the inbound PROCESSED marker commit in one
-   * transaction. A conversation a person attends (assigned) or with the bot
+   * reply generator, once for the message and the ones `grouped` with it,
+   * whose planned tool effects (lead, demo request, handoff) are applied here
+   * (ToolEffectsService). Either way the replies, the transition or effects
+   * and the PROCESSED marker of every message commit in one transaction. A conversation a person attends (assigned) or with the bot
    * paused (also re-checked under the row lock) stores the message with no
    * reply and runs no command.
    */
   private async generateReplies(
     job: InboundJob,
     inbound: Message,
+    grouped: readonly Message[],
     conversation: Conversation,
   ): Promise<'skipped' | 'done'> {
     const command =
@@ -156,9 +177,35 @@ export class BotService {
     const isLastAttempt = job.attempts >= job.maxAttempts;
     // Before anything else: an audio is transcribed even when the bot will
     // not answer, so the inbox shows it (stored at once, never redone).
-    const attachment = command
-      ? null
-      : await this.attachments.prepare(inbound, conversation, isLastAttempt);
+    const turn: ReplyMessage[] = [];
+    if (!command) {
+      let attachmentSeen = false;
+      let readInTurn = 0;
+      for (const message of [inbound, ...grouped]) {
+        if (message.type !== MessageType.TEXT) {
+          // QUEUE_LEASE_MS covers the worst case of one attachment.
+          if (attachmentSeen && !(await this.queue.extendLease(job))) {
+            throw new JobError('lease_lost', true);
+          }
+          attachmentSeen = true;
+        }
+        const attachment = await this.attachments.prepare(
+          message,
+          conversation,
+          isLastAttempt,
+          readInTurn,
+        );
+        if (attachment && READ_KINDS.has(attachment.kind)) {
+          readInTurn += 1;
+        }
+        turn.push({
+          id: message.id,
+          type: message.type,
+          content: message.content,
+          ...(attachment ? { attachment } : {}),
+        });
+      }
+    }
 
     let generated: GeneratedOutcome | null = null;
     if (botMayReply(conversation) && !command) {
@@ -170,12 +217,8 @@ export class BotService {
         conversationId: conversation.id,
         mode: conversation.mode,
         contextId,
-        message: {
-          id: inbound.id,
-          type: inbound.type,
-          content: inbound.content,
-          ...(attachment ? { attachment } : {}),
-        },
+        message: turn[0]!,
+        ...(turn.length > 1 ? { grouped: turn.slice(1) } : {}),
         isLastAttempt,
       });
       generated = {
@@ -190,8 +233,9 @@ export class BotService {
       const locked = await this.contexts.lock(tx, conversation.id);
       // Re-checked under the row lock: someone may have taken it meanwhile.
       const paused = !botMayReply(conversation) || !botMayReply(locked);
+      const ids = [inbound.id, ...grouped.map((message) => message.id)];
       const { count } = await tx.message.updateMany({
-        where: { id: inbound.id, status: MessageStatus.RECEIVED },
+        where: { id: { in: ids }, status: MessageStatus.RECEIVED },
         // A message processed after a context change belongs to the context
         // it was answered in, so per-context history stays coherent.
         data: {
@@ -199,7 +243,7 @@ export class BotService {
           ...(generated && !paused ? { contextId: generated.contextId } : {}),
         },
       });
-      if (count !== 1) {
+      if (count !== ids.length) {
         // Another run persisted this job's phase 1 first: roll back ours.
         throw new JobError('generate_conflict', true);
       }

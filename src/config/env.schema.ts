@@ -173,6 +173,14 @@ export const envSchema = z
       })
       .default('true')
       .transform((value) => value === 'true'),
+    // How long the bot waits for more messages of a conversation before
+    // answering them all at once. Each new message restarts the wait. 0 turns
+    // it off: every message is answered on its own, right away.
+    INBOUND_DEBOUNCE_MS: z.coerce
+      .number({ error: 'INBOUND_DEBOUNCE_MS must be a number' })
+      .int('INBOUND_DEBOUNCE_MS must be an integer')
+      .min(0, 'INBOUND_DEBOUNCE_MS must be 0 or greater')
+      .default(3_000),
     // How often an idle worker polls for new jobs: the worst-case extra reply
     // latency, traded against one cheap indexed query per interval.
     QUEUE_POLL_INTERVAL_MS: positiveInt('QUEUE_POLL_INTERVAL_MS', 1_000),
