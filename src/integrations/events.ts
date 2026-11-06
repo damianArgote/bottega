@@ -7,6 +7,9 @@ export const EVENT_TYPES = [
   'lead.updated',
   'handoff.requested',
   'conversation.resolved',
+  'payment.approved',
+  'payment.expired',
+  'payment.review',
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

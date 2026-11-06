@@ -65,6 +65,7 @@ describe('parseEnv', () => {
       QUEUE_CONCURRENCY: 2,
       QUEUE_LEASE_MS: 180_000,
       INBOUND_DEBOUNCE_MS: 3_000,
+      PAYMENT_LINK_TTL_MINUTES: 1440,
     });
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.DATABASE_URL_UNPOOLED).toBeUndefined();

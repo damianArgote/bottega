@@ -152,6 +152,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `JOB_MAX_ATTEMPTS` | No | `4` | Intentos por mensaje entrante antes de darlo por fallido. |
 | `WORKER_ENABLED` | No | `true` | `false` para levantar solo la API, sin procesar mensajes. |
 | `INBOUND_DEBOUNCE_MS` | No | `3000` | Cuánto espera el bot más mensajes de la misma conversación antes de contestarlos juntos. Cada mensaje nuevo reinicia la espera, así que la respuesta sale al menos este tiempo después del último mensaje. Un comando ("humano", "reiniciar"...) o un toque de botón o de lista no espera: se contesta enseguida, junto con lo que venía esperando antes. Con `0` se apaga: cada mensaje se contesta solo y enseguida. |
+| `PAYMENT_LINK_TTL_MINUTES` | No | `1440` | Cuánto vale un cobro mandado desde la bandeja (link de Mercado Pago o datos de transferencia), en minutos. Al vencer queda `EXPIRED`; si igual se paga, queda `REVIEW` y pasa a una persona. |
 | `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos mientras hay trabajo. |
 | `QUEUE_IDLE_POLL_INTERVAL_MS` | No | `600000` | Cuánto espera cuando la última vuelta no encontró trabajo (10 min), para que Neon pueda apagarse. Un mensaje nuevo despierta al worker enseguida, y un reintento pendiente lo despierta a su hora. |
 | `QUEUE_CONCURRENCY` | No | `2` | Trabajos en paralelo (de conversaciones distintas). |
@@ -1078,6 +1079,9 @@ que quiere.
 | `lead.updated` | El bot guarda un dato nuevo o distinto del lead | `lead` (`id`, `status`, `data`, `createdAt`) |
 | `handoff.requested` | La conversación pasa a una persona (pedido del usuario, del bot o pausa desde admin) | `handoff` (`id`, `reason`, `createdAt`) |
 | `conversation.resolved` | Alguien de la bandeja la resuelve (una vez, aunque se resuelva de nuevo) | `resolvedBy` (`id`, `name`) |
+| `payment.approved` | Un cobro queda pagado (lo confirma Mercado Pago o una persona de la bandeja), una vez | `payment` (`id`, `purpose`, `purposeId`, `concept`, `amountArs`, `status`, `approvedBy`, fechas) |
+| `payment.expired` | Un cobro vence sin pagarse | `payment` |
+| `payment.review` | Se pagó un cobro ya vencido: queda para que lo revise una persona | `payment` |
 
 El body es
 `{ "id", "type", "occurredAt", "businessId", "data": { ..., "conversation": { "id", "lineId" }, "contact": { "waId", "name" } } }`.
@@ -1247,6 +1251,32 @@ con `TOKEN_ENCRYPTION_KEY` y nunca se devuelven.
   Configurar notificaciones" de su aplicación en Mercado Pago. La respuesta
   trae `webhookUrl` (`/webhooks/payments/mercadopago/<webhookKey>`), que
   Bottega manda en cada link: no hace falta cargarla en Mercado Pago.
+
+### Cómo se confirma un pago
+
+- **Mercado Pago:** cada cobro es una preferencia de Checkout Pro con
+  `external_reference` = id del pago, `notification_url` de la cuenta y
+  vencimiento. Mercado Pago avisa a
+  `POST /webhooks/payments/mercadopago/<webhookKey>`: Bottega valida
+  `x-signature` (HMAC-SHA256 con el `webhookSecret`, como el SDK oficial),
+  guarda la notificación en `webhook_event` (`source = 'mercadopago'`) y
+  **siempre** consulta `GET /v1/payments/<id>` con el token del negocio. Solo
+  un pago `approved` con la misma referencia, de esa cuenta, y el mismo monto
+  en pesos lo confirma (`APPROVED`, `approvedBy = PROVIDER`). Una firma mala
+  o una notificación que no es de un pago no hacen nada (`200`); si la
+  consulta falla, responde `502` y Mercado Pago reintenta.
+- **Repetidos:** una notificación repetida no confirma dos veces ni manda
+  dos eventos. Un segundo pago aprobado para un cobro ya pagado no cambia
+  nada y pasa la conversación a una persona. Nunca se devuelve plata
+  automáticamente.
+- **Rechazado:** un intento rechazado deja el cobro en `REJECTED`, pero el
+  link sigue sirviendo: un pago aprobado después lo confirma.
+- **Vencido:** si se aprueba después de `expiresAt`, queda `REVIEW`, la
+  conversación pasa a Pendientes y sale `payment.review`.
+- **Transferencia:** el contacto recibe el alias o CBU, el titular, el monto
+  y el concepto. Nunca se confirma sola, aunque mande el comprobante: queda
+  `PENDING` hasta que una persona la marca pagada en la bandeja. Si el cobro
+  lo pidió el bot, la conversación pasa a una persona.
 
 ---
 
