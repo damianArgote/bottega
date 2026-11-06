@@ -186,6 +186,8 @@ model Business {
   integrationKeys      IntegrationKey[]
   agentActions         AgentAction[]
   agentActionCalls     AgentActionCall[]
+  paymentAccounts      PaymentAccount[]
+  payments             Payment[]
 
   @@map("business")
 }
@@ -294,6 +296,7 @@ model Contact {
 
   business      Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
   conversations Conversation[]
+  payments      Payment[]
 
   @@unique([businessId, waId])
   @@map("contact")
@@ -340,6 +343,7 @@ model Conversation {
   handoffRequests HandoffRequest[]
   processingJobs  ProcessingJob[]
   aiUsages        AiUsage[]
+  payments        Payment[]
 
   @@unique([lineId, contactId])
   @@index([contactId])
@@ -552,6 +556,10 @@ model WebhookEvent {
   /// Line whose route received and verified the delivery; null for the
   /// keyless default route (resolved to the default line when processed).
   lineId      String?   @map("line_id") @db.Uuid
+  /// Who sent it: `whatsapp` (Meta) or a payment provider (`mercadopago`).
+  /// Only `whatsapp` events are processed and reprocessed from here; a
+  /// payment notification is stored already processed, as a record.
+  source      String    @default("whatsapp")
   payload     Json
   receivedAt  DateTime  @default(now()) @map("received_at")
   processedAt DateTime? @map("processed_at")
@@ -605,6 +613,7 @@ model User {
   agentProfileVersions  AgentProfileVersion[] @relation("AgentProfileVersionAuthor")
   catalogImports        CatalogImport[]
   pushSubscriptions     PushSubscription[]
+  approvedPayments      Payment[]
 
   @@map("app_user")
 }
@@ -945,4 +954,114 @@ model AgentActionCall {
   @@unique([businessId, idempotencyKey])
   @@index([businessId, createdAt])
   @@map("agent_action_call")
+}
+
+// ---------------------------------------------------------------------------
+// Payments (prompt 07c)
+// ---------------------------------------------------------------------------
+
+enum PaymentProviderKind {
+  mercadopago
+  transfer
+
+  @@map("payment_provider")
+}
+
+/// A business's way to get paid. Credentials are encrypted with
+/// TOKEN_ENCRYPTION_KEY and never returned by the API.
+model PaymentAccount {
+  id                   String              @id @default(uuid()) @db.Uuid
+  businessId           String              @map("business_id") @db.Uuid
+  provider             PaymentProviderKind
+  /// Shown to people only ("Mercado Pago del local").
+  label                String
+  /// The provider's credentials as encrypted JSON (Mercado Pago: access
+  /// token and webhook secret); null for a transfer.
+  credentialsEncrypted String?             @map("credentials_encrypted")
+  /// Random key in the provider's notification URL.
+  webhookKey           String              @unique @map("webhook_key")
+  /// Transfer only: alias or CBU, and holder (not secrets).
+  transferAlias        String?             @map("transfer_alias")
+  transferHolder       String?             @map("transfer_holder")
+  /// The one used by charges that name no account (at most one per
+  /// business, enforced by a partial unique index added by hand).
+  isDefault            Boolean             @default(false) @map("is_default")
+  active               Boolean             @default(true)
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([businessId])
+  @@map("payment_account")
+}
+
+enum PaymentPurpose {
+  booking
+  order
+  manual
+
+  @@map("payment_purpose")
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  /// Approved after it expired (or paid twice): a person decides.
+  REVIEW
+
+  @@map("payment_status")
+}
+
+enum PaymentApprover {
+  PROVIDER
+  USER
+
+  @@map("payment_approver")
+}
+
+/// One charge to a contact. Only code confirms it: the provider's own record
+/// (looked up, never taken from the notification) or a person.
+model Payment {
+  id                String           @id @default(uuid()) @db.Uuid
+  businessId        String           @map("business_id") @db.Uuid
+  conversationId    String           @map("conversation_id") @db.Uuid
+  contactId         String           @map("contact_id") @db.Uuid
+  accountId         String           @map("account_id") @db.Uuid
+  purpose           PaymentPurpose
+  /// The booking or order it pays, when the purpose has one.
+  purposeId         String?          @map("purpose_id")
+  concept           String
+  amountArs         Int              @map("amount_ars")
+  status            PaymentStatus    @default(PENDING)
+  /// The provider's payment that approved it.
+  providerPaymentId String?          @map("provider_payment_id")
+  /// The provider's own reference for the link (Mercado Pago preference).
+  providerRef       String?          @map("provider_ref")
+  linkUrl           String?          @map("link_url")
+  expiresAt         DateTime         @map("expires_at")
+  approvedAt        DateTime?        @map("approved_at")
+  approvedBy        PaymentApprover? @map("approved_by")
+  /// The person who marked it paid (approvedBy USER).
+  approvedByUserId  String?          @map("approved_by_user_id") @db.Uuid
+  /// Who asked for it, so a repeated request creates one payment
+  /// (`inbox:<clientId>` from the inbox).
+  idempotencyKey    String?          @map("idempotency_key")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  conversation   Conversation   @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  contact        Contact        @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  account        PaymentAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  approvedByUser User?          @relation(fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([accountId, providerPaymentId])
+  @@index([conversationId, createdAt])
+  @@index([status, expiresAt])
+  @@map("payment")
 }

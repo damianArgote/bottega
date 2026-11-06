@@ -1219,6 +1219,35 @@ repite una clave. Si la acción respondió pero después el modelo no contesta,
 el bot manda igual el `reply` del negocio antes del mensaje de error. En la
 vista previa del agente las acciones se ofrecen pero no se llaman.
 
+## Cobros
+
+Cada negocio cobra con lo suyo: una cuenta de Mercado Pago (link de pago) o
+una transferencia (alias o CBU). El bot nunca decide si algo se pagó: lo
+confirma Mercado Pago (consultando el pago, nunca leyendo la notificación) o
+una persona desde la bandeja. Un negocio sin cuentas funciona igual que hoy.
+
+### Cuentas
+
+Las da de alta el equipo, por la API de admin (`X-Admin-Api-Key`) o desde la
+bandeja (`/staff/...`, usuarios `STAFF`). Las credenciales se guardan cifradas
+con `TOKEN_ENCRYPTION_KEY` y nunca se devuelven.
+
+| Ruta (`/admin/...` o `/staff/...`) | Qué hace |
+| ---- | -------- |
+| `GET .../businesses/<businessId>/payment-accounts` | Las cuentas del negocio. Nunca las credenciales. |
+| `POST .../businesses/<businessId>/payment-accounts` | Mercado Pago: `{ "provider": "mercadopago", "label", "accessToken", "webhookSecret" }`. Transferencia: `{ "provider": "transfer", "label", "alias", "holder" }`. Las dos aceptan `isDefault?` y `active?`. |
+| `PATCH .../payment-accounts/<id>` | Lo que cambia: `label`, `isDefault`, `active`, y `accessToken`/`webhookSecret` (Mercado Pago) o `alias`/`holder` (transferencia). `409 WRONG_PROVIDER_FIELDS` con campos del otro proveedor. |
+| `DELETE .../payment-accounts/<id>` | La borra si ningún pago la usó; si no, `409 ACCOUNT_IN_USE` (desactivala). |
+
+- **Cuenta por defecto:** la usan los cobros desde la bandeja. Hay una sola
+  por negocio: la primera cuenta activa queda por defecto, y marcar otra le
+  saca la marca a la anterior. Una cuenta desactivada deja de serlo.
+- **Mercado Pago:** `accessToken` es el access token de producción de la
+  cuenta del negocio; `webhookSecret`, la clave secreta de "Webhooks >
+  Configurar notificaciones" de su aplicación en Mercado Pago. La respuesta
+  trae `webhookUrl` (`/webhooks/payments/mercadopago/<webhookKey>`), que
+  Bottega manda en cada link: no hace falta cargarla en Mercado Pago.
+
 ---
 
 ## Editar contenido
