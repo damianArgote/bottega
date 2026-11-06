@@ -151,6 +151,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | -------- | ----------- | ------- | ------ |
 | `JOB_MAX_ATTEMPTS` | No | `4` | Intentos por mensaje entrante antes de darlo por fallido. |
 | `WORKER_ENABLED` | No | `true` | `false` para levantar solo la API, sin procesar mensajes. |
+| `INBOUND_DEBOUNCE_MS` | No | `3000` | Cuánto espera el bot más mensajes de la misma conversación antes de contestarlos juntos. Cada mensaje nuevo reinicia la espera, así que la respuesta sale al menos este tiempo después del último mensaje. Un comando ("humano", "reiniciar"...) o un toque de botón o de lista no espera: se contesta enseguida, junto con lo que venía esperando antes. Con `0` se apaga: cada mensaje se contesta solo y enseguida. |
 | `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos mientras hay trabajo. |
 | `QUEUE_IDLE_POLL_INTERVAL_MS` | No | `600000` | Cuánto espera cuando la última vuelta no encontró trabajo (10 min), para que Neon pueda apagarse. Un mensaje nuevo despierta al worker enseguida, y un reintento pendiente lo despierta a su hora. |
 | `QUEUE_CONCURRENCY` | No | `2` | Trabajos en paralelo (de conversaciones distintas). |

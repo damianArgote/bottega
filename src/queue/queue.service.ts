@@ -63,6 +63,9 @@ const MAX_ERROR_LENGTH = 120;
  *   conversation is claimable, and the partial unique index
  *   `(conversation_id) WHERE status = 'PROCESSING' AND type =
  *   'INBOUND_MESSAGE'` is the last line of defense.
+ * - A bot's job may answer several messages of a burst: the ones that joined
+ *   it while it waited (ConversationsService.joinPendingJob), which moves its
+ *   `run_after`. Never one that has started (attempts > 0).
  * - PUSH_NOTIFICATION and WEBHOOK_DELIVERY jobs run outside that order:
  *   they neither wait for the bot's jobs nor hold them back (a push or a
  *   webhook retrying must not delay a reply).

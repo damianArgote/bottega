@@ -311,8 +311,16 @@ describe('parseWebhookPayload', () => {
       }),
     );
 
-    expect(events[0]).toMatchObject({ kind: 'text', text: 'Probar la demo' });
-    expect(events[1]).toMatchObject({ kind: 'text', text: 'Plan Pro' });
+    expect(events[0]).toMatchObject({
+      kind: 'text',
+      text: 'Probar la demo',
+      tapped: true,
+    });
+    expect(events[1]).toMatchObject({
+      kind: 'text',
+      text: 'Plan Pro',
+      tapped: true,
+    });
     expect(events[2]).toMatchObject({
       kind: 'unsupported',
       messageType: 'interactive',

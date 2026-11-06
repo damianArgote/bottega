@@ -33,6 +33,8 @@ export interface InboundText {
   timestamp: Date;
   text: string;
   profileName?: string;
+  /** Set when the text is the title of a tapped reply button or list option. */
+  tapped?: true;
   /** Set for a location, stored as text (`Ubicación: ...`). */
   media?: InboundMedia;
 }

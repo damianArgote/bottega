@@ -43,10 +43,12 @@ import {
   buildCommercialInstructions,
   buildDemoInstructions,
 } from './prompts.js';
-import type {
-  GeneratedReply,
-  ReplyGenerator,
-  ReplyInput,
+import {
+  turnMessages,
+  type GeneratedReply,
+  type ReplyGenerator,
+  type ReplyInput,
+  type ReplyMessage,
 } from './reply-generator.js';
 import { leadValuesOf } from '../leads/lead-values.js';
 import { isOpenAt, localDay } from '../agents/opening-hours.js';
@@ -64,7 +66,18 @@ const fallback = (planned: readonly PlannedEffect[] = []): GeneratedReply => ({
   effects: [],
 });
 
-/** What every model call of one inbound message shares. */
+/**
+ * The fixed text of a message the model cannot read (a limit, a type it
+ * cannot open, a failed fetch); null when it can.
+ */
+function unreadableReply({ type, attachment }: ReplyMessage): string | null {
+  if (attachment?.kind === 'rejected') {
+    return attachment.reply;
+  }
+  return type !== 'TEXT' && !attachment ? UNSUPPORTED_REPLY : null;
+}
+
+/** What every model call of one turn shares. */
 interface Turn {
   input: ReplyInput;
   model: string;
@@ -86,7 +99,9 @@ export interface AiReplyGeneratorDeps {
 }
 
 /**
- * BOT_REPLY_MODE=ai. For one inbound text:
+ * BOT_REPLY_MODE=ai. For one turn (an inbound message and the ones grouped
+ * with it; those the model cannot read get their fixed text first, once per
+ * text, and go no further):
  *
  * 0. Agent switched off (AgentProfile.enabled false, or no stored profile):
  *    no model call and no reply; the inbound message is already stored.
@@ -128,14 +143,15 @@ export class AiReplyGenerator implements ReplyGenerator {
       // Switched off: the AI does not answer until the agent is turned on.
       return { replies: [], effects: [] };
     }
-    const { attachment } = input.message;
-    // Not processed (a limit, a type it cannot open, a failed fetch): the
-    // fixed text, no model call and nothing counted.
-    if (attachment?.kind === 'rejected') {
-      return { replies: [attachment.reply], effects: [] };
-    }
-    if (input.message.type !== 'TEXT' && !attachment) {
-      return { replies: [UNSUPPORTED_REPLY], effects: [] };
+    const messages = turnMessages(input);
+    const readable = messages.filter((m) => !unreadableReply(m));
+    const fixed = [
+      ...new Set(messages.flatMap((m) => unreadableReply(m) ?? [])),
+    ];
+    // Nothing the model can read: the fixed text, no model call and nothing
+    // counted.
+    if (readable.length === 0) {
+      return { replies: fixed, effects: [] };
     }
     const { config, usage, limits } = this.deps;
     const turn: Turn = {
@@ -153,15 +169,15 @@ export class AiReplyGenerator implements ReplyGenerator {
     const usedThisMonth = await limits.countMonth(caps.businessId);
     // An audio's caps were checked once, before transcribing it (the
     // transcription itself now counts): its reply is not cut by them.
-    const capsChecked = attachment?.kind === 'audio';
+    const capsChecked = readable.some((m) => m.attachment?.kind === 'audio');
     if (!capsChecked && usedThisMonth >= caps.monthlyCap) {
       await this.recordLimited(turn);
       if (await limits.monthlyCapHandoffDone(input.conversationId)) {
         // Handed off once this month already (a person gave the bot back).
-        return { replies: [], effects: [] };
+        return { replies: fixed, effects: [] };
       }
       return {
-        replies: [AI_MONTHLY_CAP_REPLY],
+        replies: [...fixed, AI_MONTHLY_CAP_REPLY],
         effects: [{ kind: 'ai_monthly_cap_handoff' }],
       };
     }
@@ -170,15 +186,26 @@ export class AiReplyGenerator implements ReplyGenerator {
       (await usage.countToday(input.conversationId)) >= caps.dailyCap
     ) {
       await this.recordLimited(turn);
-      return { replies: [AI_LIMIT_REPLY], effects: [] };
+      return { replies: [...fixed, AI_LIMIT_REPLY], effects: [] };
     }
-    if (attachment?.kind === 'capped') {
+    const forModel = readable.filter((m) => m.attachment?.kind !== 'capped');
+    if (forModel.length < readable.length) {
       // A cap stopped the attachment and has since been raised or reset:
       // the attachment was never read, so answer as the daily cap does.
-      return { replies: [AI_LIMIT_REPLY], effects: [] };
+      fixed.push(AI_LIMIT_REPLY);
+    }
+    if (forModel.length === 0) {
+      return { replies: fixed, effects: [] };
     }
     try {
-      return await this.answer(input, profile, turn, caps.businessId);
+      const generated = await this.answer(
+        input,
+        forModel,
+        profile,
+        turn,
+        caps.businessId,
+      );
+      return { ...generated, replies: [...fixed, ...generated.replies] };
     } finally {
       // Also after a retryable failure: its ERROR rows already count.
       if (turn.calls > 0) {
@@ -226,6 +253,7 @@ export class AiReplyGenerator implements ReplyGenerator {
   /** Steps 2 to 4: the model turn. */
   private async answer(
     input: ReplyInput,
+    messages: readonly ReplyMessage[],
     profile: AgentProfile,
     turn: Turn,
     businessId: string,
@@ -233,13 +261,17 @@ export class AiReplyGenerator implements ReplyGenerator {
     const { config } = this.deps;
     const items: AiInputItem[] = [
       ...(await this.history(input)),
-      currentItem(input),
+      ...messages.map(currentItem),
     ];
     const demo = await this.demoOf(input);
-    const modules = await this.deps.modules.forBusiness(businessId, input.mode, {
-      conversationId: input.conversationId,
-      messageId: input.message.id,
-    });
+    const modules = await this.deps.modules.forBusiness(
+      businessId,
+      input.mode,
+      {
+        conversationId: input.conversationId,
+        messageId: input.message.id,
+      },
+    );
     const actionNames = new Set(modules.actions?.tools.map((t) => t.name));
     const toolOptions = {
       demoEnabled: profile.demoEnabled,
@@ -504,7 +536,7 @@ export class AiReplyGenerator implements ReplyGenerator {
  * (marked, so the model knows it may have errors), or an image or PDF with
  * its caption.
  */
-function currentItem({ message }: ReplyInput): AiInputItem {
+function currentItem(message: ReplyMessage): AiInputItem {
   const { attachment } = message;
   switch (attachment?.kind) {
     case 'audio':

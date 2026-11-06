@@ -64,9 +64,19 @@ describe('parseEnv', () => {
       QUEUE_IDLE_POLL_INTERVAL_MS: 600_000,
       QUEUE_CONCURRENCY: 2,
       QUEUE_LEASE_MS: 180_000,
+      INBOUND_DEBOUNCE_MS: 3_000,
     });
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.DATABASE_URL_UNPOOLED).toBeUndefined();
+  });
+
+  it('accepts INBOUND_DEBOUNCE_MS=0 (off) and rejects a negative one', () => {
+    expect(
+      parseEnv(validEnv({ INBOUND_DEBOUNCE_MS: '0' })).INBOUND_DEBOUNCE_MS,
+    ).toBe(0);
+    expect(
+      captureError(validEnv({ INBOUND_DEBOUNCE_MS: '-1' })).message,
+    ).toContain('INBOUND_DEBOUNCE_MS must be 0 or greater');
   });
 
   it('coerces numeric variables from strings', () => {
