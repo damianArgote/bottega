@@ -65,6 +65,20 @@ const UNCERTAIN_DETAIL =
 const WINDOW_CLOSED_MESSAGE =
   'The 24h customer service window is closed (the user has not written in the last 24 hours). WhatsApp only allows approved message templates outside the window: send one from the inbox (POST .../conversations/:id/templates) or wait until the user writes again.';
 
+function windowClosed(): ConflictException {
+  return new ConflictException({
+    message: WINDOW_CLOSED_MESSAGE,
+    code: 'WINDOW_CLOSED',
+  });
+}
+
+function alreadyTaken(): ConflictException {
+  return new ConflictException({
+    message: 'Someone else has this conversation: take it first',
+    code: 'ALREADY_TAKEN',
+  });
+}
+
 /** A template to send instead of free text (window not required). */
 export interface OutboundTemplate {
   message: TemplateMessage;
@@ -110,6 +124,28 @@ export class HumanRepliesService {
     private readonly clients: WhatsAppClientFactory,
   ) {}
 
+  /**
+   * The checks `send` makes for a text reply, without sending: for work that
+   * must not start when the reply would be refused (creating a payment
+   * link). 409 `WINDOW_CLOSED` or `ALREADY_TAKEN`; `send` checks again
+   * under the row lock.
+   */
+  async assertCanReply(
+    conversation: ReplyConversation,
+    author: SessionUser,
+  ): Promise<void> {
+    if (!windowOpen(conversation)) {
+      throw windowClosed();
+    }
+    const current = await this.prisma.conversation.findUnique({
+      where: { id: conversation.id },
+      select: { assignedToId: true },
+    });
+    if (current?.assignedToId && current.assignedToId !== author.id) {
+      throw alreadyTaken();
+    }
+  }
+
   async send(input: {
     conversation: ReplyConversation;
     text: string;
@@ -124,10 +160,7 @@ export class HumanRepliesService {
       return previous;
     }
     if (!template && !windowOpen(conversation)) {
-      throw new ConflictException({
-        message: WINDOW_CLOSED_MESSAGE,
-        code: 'WINDOW_CLOSED',
-      });
+      throw windowClosed();
     }
     const contextId = conversation.activeContextId;
     if (!contextId) {
@@ -218,10 +251,7 @@ export class HumanRepliesService {
       return;
     }
     if (assignedToId) {
-      throw new ConflictException({
-        message: 'Someone else has this conversation: take it first',
-        code: 'ALREADY_TAKEN',
-      });
+      throw alreadyTaken();
     }
     await tx.conversation.update({
       where: { id: conversationId },
