@@ -142,6 +142,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `AI_HISTORY_LIMIT` | No | `12` | Mensajes del historial que recibe el modelo. |
 | `CATALOG_MAX_ITEMS_PER_BUSINESS` | No | `2000` | Tope de ítems disponibles de un negocio sin tope propio (`catalogItemCap` en `PUT /admin/businesses/:id/limits`), sumando todos sus catálogos. |
 | `CATALOG_MAX_CATALOGS_PER_BUSINESS` | No | `10` | Cuántos catálogos puede tener un negocio. |
+| `CONTACT_TAGS_MAX_PER_BUSINESS` | No | `30` | Cuántas etiquetas de contacto puede tener un negocio. |
 
 > **ChatGPT Plus no da acceso a la API.** La API se paga aparte: necesitás
 > cargar crédito o un medio de pago en platform.openai.com (Billing).
@@ -631,9 +632,10 @@ Un mismo código puede estar en dos catálogos del negocio con su propio precio
   aplica nada. Cada aplicación deja un log `info` con el negocio, el catálogo,
   el usuario, la importación y el resumen (nunca las filas).
 - **El bot** recibe `search_catalog` en modo comercial (nunca en la demo)
-  cuando el negocio tiene al menos un ítem disponible, con una regla fija: los
-  precios salen solo de sus resultados. Busca en todos los catálogos del
-  negocio por texto (español, sin acentos) y, si encuentra menos de 3,
+  cuando un catálogo que ve el contacto tiene al menos un ítem disponible, con
+  una regla fija: los precios salen solo de sus resultados. Busca en los
+  catálogos que ve el contacto (ver [Etiquetas de contacto](#etiquetas-de-contacto))
+  por texto (español, sin acentos) y, si encuentra menos de 3,
   completa por parecido del nombre (tolera errores de tipeo); devuelve hasta 8
   ítems disponibles, cada uno con `catalog` (el nombre de su catálogo). Si el
   mismo producto está en dos catálogos con precios distintos, el bot no elige:
@@ -704,6 +706,55 @@ corre una hora para adelante, así dos instancias nunca leen la misma hoja.
 No es un job de `processing_job`. Si ningún catálogo tiene hoja, no consulta
 la base (Neon puede suspenderse).
 
+### Etiquetas de contacto
+
+Cada negocio define sus etiquetas ("Mayorista", "VIP", "Proveedor"), hasta
+`CONTACT_TAGS_MAX_PER_BUSINESS` (`409` `CONTACT_TAG_LIMIT_REACHED`). Son
+opcionales: un negocio sin etiquetas funciona igual que antes.
+
+- **Tablas.** `contact_tag`: `name` (1 a 40 caracteres, único en el negocio
+  sin distinguir mayúsculas ni acentos, `409` `CONTACT_TAG_NAME_TAKEN`),
+  `key` (snake_case, sale del nombre la primera vez y no cambia aunque se
+  renombre; si ya existe, `_2`, `_3`...), `assigned_by` (`BOT`: la pone el
+  bot o una persona; `PERSON`: solo una persona), `bot_hint` (hasta 300, solo
+  para `BOT`: cuándo ponerla, en palabras del negocio) y `color` (`gray`,
+  `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple` o `pink`; por
+  defecto `gray`). `contact_tag_assignment`: las etiquetas de cada
+  **contacto** (no de la conversación ni del lead: valen en todas sus
+  conversaciones), con `source` (`BOT` o `PERSON`), `created_by_id` (`null`
+  si la puso el bot) y, si una persona la sacó, `removed_at` y
+  `removed_by_id`. `catalog_tag`: con qué etiquetas se ve un catálogo.
+- **Quién ve cada catálogo** (`audience`): `ALL`, todos los contactos;
+  `TAGGED`, solo los que tienen **al menos una** de sus etiquetas (pasar a
+  `TAGGED` sin etiquetas da `400` `TAGGED_WITHOUT_TAGS`). Con `replacesAll`
+  (solo en `TAGGED`), un contacto que ve ese catálogo deja de ver los `ALL`:
+  un mayorista no ve los precios minoristas. Se calcula en cada búsqueda con
+  las etiquetas que el contacto tiene en ese momento (sin cache): sacarle una
+  etiqueta le corta el acceso en el mensaje siguiente. El filtro va en la
+  consulta, no en las instrucciones: el bot ni sabe que existe un catálogo
+  que no ve. La vista previa del agente busca como un contacto sin
+  etiquetas.
+- **Una etiqueta `BOT` puede abrir un catálogo**: sirve para catálogos que no
+  son confidenciales (revendedores, proveedores). Para precios confidenciales,
+  usá una etiqueta `PERSON`: cualquiera que le diga al bot que es "mayorista"
+  puede recibir una etiqueta `BOT`.
+- **El bot** recibe `tag_contact` (`{ "add": [...], "remove": [...] }`, las
+  `key` de las etiquetas `BOT`, enumeradas en el schema) solo si el negocio
+  tiene alguna etiqueta `BOT`. La descripción lista cada etiqueta con su
+  `bot_hint` como información del negocio, y una regla fija le dice que ponga
+  una etiqueta solo cuando la persona lo dijo claramente o se desprende de lo
+  que pide, y que nunca le diga al cliente qué etiquetas tiene. Se aplica en
+  la misma transacción que la respuesta. El bot no pone una etiqueta
+  `PERSON`, ni una de otro negocio, ni una que **una persona sacó** (aunque el
+  cliente insista), y solo saca las que puso él. Lo que no puede hacer se
+  ignora con un log `debug` (`tag_contact_ignored` con la `key` y el motivo);
+  nunca le da un error al cliente.
+- **Una persona** pone o saca cualquier etiqueta desde la bandeja
+  (`PUT .../contacts/<contactId>/tags`), también una que había sacado.
+- Cada cambio de las etiquetas de un contacto sube la `version` de sus
+  conversaciones (la bandeja lo ve en `/changes`) y sale el evento
+  `contact.tags_changed`.
+
 ### Pausa
 
 Mientras una conversación está pausada (por `humano` o por un admin):
@@ -748,7 +799,8 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | Método y ruta | Qué hace |
 | ------------- | -------- |
 | `GET /inbox/businesses/<businessId>` | El negocio (`id`, `name`, `slug`) y el rol del usuario en él. |
-| `GET .../conversations?view=&lineId=&q=&cursor=` | Lista de 30 por página, la más reciente primero (por `lastMessageAt` e `id`). `view`: `mine` (asignadas a mí y no resueltas), `unassigned` (abiertas y sin asignar), `pending` (esperan a una persona) o `resolved`. `q` busca por nombre o número del contacto; `lineId`, una línea del negocio (`404` si no es suya). Devuelve `{ conversations, nextCursor }`. Cada conversación trae `windowClosesAt`: cuándo cierra la ventana de 24 h (también si `windowExpiresAt` viene en `null`); con eso la web sabe si una persona puede responder. |
+| `GET .../conversations?view=&lineId=&q=&tagId=&cursor=` | Lista de 30 por página, la más reciente primero (por `lastMessageAt` e `id`). `view`: `mine` (asignadas a mí y no resueltas), `unassigned` (abiertas y sin asignar), `pending` (esperan a una persona) o `resolved`. `q` busca por nombre o número del contacto; `lineId`, una línea del negocio (`404` si no es suya); `tagId`, solo contactos que tienen esa etiqueta (`404` si no es del negocio). Devuelve `{ conversations, nextCursor }`. Cada conversación trae `windowClosesAt`: cuándo cierra la ventana de 24 h (también si `windowExpiresAt` viene en `null`); con eso la web sabe si una persona puede responder. Su `contact` trae `tags: [{ id, name, color, source }]` (las etiquetas que tiene ahora, por nombre; `source` es `BOT` si la puso el bot o `PERSON` si la puso una persona), también en `/changes` y en el detalle. |
+| `GET .../conversations/<id>` | Una conversación, igual que en la lista. De otro negocio, `404`. |
 | `GET .../changes?cursor=` | Las conversaciones que cambiaron desde el cursor (hasta 200), el cursor nuevo y `hasMore` (si es `true`, pedí de nuevo enseguida). El cursor es opaco y lo da el servidor; la primera vez se pide sin cursor. Puede repetir conversaciones: quedate con la `version` más alta de cada `id`. |
 | `GET .../conversations/<id>/messages?before=&after=` | Mensajes de a 50, del más viejo al más nuevo, paginados por `seq` (orden de inserción, viene como texto). Sin parámetros, los últimos; `before=<seq>`, los anteriores; `after=<seq>`, los nuevos. Incluye los mensajes de sistema (`type: "SYSTEM"`). Cada mensaje trae `media` (o `null` si es texto): `{ kind, mime, filename, caption, voice, transcript, error, url }`, donde `url` es un link firmado al proxy de abajo (`null` para una ubicación). |
 | `GET .../media/<messageId>?exp=&sig=` | El archivo del adjunto, traído de Meta en el momento. **No pide sesión**: el control es la firma (HMAC con `MEDIA_URL_SECRET` sobre negocio, mensaje y vencimiento). El link es el mismo durante cada media hora y dura entre 60 y 90 minutos. Acepta `Range` (responde `206`, para reproducir audio en iPhone). Solo se muestran en el navegador audios, JPG, PNG, WebP, PDF y MP4; el resto se descarga. Firma mala o vencida, `403`; mensaje de otro negocio, `404`; Meta ya lo borró, `410`. |
@@ -761,6 +813,7 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | `POST .../payments/<paymentId>/mark-paid` | "Marcar pagado": una persona confirma un cobro (la única forma de confirmar una transferencia, o uno que quedó en `REVIEW`). Queda `APPROVED` con `approvedBy: "USER"` y su id, y sale `payment.approved`. Si ya estaba aprobado no cambia nada. De otro negocio, `404`. |
 | `POST .../conversations/<id>/read` | Deja `unreadCount` en 0 y marca leído en WhatsApp el último entrante (si eso falla, se ignora). |
 | `GET .../lines` | Las líneas del negocio (`id`, `phoneNumberId`, `displayPhone`, `active`), nunca sus credenciales. |
+| `PUT .../contacts/<contactId>/tags` | Body `{ "tagIds": [...] }` (`OWNER` y `AGENT`): reemplaza las etiquetas del contacto. Lo que agrega queda con `source: "PERSON"` y quién la puso; lo que saca queda con `removed_at` y quién la sacó (el bot ya no la vuelve a poner). Devuelve `{ tags: [{ id, name, color, source }] }`. Un contacto o una etiqueta de otro negocio, `404`. Ver [Etiquetas de contacto](#etiquetas-de-contacto). |
 | `POST .../conversations/<id>/take` | Body `{ "force"?: true }`. La toma quien la pide (pasa a `OPEN`). `409` con `code: "ALREADY_TAKEN"` si la tiene otra persona, salvo `force`, que solo puede usar un `OWNER` (si no, `403`). |
 | `POST .../conversations/<id>/release` | La suelta: queda sin asignar y el bot sigue callado. Solo quien la tiene o un `OWNER` (si no, `409`). |
 | `POST .../conversations/<id>/handback` | "Devolver al bot": sin asignar, el bot vuelve a responder y pasa a `OPEN`. |
@@ -817,7 +870,8 @@ otro negocio. Es de solo lectura: los topes los cambia el equipo.
 
 Los catálogos del negocio, solo para sus `OWNER`, bajo
 `/inbox/businesses/<businessId>/settings/catalogs` (`GET`, `POST { name }`,
-`PATCH <catalogId> { name?, position? }`, `DELETE <catalogId>`), y cada uno
+`PATCH <catalogId> { name?, position?, audience?, tagIds?, replacesAll? }`,
+`DELETE <catalogId>`), y cada uno
 bajo `.../settings/catalogs/<catalogId>` (o el primero bajo la ruta vieja
 `.../settings/catalog`; ver [Catálogo](#catálogo)), con las mismas rutas que
 la API de admin (`POST imports`, `GET imports/<id>`,
@@ -825,6 +879,18 @@ la API de admin (`POST imports`, `GET imports/<id>`,
 `POST imports/<id>/discard`, `GET items`, `PUT items/<código>`,
 `DELETE items/<código>`, `GET sheet`, `PUT sheet`, `POST sync`). La
 importación guarda quién la hizo. El dueño no cambia el tope de ítems.
+
+Las etiquetas de contacto del negocio, solo para sus `OWNER`, bajo
+`/inbox/businesses/<businessId>/settings/contact-tags`:
+
+| Ruta | Qué hace |
+| ---- | -------- |
+| `GET contact-tags` | Las etiquetas por nombre: `[{ id, name, key, assignedBy, botHint, color, createdAt, updatedAt }]`. |
+| `POST contact-tags` | Body `{ "name", "assignedBy": "BOT"\|"PERSON", "botHint"?, "color"? }`. `botHint` solo con `BOT` (si no, `400`). `409` `CONTACT_TAG_NAME_TAKEN` o `CONTACT_TAG_LIMIT_REACHED`. |
+| `PATCH contact-tags/<tagId>` | Body `{ "name"?, "assignedBy"?, "botHint"?, "color"? }`. La `key` no cambia. Pasar a `PERSON` borra el `botHint`. |
+| `DELETE contact-tags/<tagId>` | La borra y se la saca a todos los contactos: `{ deleted: true }`. Si un catálogo la usa, `409` `TAG_IN_USE` con `catalogs: [{ id, name }]`. |
+
+Una etiqueta de otro negocio da `404`.
 
 Los leads del negocio, también solo para sus `OWNER`, bajo
 `/inbox/businesses/<businessId>/leads`:
@@ -902,9 +968,9 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
 | `GET /admin/businesses/<id>/limits` | Los topes propios del negocio: `{ "aiMonthlyCap", "aiDailyCapPerConversation", "catalogItemCap" }` (`null`: usa la variable de entorno). `404` si el negocio no existe. |
 | `PUT /admin/businesses/<id>/limits` | Body `{ "aiMonthlyCap": number\|null, "aiDailyCapPerConversation": number\|null }`, los dos campos siempre (enteros de 1 a 1.000.000; `null` vuelve al valor por defecto: `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` y `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`). Opcional: `"catalogItemCap": number\|null`, el tope de ítems disponibles del catálogo (`null`: `CATALOG_MAX_ITEMS_PER_BUSINESS`; si no se manda, no cambia). Solo el equipo cambia los topes: no hay ninguna ruta de `/inbox` ni de `/staff` que lo haga. `404` si el negocio no existe. |
-| `GET /admin/businesses/<id>/catalogs` | Los catálogos del negocio en orden: `[{ id, name, position, availableItems, sheet: { url, syncedAt, syncError, nextSyncAt }, createdAt }]`. Si no tiene ninguno, crea "Catálogo principal". Ver [Catálogo](#catálogo). |
+| `GET /admin/businesses/<id>/catalogs` | Los catálogos del negocio en orden: `[{ id, name, position, availableItems, sheet: { url, syncedAt, syncError, nextSyncAt }, audience, tagIds, replacesAll, createdAt }]`. Si no tiene ninguno, crea "Catálogo principal". Ver [Catálogo](#catálogo). |
 | `POST /admin/businesses/<id>/catalogs` | Body `{ "name" }` (1 a 60 caracteres): agrega un catálogo al final. `409` `CATALOG_NAME_TAKEN` (mismo nombre sin distinguir mayúsculas ni acentos) o `CATALOG_LIMIT_REACHED` (`CATALOG_MAX_CATALOGS_PER_BUSINESS`). |
-| `PATCH /admin/businesses/<id>/catalogs/<catalogId>` | Body `{ "name"?, "position"? }` (`position` de 0 a 999; el menor va primero y el primero es el de las rutas viejas). `404` si el catálogo no es del negocio. |
+| `PATCH /admin/businesses/<id>/catalogs/<catalogId>` | Body `{ "name"?, "position"?, "audience"?, "tagIds"?, "replacesAll"? }` (`position` de 0 a 999; el menor va primero y el primero es el de las rutas viejas). `audience`: `ALL` o `TAGGED`; `TAGGED` necesita `tagIds` (`400` `TAGGED_WITHOUT_TAGS`), y `tagIds` y `replacesAll: true` solo van con `TAGGED` (`400` `TAGS_ONLY_FOR_TAGGED`, `REPLACES_ALL_ONLY_FOR_TAGGED`). Volver a `ALL` le saca las etiquetas y `replacesAll`. Ver [Etiquetas de contacto](#etiquetas-de-contacto). `404` si el catálogo o una etiqueta no es del negocio. |
 | `DELETE /admin/businesses/<id>/catalogs/<catalogId>` | Borra el catálogo con sus ítems e importaciones: `{ deleted: true, items }`. `409` `LAST_CATALOG` si es el único. |
 | `/admin/businesses/<id>/catalogs/<catalogId>/...` | Las mismas rutas de abajo (`imports`, `items`, `sheet`, `sync`) para ese catálogo. Las de abajo, sin catálogo (`.../catalog/...`), son las **viejas**: actúan sobre el primer catálogo y siguen andando para los sistemas de los clientes. |
 | `POST /admin/businesses/<id>/catalog/imports` | Un CSV (`Content-Type: text/csv`, hasta 2 MB, mapeo en `?mapping=`), `{ "rows", "mapping" }` en JSON (hasta 5.000 filas) o un PDF o una foto (hasta 10 MB, lo lee el modelo). Devuelve la vista previa: `{ id, status: "PREVIEW", summary: { created, updated, unchanged, unavailable, errors }, errors: [{ row, message }] }` (hasta 200 errores). Ver [Catálogo](#catálogo). |
@@ -1122,6 +1188,7 @@ que quiere.
 | `payment.approved` | Un cobro queda pagado (lo confirma Mercado Pago o una persona de la bandeja), una vez | `payment` (`id`, `purpose`, `purposeId`, `concept`, `amountArs`, `status`, `approvedBy`, fechas) |
 | `payment.expired` | Un cobro vence sin pagarse | `payment` |
 | `payment.review` | Se pagó un cobro ya vencido: queda para que lo revise una persona | `payment` |
+| `contact.tags_changed` | Cambian las etiquetas de un contacto, las cambie el bot o una persona (no sale si quedan iguales) | `source` (`BOT` o `PERSON`), `changedBy` (`{ id, name }` de la persona, o `null`), `tags` (`before` y `after`: `[{ id, key, name }]`). La conversación es la del bot o, si fue una persona, la más reciente del contacto |
 
 El body es
 `{ "id", "type", "occurredAt", "businessId", "data": { ..., "conversation": { "id", "lineId" }, "contact": { "waId", "name" } } }`.

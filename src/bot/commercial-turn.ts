@@ -94,6 +94,7 @@ export async function runCommercialTurn(input: {
         instructions: buildCommercialInstructions(profile, input.known ?? {}, {
           catalog: hasModule(toolOptions.modules, 'catalog'),
           actions: hasModule(toolOptions.modules, 'actions'),
+          tags: hasModule(toolOptions.modules, 'tags'),
         }),
         tools: toolDefinitionsFor(mode, toolOptions),
         maxOutputTokens: input.maxOutputTokens,

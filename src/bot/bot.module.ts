@@ -12,6 +12,7 @@ import { AppConfigService } from '../config/app-config.service.js';
 import { ContentModule } from '../content/content.module.js';
 import { ContentService } from '../content/content.service.js';
 import { ConversationsModule } from '../conversations/conversations.module.js';
+import { ContactsModule } from '../contacts/contacts.module.js';
 import { DemosModule } from '../demos/demos.module.js';
 import { LeadsModule } from '../leads/leads.module.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -36,6 +37,7 @@ import { BotWorker } from './worker.js';
     QueueModule,
     IntegrationsModule,
     CatalogModule,
+    ContactsModule,
     WhatsAppModule,
     ConversationsModule,
     ContentModule,

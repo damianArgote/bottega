@@ -38,6 +38,7 @@ import {
 } from './catalog-ai.service.js';
 import { type CatalogRef, lockBusiness } from './catalogs.service.js';
 import { csvRecords } from './csv.js';
+import { visibleCatalogIds } from './catalog-audience.js';
 
 /** Previews keep their rows this long; then they can no longer be applied. */
 export const PREVIEW_TTL_MS = 24 * 60 * 60_000;
@@ -559,47 +560,95 @@ export class CatalogService {
   }
 
   /**
-   * The bot's read access to the business's catalogs, or undefined when
-   * none it can search has an available item (then search_catalog is not
-   * offered).
+   * The bot's read access to the catalogs the contact sees (null: a contact
+   * without tags, as in the admin preview), or undefined when none of them
+   * has an available item (then search_catalog is not offered).
    */
-  async readerFor(businessId: string): Promise<CatalogReader | undefined> {
-    if (!(await this.hasAvailable(businessId))) {
+  async readerFor(
+    businessId: string,
+    contactId: string | null,
+  ): Promise<CatalogReader | undefined> {
+    if (!(await this.hasAvailable(businessId, contactId))) {
       return undefined;
     }
-    return { search: (query) => this.search(businessId, query) };
+    return { search: (query) => this.search(businessId, query, contactId) };
   }
 
   /**
-   * Whether a catalog the bot searches (ALL) has an available item, so
+   * Whether a catalog the contact sees has an available item, so
    * search_catalog is offered.
    */
-  async hasAvailable(businessId: string): Promise<boolean> {
+  async hasAvailable(
+    businessId: string,
+    contactId: string | null = null,
+  ): Promise<boolean> {
+    const visible = await this.visibleCatalogs(businessId, contactId);
+    if (visible.length === 0) {
+      return false;
+    }
     const item = await this.prisma.catalogItem.findFirst({
-      where: {
-        businessId,
-        available: true,
-        catalog: { audience: 'ALL' },
-      },
+      where: { businessId, available: true, catalogId: { in: visible } },
       select: { id: true },
     });
     return item !== null;
   }
 
   /**
-   * Up to {@link SEARCH_LIMIT} available items of the catalogs the bot
-   * searches (ALL), by relevance: full-text search (Spanish,
-   * accent-insensitive), completed by name similarity (pg_trgm, typo
-   * tolerant) when it finds fewer than 3. The same code in two catalogs
-   * comes twice, each with its catalog. Reads only.
+   * The catalogs the contact sees (see visibleCatalogIds), from its tags
+   * as they are now: never cached, so taking a tag off cuts the access in
+   * the next search. A contact of another business has no tags here.
+   */
+  async visibleCatalogs(
+    businessId: string,
+    contactId: string | null,
+  ): Promise<string[]> {
+    const [catalogs, assignments] = await Promise.all([
+      this.prisma.catalog.findMany({
+        where: { businessId },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          audience: true,
+          replacesAll: true,
+          tags: { select: { tagId: true } },
+        },
+      }),
+      contactId === null
+        ? Promise.resolve([])
+        : this.prisma.contactTagAssignment.findMany({
+            where: {
+              contactId,
+              removedAt: null,
+              tag: { businessId },
+            },
+            select: { tagId: true },
+          }),
+    ]);
+    return visibleCatalogIds(
+      catalogs.map((c) => ({ ...c, tagIds: c.tags.map((t) => t.tagId) })),
+      new Set(assignments.map((a) => a.tagId)),
+    );
+  }
+
+  /**
+   * Up to {@link SEARCH_LIMIT} available items of the catalogs the contact
+   * sees (null: a contact without tags), by relevance: full-text search
+   * (Spanish, accent-insensitive), completed by name similarity (pg_trgm,
+   * typo tolerant) when it finds fewer than 3. The same code in two
+   * catalogs comes twice, each with its catalog. Reads only.
    */
   async search(
     businessId: string,
     { query, category, maxPrice }: CatalogSearchQuery,
+    contactId: string | null = null,
   ): Promise<CatalogSearchItem[]> {
+    const visible = await this.visibleCatalogs(businessId, contactId);
+    if (visible.length === 0) {
+      return [];
+    }
     const filters = Prisma.sql`i.business_id = ${businessId}::uuid
+      AND i.catalog_id = ANY(${visible}::uuid[])
       AND i.available
-      AND c.audience = 'ALL'
       AND (${category}::text IS NULL
         OR lower(unaccent(i.category)) = lower(unaccent(${category}::text)))
       AND (${maxPrice}::numeric IS NULL OR i.price <= ${maxPrice}::numeric)`;

@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { AppConfigService } from '../config/app-config.service.js';
 import { captionOf } from '../media/attachment-text.js';
 import { signedMediaPath } from '../media/media-url.js';
+import { CURRENT_TAGS, tagChip } from '../contacts/contact-tags.service.js';
 
 export type InboxView = 'mine' | 'unassigned' | 'pending' | 'resolved';
 
@@ -23,7 +24,9 @@ export const MESSAGES_PAGE_SIZE = 50;
 const conversationItem = {
   id: true,
   lineId: true,
-  contact: { select: { id: true, waId: true, profileName: true } },
+  contact: {
+    select: { id: true, waId: true, profileName: true, tags: CURRENT_TAGS },
+  },
   mode: true,
   status: true,
   assignedTo: { select: { id: true, name: true } },
@@ -52,7 +55,13 @@ function toItem({ contact, lastInboundAt, ...row }: ConversationRow) {
       windowExpiresAt: row.windowExpiresAt,
       lastInboundAt,
     }),
-    contact: { id: contact.id, waId: contact.waId, name: contact.profileName },
+    contact: {
+      id: contact.id,
+      waId: contact.waId,
+      name: contact.profileName,
+      /** The contact's current tags (prompt 12b), by name. */
+      tags: contact.tags.map(tagChip),
+    },
   };
 }
 
@@ -162,15 +171,25 @@ export class InboxQueriesService {
    * LIST_PAGE_SIZE per page. `mine`: assigned to the user, not resolved;
    * `unassigned`: nobody attends it and it is open; `pending`: waiting for a
    * person; `resolved`. Conversations without lastMessageAt (rows the
-   * previous release wrote during a deploy) come last.
+   * previous release wrote during a deploy) come last. `tagId`: only
+   * contacts that have that tag now (404 for another business's tag).
    */
   async list(
     access: BusinessAccess,
     user: SessionUser,
-    query: { view: InboxView; lineId?: string; q?: string; cursor?: string },
+    query: {
+      view: InboxView;
+      lineId?: string;
+      q?: string;
+      tagId?: string;
+      cursor?: string;
+    },
   ) {
     if (query.lineId) {
       await this.lineOfBusiness(access, query.lineId);
+    }
+    if (query.tagId) {
+      await this.tagOfBusiness(access, query.tagId);
     }
     const after = query.cursor
       ? decodeCursor(query.cursor, listCursorSchema)
@@ -188,6 +207,13 @@ export class InboxQueriesService {
           views[query.view],
           { line: { businessId: access.businessId } },
           query.lineId ? { lineId: query.lineId } : {},
+          query.tagId
+            ? {
+                contact: {
+                  tags: { some: { tagId: query.tagId, removedAt: null } },
+                },
+              }
+            : {},
           q
             ? {
                 contact: {
@@ -300,6 +326,18 @@ export class InboxQueriesService {
     };
   }
 
+  /** GET /conversations/:id: the same item as the list and /changes. */
+  async conversation(access: BusinessAccess, conversationId: string) {
+    const row = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, line: { businessId: access.businessId } },
+      select: conversationItem,
+    });
+    if (!row) {
+      throw new NotFoundException('Conversation not found');
+    }
+    return toItem(row);
+  }
+
   /**
    * GET /conversations/:id/messages: MESSAGES_PAGE_SIZE by seq (insertion
    * order), oldest first. Without parameters the latest page; `before` the
@@ -379,6 +417,19 @@ export class InboxQueriesService {
     });
     if (!found) {
       throw new NotFoundException('Line not found');
+    }
+  }
+
+  private async tagOfBusiness(
+    access: BusinessAccess,
+    tagId: string,
+  ): Promise<void> {
+    const found = await this.prisma.contactTag.findFirst({
+      where: { id: tagId, businessId: access.businessId },
+      select: { id: true },
+    });
+    if (!found) {
+      throw new NotFoundException('Contact tag not found');
     }
   }
 

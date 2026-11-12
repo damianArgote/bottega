@@ -28,6 +28,7 @@ import { DemosService } from '../../src/demos/demos.service.js';
 import { LeadsService } from '../../src/leads/leads.service.js';
 import { LineCredentialsService } from '../../src/lines/line-credentials.service.js';
 import { ToolEffectsService } from '../../src/bot/tools/tool-effects.service.js';
+import { ContactTagsService } from '../../src/contacts/contact-tags.service.js';
 import { type Env, parseEnv } from '../../src/config/env.schema.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { QueueService } from '../../src/queue/queue.service.js';
@@ -147,6 +148,7 @@ export function buildBotService(
     new LeadsService(prisma),
     new DemosService(prisma, content),
     commands,
+    new ContactTagsService(prisma, testConfig()),
   );
   return new BotService(
     prisma,
@@ -227,5 +229,6 @@ export function buildBusinessModules(
     new AgentActionsService(prisma, credentials, caller),
     caller,
     prisma,
+    new ContactTagsService(prisma, config),
   );
 }

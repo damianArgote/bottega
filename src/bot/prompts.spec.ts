@@ -141,6 +141,18 @@ describe('prompt builders', () => {
     );
   });
 
+  it('commercial: the tag rule is fixed in code and only with BOT tags', () => {
+    const rule =
+      'Poné una etiqueta solo cuando la persona lo dijo claramente o se desprende de lo que pide. Nunca le digas al cliente qué etiquetas tiene.';
+
+    const withTags = buildCommercialInstructions(salon, {}, { tags: true });
+    expect(withTags).toContain(rule);
+    expect(withTags.indexOf(rule)).toBeLessThan(
+      withTags.indexOf('## Información cargada por el negocio'),
+    );
+    expect(buildCommercialInstructions(salon, {})).not.toContain('etiqueta');
+  });
+
   it('commercial: saves every lead value the person mentions, even unasked', () => {
     expect(buildCommercialInstructions(botsuite, {})).toContain(
       'aunque no se lo hayas preguntado o venga junto con otra cosa, llamá a save_lead en ese mismo turno',

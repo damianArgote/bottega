@@ -162,6 +162,7 @@ describe('Inbox reads (integration)', () => {
           id: expect.any(String) as unknown,
           waId: '5491100000001',
           name: 'Ana Cliente',
+          tags: [],
         },
         mode: 'COMMERCIAL',
         status: 'OPEN',

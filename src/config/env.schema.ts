@@ -168,6 +168,11 @@ export const envSchema = z
       'CATALOG_MAX_CATALOGS_PER_BUSINESS',
       10,
     ),
+    // Contact tags a business may define ("Mayorista", "VIP"...).
+    CONTACT_TAGS_MAX_PER_BUSINESS: positiveInt(
+      'CONTACT_TAGS_MAX_PER_BUSINESS',
+      30,
+    ),
     JOB_MAX_ATTEMPTS: positiveInt('JOB_MAX_ATTEMPTS', 4),
     // How long a payment link (or transfer data) sent from the inbox is valid.
     PAYMENT_LINK_TTL_MINUTES: positiveInt('PAYMENT_LINK_TTL_MINUTES', 1440),

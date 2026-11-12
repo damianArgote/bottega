@@ -17,6 +17,7 @@ import {
   AdminCatalogsController,
 } from './admin-catalog.controller.js';
 import { AdminController } from './admin.controller.js';
+import { ContactsModule } from '../contacts/contacts.module.js';
 import { AdminService } from './admin.service.js';
 import { BusinessesService } from './businesses.service.js';
 
@@ -26,6 +27,7 @@ import { BusinessesService } from './businesses.service.js';
     AiModule,
     AuthModule,
     CatalogModule,
+    ContactsModule,
     ContentModule,
     ConversationsModule,
     LinesModule,

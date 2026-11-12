@@ -7,6 +7,7 @@ import type { ActionParameters } from '../actions/action-parameters.js';
 import { actionTools, type ActionsModule } from '../actions/action-tools.js';
 import { AgentActionsService } from '../actions/agent-actions.service.js';
 import { CatalogService } from '../catalog/catalog.service.js';
+import { ContactTagsService } from '../contacts/contact-tags.service.js';
 import {
   AgentActionKind,
   ConversationMode,
@@ -46,6 +47,7 @@ export class BusinessModulesService {
     private readonly actions: AgentActionsService,
     private readonly caller: ActionCallerService,
     private readonly prisma: PrismaService,
+    private readonly contactTags: ContactTagsService,
   ) {}
 
   /**
@@ -60,15 +62,20 @@ export class BusinessModulesService {
     if (mode !== ConversationMode.COMMERCIAL) {
       return {};
     }
-    // catalog: on while the business has an available item.
-    const catalog = await this.catalog.readerFor(businessId);
+    // catalog: on while a catalog the contact sees has an available item
+    // (the preview has no contact: it sees what a contact without tags does).
+    const contactId = turn ? await this.contactIdOf(turn.conversationId) : null;
+    const catalog = await this.catalog.readerFor(businessId, contactId);
     // actions: on while it has an active action.
     const active = await this.actions.active(businessId);
+    // tags: on while it has a tag the bot puts.
+    const botTags = await this.contactTags.botTags(businessId);
     return {
       ...(catalog ? { catalog } : {}),
       ...(active.length > 0
         ? { actions: this.actionsModule(active, turn) }
         : {}),
+      ...(botTags.length > 0 ? { tags: { tags: botTags } } : {}),
     };
   }
 
@@ -106,6 +113,14 @@ export class BusinessModulesService {
         });
       },
     };
+  }
+
+  private async contactIdOf(conversationId: string): Promise<string> {
+    const { contactId } = await this.prisma.conversation.findUniqueOrThrow({
+      where: { id: conversationId },
+      select: { contactId: true },
+    });
+    return contactId;
   }
 
   /** Same as the 07a events: the operator's name, else Meta's profile name. */

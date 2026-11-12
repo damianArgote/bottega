@@ -179,6 +179,7 @@ model Business {
   agentActionCalls     AgentActionCall[]
   paymentAccounts      PaymentAccount[]
   payments             Payment[]
+  contactTags          ContactTag[]
 
   @@map("business")
 }
@@ -285,9 +286,10 @@ model Contact {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  business      Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business      Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
   conversations Conversation[]
   payments      Payment[]
+  tags          ContactTagAssignment[]
 
   @@unique([businessId, waId])
   @@map("contact")
@@ -599,12 +601,14 @@ model User {
 
   memberships           Membership[]
   refreshTokens         RefreshToken[]
-  assignedConversations Conversation[]        @relation("ConversationAssignee")
-  agentProfileUpdates   AgentProfile[]        @relation("AgentProfileUpdatedBy")
-  agentProfileVersions  AgentProfileVersion[] @relation("AgentProfileVersionAuthor")
+  assignedConversations Conversation[]         @relation("ConversationAssignee")
+  agentProfileUpdates   AgentProfile[]         @relation("AgentProfileUpdatedBy")
+  agentProfileVersions  AgentProfileVersion[]  @relation("AgentProfileVersionAuthor")
   catalogImports        CatalogImport[]
   pushSubscriptions     PushSubscription[]
   approvedPayments      Payment[]
+  contactTagsAdded      ContactTagAssignment[] @relation("ContactTagAddedBy")
+  contactTagsRemoved    ContactTagAssignment[] @relation("ContactTagRemovedBy")
 
   @@map("app_user")
 }
@@ -797,11 +801,90 @@ model Catalog {
   business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
   items    CatalogItem[]
   imports  CatalogImport[]
+  /// With TAGGED: the tags that let a contact see it (any of them).
+  tags     CatalogTag[]
 
   @@unique([businessId, nameKey])
   @@index([businessId, position])
   @@index([syncNextAt])
   @@map("catalog")
+}
+
+/// Who may put a contact tag on a contact (prompt 12b).
+enum ContactTagAssigner {
+  /// The bot (tag_contact) and a person.
+  BOT
+  /// Only a person (e.g. confidential prices).
+  PERSON
+
+  @@map("contact_tag_assigner")
+}
+
+/// A tag a business defines for its contacts ("Mayorista", "VIP"). Its
+/// name and bot hint are business information, never instructions.
+model ContactTag {
+  id         String             @id @default(uuid()) @db.Uuid
+  businessId String             @map("business_id") @db.Uuid
+  name       String
+  /// The name in lower case without accents or double spaces, unique per
+  /// business ("Mayorista" and "mayorista" are the same tag).
+  nameKey    String             @map("name_key")
+  /// snake_case, generated from the first name and never changed: the bot
+  /// tool's argument.
+  key        String
+  assignedBy ContactTagAssigner @map("assigned_by")
+  /// When the bot should put it, in the business's words (BOT only).
+  botHint    String?            @map("bot_hint")
+  /// One of the inbox's fixed palette (CONTACT_TAG_COLORS).
+  color      String
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+
+  business    Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  assignments ContactTagAssignment[]
+  catalogs    CatalogTag[]
+
+  @@unique([businessId, nameKey])
+  @@unique([businessId, key])
+  @@map("contact_tag")
+}
+
+/// A tag on a contact (valid in all its conversations). A row with
+/// removed_at was taken off by a person: the bot never puts it back. The
+/// bot takes off only what it put, by deleting the row.
+model ContactTagAssignment {
+  id          String             @id @default(uuid()) @db.Uuid
+  contactId   String             @map("contact_id") @db.Uuid
+  tagId       String             @map("tag_id") @db.Uuid
+  source      ContactTagAssigner
+  /// The person who put it; null when the bot did.
+  createdById String?            @map("created_by_id") @db.Uuid
+  createdAt   DateTime           @default(now()) @map("created_at")
+  removedAt   DateTime?          @map("removed_at")
+  removedById String?            @map("removed_by_id") @db.Uuid
+
+  contact   Contact    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       ContactTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdBy User?      @relation("ContactTagAddedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  removedBy User?      @relation("ContactTagRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+
+  @@unique([contactId, tagId])
+  @@index([tagId])
+  @@map("contact_tag_assignment")
+}
+
+/// The tags that let a contact see a TAGGED catalog.
+model CatalogTag {
+  catalogId String @map("catalog_id") @db.Uuid
+  tagId     String @map("tag_id") @db.Uuid
+
+  catalog Catalog    @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  /// No action: a tag in use is not deleted (409 TAG_IN_USE).
+  tag     ContactTag @relation(fields: [tagId], references: [id], onDelete: NoAction)
+
+  @@id([catalogId, tagId])
+  @@index([tagId])
+  @@map("catalog_tag")
 }
 
 /// Model calls of the catalog (column mapping, PDF or photo extraction).
