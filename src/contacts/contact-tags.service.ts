@@ -92,11 +92,20 @@ type IgnoredReason =
   | 'put_by_person'
   | 'add_and_remove';
 
-/** Raises version of the given conversations (the inbox /changes cursor). */
+/**
+ * Raises version of the contact's conversations (the inbox /changes cursor).
+ * A conversation another bot turn holds is skipped instead of waited for:
+ * that turn holds it while it waits for this contact, so waiting would
+ * deadlock. The skipped one shows the new tags on its next change.
+ */
 const touchConversationsOfContact = (tx: Tx, contactId: string) =>
   tx.$executeRaw`
     UPDATE conversation SET updated_at = updated_at
-    WHERE contact_id = ${contactId}::uuid`;
+    WHERE id IN (
+      SELECT id FROM conversation
+      WHERE contact_id = ${contactId}::uuid
+      FOR UPDATE SKIP LOCKED
+    )`;
 const touchConversationsWithTag = (tx: Tx, tagId: string) =>
   tx.$executeRaw`
     UPDATE conversation SET updated_at = updated_at
@@ -268,6 +277,14 @@ export class ContactTagsService {
     user: { id: string; name: string },
   ): Promise<{ tags: ContactTagChip[] }> {
     await this.prisma.$transaction(async (tx) => {
+      // Same lock order as a bot turn (its conversation, then the contact),
+      // so a person and the bot changing one contact never deadlock.
+      await tx.$queryRaw`
+        SELECT c.id FROM conversation c
+          JOIN contact k ON k.id = c.contact_id
+        WHERE k.id = ${contactId}::uuid AND k.business_id = ${businessId}::uuid
+        ORDER BY c.id
+        FOR UPDATE OF c`;
       await this.lockContact(tx, businessId, contactId);
       const found = await tx.contactTag.count({
         where: { businessId, id: { in: [...tagIds] } },

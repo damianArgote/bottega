@@ -12,6 +12,7 @@ import { UsersService } from '../../src/auth/users.service.js';
 import { BusinessModulesService } from '../../src/bot/business-modules.service.js';
 import { CatalogService } from '../../src/catalog/catalog.service.js';
 import { AppConfigService } from '../../src/config/app-config.service.js';
+import { ContactTagsService } from '../../src/contacts/contact-tags.service.js';
 import { ConversationsService } from '../../src/conversations/conversations.service.js';
 import { LineCredentialsService } from '../../src/lines/line-credentials.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
@@ -393,6 +394,57 @@ describe('Contact tags and catalog audience (integration, HTTP)', () => {
           where: { contactId_tagId: { contactId, tagId: wholesaler.id } },
         }),
       ).toMatchObject({ removedAt: null, removedById: null, source: 'PERSON' });
+    });
+
+    it('a person and the bot tagging the same contact at once never deadlock', async () => {
+      const vip = await createTag({ name: 'VIP', assignedBy: 'PERSON' });
+      const reseller = await createTag({
+        name: 'Revendedor',
+        assignedBy: 'BOT',
+        botHint: 'Compra para revender',
+      });
+      const conversation = await inbound();
+      const tags = app.get(ContactTagsService);
+      let locked!: () => void;
+      const isLocked = new Promise<void>((resolve) => (locked = resolve));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+
+      // A bot turn: it holds its conversation before tagging (as the worker).
+      const bot = prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`
+            SELECT id FROM conversation WHERE id = ${conversation.id}::uuid FOR UPDATE`;
+          locked();
+          await gate;
+          await tags.applyFromBot(tx, conversation.id, {
+            add: [reseller.key],
+            remove: [],
+          });
+        },
+        { timeout: 15_000 },
+      );
+      await isLocked;
+      const person = putTags(conversation.contactId, [vip.id]).then(
+        (res) => res.status,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      release();
+
+      const [, status] = await Promise.all([bot, person]);
+      expect(status).toBe(200);
+      // The person's PUT waited for the bot's turn and replaced its tags.
+      const rows = await prisma.contactTagAssignment.findMany({
+        where: { contactId: conversation.contactId },
+        include: { tag: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(
+        rows.map((r) => [r.tag.name, r.source, r.removedAt !== null]),
+      ).toEqual([
+        ['Revendedor', 'BOT', true],
+        ['VIP', 'PERSON', false],
+      ]);
     });
 
     it('a contact or a tag of another business is 404 and changes nothing', async () => {
