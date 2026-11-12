@@ -12,7 +12,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { AppConfigService } from '../config/app-config.service.js';
 import { captionOf } from '../media/attachment-text.js';
 import { signedMediaPath } from '../media/media-url.js';
-import { CURRENT_TAGS } from '../contacts/contact-tags.service.js';
+import { CURRENT_TAGS, tagChip } from '../contacts/contact-tags.service.js';
 
 export type InboxView = 'mine' | 'unassigned' | 'pending' | 'resolved';
 
@@ -60,7 +60,7 @@ function toItem({ contact, lastInboundAt, ...row }: ConversationRow) {
       waId: contact.waId,
       name: contact.profileName,
       /** The contact's current tags (prompt 12b), by name. */
-      tags: contact.tags.map((t) => t.tag),
+      tags: contact.tags.map(tagChip),
     },
   };
 }

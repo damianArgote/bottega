@@ -40,6 +40,8 @@ export interface ContactTagChip {
   id: string;
   name: string;
   color: string;
+  /** Who put it on this contact: the bot (tag_contact) or a person. */
+  source: ContactTagAssigner;
 }
 
 /** A tag the bot may put (tag_contact): business information. */
@@ -53,8 +55,19 @@ export interface BotTag {
 export const CURRENT_TAGS = {
   where: { removedAt: null },
   orderBy: { tag: { name: 'asc' } },
-  select: { tag: { select: { id: true, name: true, color: true } } },
+  select: {
+    source: true,
+    tag: { select: { id: true, name: true, color: true } },
+  },
 } satisfies Prisma.Contact$tagsArgs;
+
+/** A current tag row (CURRENT_TAGS) as the inbox shows it. */
+export function tagChip(row: {
+  source: ContactTagAssigner;
+  tag: { id: string; name: string; color: string };
+}): ContactTagChip {
+  return { ...row.tag, source: row.source };
+}
 
 const tagNotFound = () => new NotFoundException('Contact tag not found');
 
@@ -502,7 +515,7 @@ export class ContactTagsService {
       orderBy: CURRENT_TAGS.orderBy,
       select: CURRENT_TAGS.select,
     });
-    return rows.map((r) => r.tag);
+    return rows.map(tagChip);
   }
 
   /** Serializes the tag changes of one contact. 404 for another business's. */

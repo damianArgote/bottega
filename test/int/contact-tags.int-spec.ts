@@ -41,7 +41,12 @@ type CatalogBody = {
   replacesAll: boolean;
   tagIds: string[];
 };
-type Chip = { id: string; name: string; color: string };
+type Chip = {
+  id: string;
+  name: string;
+  color: string;
+  source: 'BOT' | 'PERSON';
+};
 type Conversation = {
   id: string;
   version: number;
@@ -360,8 +365,13 @@ describe('Contact tags and catalog audience (integration, HTTP)', () => {
       expect(put.status).toBe(200);
       expect(put.body).toEqual({
         tags: [
-          { id: wholesaler.id, name: 'Mayorista', color: 'blue' },
-          { id: vip.id, name: 'VIP', color: 'gray' },
+          {
+            id: wholesaler.id,
+            name: 'Mayorista',
+            color: 'blue',
+            source: 'PERSON',
+          },
+          { id: vip.id, name: 'VIP', color: 'gray', source: 'PERSON' },
         ],
       });
       const ana = await prisma.user.findUniqueOrThrow({
@@ -447,6 +457,34 @@ describe('Contact tags and catalog audience (integration, HTTP)', () => {
       ]);
     });
 
+    it('each tag of a conversation says who put it: the bot or a person', async () => {
+      const vip = await createTag({ name: 'VIP', assignedBy: 'PERSON' });
+      const reseller = await createTag({
+        name: 'Revendedor',
+        assignedBy: 'BOT',
+        botHint: 'Compra para revender',
+      });
+      const conversation = await inbound();
+      await prisma.$transaction((tx) =>
+        app.get(ContactTagsService).applyFromBot(tx, conversation.id, {
+          add: [reseller.key],
+          remove: [],
+        }),
+      );
+      await putTags(conversation.contactId, [vip.id, reseller.id]).expect(200);
+
+      const detail = (
+        await http()
+          .get(`/inbox/businesses/${a}/conversations/${conversation.id}`)
+          .set('Cookie', owner)
+          .expect(200)
+      ).body as Conversation;
+      expect(detail.contact.tags).toEqual([
+        { id: reseller.id, name: 'Revendedor', color: 'gray', source: 'BOT' },
+        { id: vip.id, name: 'VIP', color: 'gray', source: 'PERSON' },
+      ]);
+    });
+
     it('a contact or a tag of another business is 404 and changes nothing', async () => {
       const tag = await mayorista();
       const theirs = await inbound(USER, {
@@ -499,7 +537,9 @@ describe('Contact tags and catalog audience (integration, HTTP)', () => {
         id: tagged.id,
         contact: {
           id: tagged.contactId,
-          tags: [{ id: tag.id, name: 'Mayorista', color: 'blue' }],
+          tags: [
+            { id: tag.id, name: 'Mayorista', color: 'blue', source: 'PERSON' },
+          ],
         },
       });
       const since = (
@@ -511,7 +551,7 @@ describe('Contact tags and catalog audience (integration, HTTP)', () => {
       expect(since.conversations.map((c) => c.id)).toEqual([tagged.id]);
       expect(since.conversations[0]!.version).toBeGreaterThan(tagged.version);
       expect(since.conversations[0]!.contact.tags).toEqual([
-        { id: tag.id, name: 'Mayorista', color: 'blue' },
+        { id: tag.id, name: 'Mayorista', color: 'blue', source: 'PERSON' },
       ]);
       expect(other.id).not.toBe(tagged.id);
 
@@ -522,7 +562,7 @@ describe('Contact tags and catalog audience (integration, HTTP)', () => {
           .expect(200)
       ).body as Conversation;
       expect(detail.contact.tags).toEqual([
-        { id: tag.id, name: 'Mayorista', color: 'blue' },
+        { id: tag.id, name: 'Mayorista', color: 'blue', source: 'PERSON' },
       ]);
 
       const theirs = await createTag(
