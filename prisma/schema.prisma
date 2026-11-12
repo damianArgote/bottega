@@ -147,9 +147,6 @@ model Business {
   /// Catalog items the business may have; null uses
   /// CATALOG_MAX_ITEMS_PER_BUSINESS.
   catalogItemCap               Int?      @map("catalog_item_cap")
-  // catalog_mapping, catalog_sheet_url, catalog_sync_next_at,
-  // catalog_synced_at and catalog_sync_error moved to `catalog` (prompt
-  // 12a). The columns stay in the database until the next deploy drops them.
   /// Longest audio the bot transcribes, in seconds; null uses
   /// MEDIA_AUDIO_MAX_SECONDS.
   audioMaxSeconds              Int?      @map("audio_max_seconds")
@@ -693,9 +690,7 @@ enum CatalogImportStatus {
 model CatalogItem {
   id          String                   @id @default(uuid()) @db.Uuid
   businessId  String                   @map("business_id") @db.Uuid
-  /// Null only for rows the previous version wrote during a deploy (the
-  /// next deploy fills it and makes it NOT NULL).
-  catalogId   String?                  @map("catalog_id") @db.Uuid
+  catalogId   String                   @map("catalog_id") @db.Uuid
   /// The business's own code (SKU), or the normalized name without one.
   externalId  String                   @map("external_id")
   name        String
@@ -715,11 +710,9 @@ model CatalogItem {
   updatedAt   DateTime                 @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  catalog  Catalog? @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  catalog  Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
 
-  /// Kept until the next deploy: the previous version upserts by it. Until
-  /// then a code cannot be in two catalogs of the same business.
-  @@unique([businessId, externalId])
+  /// The same code can be in two catalogs (e.g. retail and wholesale).
   @@unique([catalogId, externalId])
   @@index([catalogId, available])
   @@index([businessId, available])
@@ -734,8 +727,7 @@ model CatalogItem {
 model CatalogImport {
   id               String              @id @default(uuid()) @db.Uuid
   businessId       String              @map("business_id") @db.Uuid
-  /// Null only for imports the previous version created during a deploy.
-  catalogId        String?             @map("catalog_id") @db.Uuid
+  catalogId        String              @map("catalog_id") @db.Uuid
   source           CatalogImportSource
   status           CatalogImportStatus @default(PREVIEW)
   /// { created, updated, unchanged, unavailable, errors }.
@@ -758,7 +750,7 @@ model CatalogImport {
   appliedAt        DateTime?           @map("applied_at")
 
   business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  catalog   Catalog? @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  catalog   Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
   createdBy User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([businessId, createdAt])

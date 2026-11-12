@@ -1,78 +1,19 @@
-import { execFileSync } from 'node:child_process';
-import {
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../../src/generated/prisma/client.js';
-import { TEST_DATABASE_URL } from './database-url.js';
+import { type MigrationDb, migrationDb } from './migration-db.js';
 
 /** The migration under test: deploy 1 of prompt 12a. */
 const MIGRATION = '20261112120000_catalogs';
-const MIGRATIONS_DIR = join(process.cwd(), 'prisma', 'migrations');
-
-/** A database of its own: this spec rebuilds it from the migrations. */
-function scratchUrl(): URL {
-  const url = new URL(TEST_DATABASE_URL);
-  url.pathname = '/bottega_catalog_migration_test';
-  return url;
-}
-
-function client(url: URL): PrismaClient {
-  return new PrismaClient({
-    adapter: new PrismaPg({ connectionString: url.toString() }),
-  });
-}
-
-/** Runs a SQL script as one command (several statements) on `url`. */
-function execute(url: URL, file: string): void {
-  execFileSync('npx', ['prisma', 'db', 'execute', '--file', file], {
-    env: {
-      ...process.env,
-      DATABASE_URL: url.toString(),
-      DATABASE_URL_UNPOOLED: url.toString(),
-    },
-    stdio: 'pipe',
-  });
-}
 
 describe(`migration ${MIGRATION}`, () => {
-  const url = scratchUrl();
-  const scratch = mkdtempSync(join(tmpdir(), 'catalog-migration-'));
-  let db: PrismaClient;
+  let scratch: MigrationDb;
+  let db: MigrationDb['db'];
 
   beforeAll(async () => {
-    const adminUrl = new URL(url);
-    adminUrl.pathname = '/postgres';
-    const admin = client(adminUrl);
-    try {
-      const name = url.pathname.slice(1);
-      // Identifiers cannot be bound parameters; `name` is a constant.
-      await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}"`);
-      await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
-    } finally {
-      await admin.$disconnect();
-    }
-    const previous = readdirSync(MIGRATIONS_DIR)
-      .filter((dir) => /^\d{14}_/.test(dir) && dir < MIGRATION)
-      .sort()
-      .map((dir) =>
-        readFileSync(join(MIGRATIONS_DIR, dir, 'migration.sql'), 'utf8'),
-      );
-    const before = join(scratch, 'before.sql');
-    writeFileSync(before, previous.join('\n;\n'));
-    execute(url, before);
-    db = client(url);
+    scratch = await migrationDb('bottega_catalog_migration_test', MIGRATION);
+    db = scratch.db;
   }, 120_000);
 
   afterAll(async () => {
-    await db?.$disconnect();
-    rmSync(scratch, { recursive: true, force: true });
+    await scratch?.close();
   });
 
   it('gives each business with items, imports or a sheet its "Catálogo principal" and fills catalog_id', async () => {
@@ -107,7 +48,7 @@ describe(`migration ${MIGRATION}`, () => {
         (gen_random_uuid(), '00000000-0000-0000-0000-00000000000a', 'csv', '{}'),
         (gen_random_uuid(), '00000000-0000-0000-0000-00000000000d', 'sheet', '{}')`;
 
-    execute(url, join(MIGRATIONS_DIR, MIGRATION, 'migration.sql'));
+    scratch.apply();
 
     const catalogs = await db.catalog.findMany({
       orderBy: { businessId: 'asc' },

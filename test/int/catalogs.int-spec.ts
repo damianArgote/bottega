@@ -199,27 +199,40 @@ describe('Several catalogs (integration, HTTP)', () => {
       );
     });
 
-    it('a code already in another catalog gives 409 until the next deploy', async () => {
-      const helados = await createCatalog('Helados');
-      const postres = await createCatalog('Postres');
-      await importInto(helados.id, HELADOS);
+    it('the same code can be in two catalogs with its own price, and the bot gets both', async () => {
+      const minorista = await createCatalog('Minorista');
+      const mayorista = await createCatalog('Mayorista');
+      await importInto(minorista.id, HELADOS);
 
-      const res = await importInto(
-        postres.id,
-        'codigo;producto;precio\nH1;Chocolate mayorista;900',
-        409,
+      await importInto(
+        mayorista.id,
+        'codigo;producto;precio\nH1;Chocolate amargo;900',
       );
-      const conflict = res.body as { code: string; message: string };
-      expect(conflict.code).toBe('CATALOG_CODE_IN_OTHER_CATALOG');
-      expect(conflict.message).toContain('"H1"');
-      const put = await http()
-        .put(adminIn(postres.id, 'items/H2'))
+      await http()
+        .put(adminIn(mayorista.id, 'items/H2'))
         .set('X-Admin-Api-Key', ADMIN_KEY)
         .send({ name: 'Dulce de leche', price: 800 })
-        .expect(409);
-      expect(put.body).toMatchObject({ code: 'CATALOG_CODE_IN_OTHER_CATALOG' });
-      expect(await available(postres.id)).toEqual([]);
-      expect(await available(helados.id)).toEqual(['H1', 'H2']);
+        .expect(200);
+      expect(await available(minorista.id)).toEqual(['H1', 'H2']);
+      expect(await available(mayorista.id)).toEqual(['H1', 'H2']);
+
+      // Marking it sold out in one catalog leaves the other one alone.
+      await http()
+        .delete(adminIn(mayorista.id, 'items/H2'))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .expect(200);
+      expect(await available(minorista.id)).toEqual(['H1', 'H2']);
+      expect(await available(mayorista.id)).toEqual(['H1']);
+
+      const found = await catalog.search(a, {
+        query: 'chocolate amargo',
+        category: null,
+        maxPrice: null,
+      });
+      expect(found.map((i) => [i.catalog, i.name, i.price]).sort()).toEqual([
+        ['Mayorista', 'Chocolate amargo', 900],
+        ['Minorista', 'Chocolate amargo', 1500],
+      ]);
     });
 
     it('saves the confirmed mapping per catalog', async () => {
@@ -297,45 +310,6 @@ describe('Several catalogs (integration, HTTP)', () => {
         'Postres',
         'Principal',
       ]);
-    });
-
-    it('take in the items and imports the previous version wrote without a catalog during a deploy', async () => {
-      await importAt(legacy(''), HELADOS);
-      const [principal] = await listCatalogs();
-      // As the previous version writes them while the new one deploys.
-      await prisma.$executeRaw`
-        INSERT INTO catalog_item (id, business_id, external_id, name, row_hash, updated_at)
-        VALUES (gen_random_uuid(), ${a}::uuid, 'OLD1', 'Fugazzeta vieja', 'h', now())`;
-      const oldImport = await prisma.catalogImport.create({
-        data: {
-          businessId: a,
-          source: 'CSV',
-          summary: {},
-          rows: [],
-          sourceRecords: { records: [], rows: [] },
-        },
-      });
-
-      const put = await http()
-        .put(legacy('items/OLD1'))
-        .set('X-Admin-Api-Key', ADMIN_KEY)
-        .send({ name: 'Fugazzeta', price: 7 })
-        .expect(200);
-      expect(put.body).toMatchObject({ externalId: 'OLD1', name: 'Fugazzeta' });
-      expect(await available(principal!.id)).toEqual(['H1', 'H2', 'OLD1']);
-      await http()
-        .get(legacy(`imports/${oldImport.id}`))
-        .set('X-Admin-Api-Key', ADMIN_KEY)
-        .expect(200);
-      await http()
-        .delete(legacy('items/OLD1'))
-        .set('X-Admin-Api-Key', ADMIN_KEY)
-        .expect(200);
-      expect(
-        await prisma.catalogItem.count({
-          where: { businessId: a, catalogId: null },
-        }),
-      ).toBe(0);
     });
 
     it('keep the old backoffice routes working', async () => {

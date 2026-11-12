@@ -77,8 +77,8 @@ export interface ImportView {
 
 /** What search_catalog gives the model for one item. */
 export interface CatalogSearchItem {
-  /** The catalog it is in (e.g. "Postres"); null only during a deploy. */
-  catalog: string | null;
+  /** The catalog it is in (e.g. "Postres"). */
+  catalog: string;
   name: string;
   description: string;
   category: string | null;
@@ -95,7 +95,7 @@ export interface CatalogSearchQuery {
 
 interface SearchRow {
   id: string;
-  catalog: string | null;
+  catalog: string;
   name: string;
   description: string;
   category: string | null;
@@ -207,24 +207,9 @@ function summaryOf(diff: CatalogDiff, errors: number): ImportSummary {
   };
 }
 
-/** Until deploy 2 a code is unique per business (see the migration). */
-function codeInOtherCatalog(codes: readonly string[]): ConflictException {
-  const list = codes.map((c) => `"${c}"`).join(', ');
-  return new ConflictException({
-    message:
-      codes.length === 1
-        ? `El código ${list} ya está en otro catálogo del negocio. Por ahora un código no puede repetirse entre catálogos.`
-        : `Los códigos ${list} ya están en otro catálogo del negocio. Por ahora un código no puede repetirse entre catálogos.`,
-    code: 'CATALOG_CODE_IN_OTHER_CATALOG',
-  });
-}
-
 /** Items of the business that are not in this catalog. */
 function elsewhere(ref: CatalogRef): Prisma.CatalogItemWhereInput {
-  return {
-    businessId: ref.businessId,
-    OR: [{ catalogId: null }, { catalogId: { not: ref.catalogId } }],
-  };
+  return { businessId: ref.businessId, catalogId: { not: ref.catalogId } };
 }
 
 function capExceeded(cap: number): ConflictException {
@@ -354,20 +339,6 @@ export class CatalogService {
           where: { catalogId },
         });
         const diff = diffCatalog(existing, items);
-        if (diff.created.length > 0) {
-          const taken = await tx.catalogItem.findMany({
-            where: {
-              ...elsewhere(ref),
-              externalId: { in: diff.created.map((i) => i.externalId) },
-            },
-            select: { externalId: true },
-            orderBy: { externalId: 'asc' },
-            take: 5,
-          });
-          if (taken.length > 0) {
-            throw codeInOtherCatalog(taken.map((t) => t.externalId));
-          }
-        }
         // Every item the source lacks becomes unavailable, so the source
         // alone tells how many stay available in this catalog.
         const others = await tx.catalogItem.count({
@@ -497,14 +468,6 @@ export class CatalogService {
       const current = await tx.catalogItem.findFirst({
         where: { catalogId, externalId },
       });
-      if (
-        !current &&
-        (await tx.catalogItem.count({
-          where: { ...elsewhere(ref), externalId },
-        })) > 0
-      ) {
-        throw codeInOtherCatalog([externalId]);
-      }
       const item: CatalogItemInput = {
         ...result.item,
         attributes: extra.attributes,
@@ -616,8 +579,7 @@ export class CatalogService {
       where: {
         businessId,
         available: true,
-        // A null catalog: a row the previous version wrote during a deploy.
-        OR: [{ catalogId: null }, { catalog: { audience: 'ALL' } }],
+        catalog: { audience: 'ALL' },
       },
       select: { id: true },
     });
@@ -635,10 +597,9 @@ export class CatalogService {
     businessId: string,
     { query, category, maxPrice }: CatalogSearchQuery,
   ): Promise<CatalogSearchItem[]> {
-    // A null catalog: a row the previous version wrote during a deploy.
     const filters = Prisma.sql`i.business_id = ${businessId}::uuid
       AND i.available
-      AND (i.catalog_id IS NULL OR c.audience = 'ALL')
+      AND c.audience = 'ALL'
       AND (${category}::text IS NULL
         OR lower(unaccent(i.category)) = lower(unaccent(${category}::text)))
       AND (${maxPrice}::numeric IS NULL OR i.price <= ${maxPrice}::numeric)`;
@@ -647,7 +608,7 @@ export class CatalogService {
     const matches = await this.prisma.$queryRaw<SearchRow[]>`
       SELECT ${columns}
       FROM catalog_item i
-        LEFT JOIN catalog c ON c.id = i.catalog_id,
+        JOIN catalog c ON c.id = i.catalog_id,
         websearch_to_tsquery('public.spanish_unaccent', ${query}) AS q
       WHERE ${filters} AND i.search @@ q
       ORDER BY ts_rank(i.search, q) DESC, i.name
@@ -657,7 +618,7 @@ export class CatalogService {
       const similar = await this.prisma.$queryRaw<SearchRow[]>`
         SELECT ${columns}
         FROM catalog_item i
-          LEFT JOIN catalog c ON c.id = i.catalog_id
+          JOIN catalog c ON c.id = i.catalog_id
         WHERE ${filters} AND i.name % ${query}
           AND NOT (i.id = ANY(${found}::uuid[]))
         ORDER BY similarity(i.name, ${query}) DESC, i.name

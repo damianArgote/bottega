@@ -608,10 +608,8 @@ los clientes para empujar ítems (`PUT .../catalog/items/<código>`) y la
 bandeja que todavía no conoce los catálogos. Ojo: mover otro catálogo al
 primer lugar cambia a qué catálogo escriben.
 
-Hasta el próximo deploy (ver [Orden de deploy y
-migraciones](#orden-de-deploy-y-migraciones)) un código no puede repetirse
-entre catálogos del mismo negocio: `409` `CATALOG_CODE_IN_OTHER_CATALOG` al
-aplicar una importación o con `PUT .../items/<código>`.
+Un mismo código puede estar en dos catálogos del negocio con su propio precio
+(por ejemplo minorista y mayorista); en cada catálogo es único.
 
 - **Importar** (CSV o filas en JSON): cada fila se normaliza (precio
   `"$ 1.500,00"` → `1500.00`, con coma o punto decimal; un punto solo es de
@@ -915,7 +913,7 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `GET /admin/businesses/<id>/catalog/sheet` | La hoja de Google: `{ url, syncedAt, syncError, nextSyncAt }`. |
 | `PUT /admin/businesses/<id>/catalog/sheet` | Body `{ "url": "..." }` (o `null` para sacarla). Solo hojas publicadas como CSV; si no, `400`. La primera lectura corre enseguida. |
 | `POST /admin/businesses/<id>/catalog/sync` | "Sincronizar ahora": `{ outcome: "applied" \| "preview" \| "unchanged", import? }`. `409` `NO_SHEET`, `502` si no se pudo leer. |
-| `POST /admin/businesses/<id>/catalog/imports/<importId>/apply` | La aplica. `409` `CATALOG_CAP_EXCEEDED` (pasaría el tope), `CATALOG_CODE_IN_OTHER_CATALOG` (un código nuevo ya está en otro catálogo, hasta el próximo deploy), `IMPORT_NOT_PREVIEW` (ya aplicada o descartada) o `IMPORT_EXPIRED` (más de 24 horas). |
+| `POST /admin/businesses/<id>/catalog/imports/<importId>/apply` | La aplica. `409` `CATALOG_CAP_EXCEEDED` (pasaría el tope), `IMPORT_NOT_PREVIEW` (ya aplicada o descartada) o `IMPORT_EXPIRED` (más de 24 horas). |
 | `POST /admin/businesses/<id>/catalog/imports/<importId>/discard` | La descarta sin tocar el catálogo. |
 | `PUT /admin/businesses/<id>/catalog/items/<código>` | Crea o actualiza un ítem por su código: `{ "name", "description"?, "category"?, "price"?, "currency"?, "available"?, "attributes"? }`. Es la API para los sistemas propios de los clientes. Mismas validaciones que una fila importada. Reemplaza el ítem entero, salvo `available`: si no se manda, un ítem que existe conserva su disponibilidad (actualizar el precio no vuelve a habilitar uno agotado) y uno nuevo queda disponible. |
 | `DELETE /admin/businesses/<id>/catalog/items/<código>` | Lo marca no disponible (no lo borra). `404` si no existe. |
