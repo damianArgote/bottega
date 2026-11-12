@@ -513,6 +513,9 @@ describe('AI reply pipeline (integration, mocked model)', () => {
           ok: true,
           items: [
             {
+              // Written without a catalog, as the previous version does
+              // during a deploy: still found.
+              catalog: null,
               name: 'Chocolate amargo',
               description: 'Cacao 70%',
               category: null,

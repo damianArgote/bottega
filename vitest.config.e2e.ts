@@ -17,6 +17,8 @@ export default defineConfig({
       WHATSAPP_PHONE_NUMBER_ID: '000000000000000',
       WHATSAPP_GRAPH_API_VERSION: 'v26.0',
       BOT_REPLY_MODE: 'echo',
+      // Tests see each message's job at once; the grouping has its own spec.
+      INBOUND_DEBOUNCE_MS: '0',
       ADMIN_API_KEY: 'e2e-admin-api-key-0123456789abcdef',
       // 32 zero bytes, base64: test-only.
       TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',

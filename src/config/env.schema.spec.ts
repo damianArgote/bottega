@@ -55,6 +55,7 @@ describe('parseEnv', () => {
       AI_MAX_INTERACTIONS_PER_USER_PER_DAY: 30,
       AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH: 5_000,
       CATALOG_MAX_ITEMS_PER_BUSINESS: 2_000,
+      CATALOG_MAX_CATALOGS_PER_BUSINESS: 10,
       OPENAI_TIMEOUT_MS: 20_000,
       OPENAI_MAX_OUTPUT_TOKENS: 300,
       AI_HISTORY_LIMIT: 12,
@@ -64,9 +65,20 @@ describe('parseEnv', () => {
       QUEUE_IDLE_POLL_INTERVAL_MS: 600_000,
       QUEUE_CONCURRENCY: 2,
       QUEUE_LEASE_MS: 180_000,
+      INBOUND_DEBOUNCE_MS: 3_000,
+      PAYMENT_LINK_TTL_MINUTES: 1440,
     });
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.DATABASE_URL_UNPOOLED).toBeUndefined();
+  });
+
+  it('accepts INBOUND_DEBOUNCE_MS=0 (off) and rejects a negative one', () => {
+    expect(
+      parseEnv(validEnv({ INBOUND_DEBOUNCE_MS: '0' })).INBOUND_DEBOUNCE_MS,
+    ).toBe(0);
+    expect(
+      captureError(validEnv({ INBOUND_DEBOUNCE_MS: '-1' })).message,
+    ).toContain('INBOUND_DEBOUNCE_MS must be 0 or greater');
   });
 
   it('coerces numeric variables from strings', () => {
@@ -322,6 +334,17 @@ describe('parseEnv', () => {
       );
 
       expect(error.problems[0]).toMatch(/^CATALOG_MAX_ITEMS_PER_BUSINESS: /);
+    },
+  );
+
+  it.each(['0', '-1', '1.5', 'abc'])(
+    'rejects a non positive-integer catalogs cap (%s)',
+    (value) => {
+      const error = captureError(
+        validEnv({ CATALOG_MAX_CATALOGS_PER_BUSINESS: value }),
+      );
+
+      expect(error.problems[0]).toMatch(/^CATALOG_MAX_CATALOGS_PER_BUSINESS: /);
     },
   );
 

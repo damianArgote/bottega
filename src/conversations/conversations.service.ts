@@ -6,9 +6,10 @@ import {
 } from '../inbox/conversation-activity.js';
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service.js';
-import { MessageStatus } from '../generated/prisma/client.js';
+import { matchCommand } from '../bot/commands.js';
+import { MessageStatus, type Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { UTC_NOW } from '../prisma/sql.js';
+import { millis, UTC_NOW } from '../prisma/sql.js';
 import { QueueSignal } from '../queue/queue-signal.js';
 import type {
   InboundEvent,
@@ -227,13 +228,29 @@ export class ConversationsService {
         text: content,
       });
 
-      await tx.$executeRaw`
-        INSERT INTO processing_job
-          (id, type, conversation_id, message_id, status, attempts,
-           max_attempts, run_after, created_at, updated_at)
-        VALUES (gen_random_uuid(), 'INBOUND_MESSAGE', ${conversation.id}::uuid,
-          ${message.id}::uuid, 'PENDING', 0, ${maxAttempts}, ${UTC_NOW},
-          ${UTC_NOW}, ${UTC_NOW})`;
+      const debounceMs = this.config.get('INBOUND_DEBOUNCE_MS');
+      const isCommand = event.kind === 'text' && !!matchCommand(event.text);
+      // Nobody keeps typing after a command or a tapped button: answer it,
+      // and the burst waiting before it, without the debounce.
+      const immediate =
+        isCommand || (event.kind === 'text' && event.tapped === true);
+      const delayMs = immediate ? 0 : debounceMs;
+      if (immediate && debounceMs > 0) {
+        await runWaitingJobsNow(tx, conversation.id);
+      }
+      const joined =
+        debounceMs > 0 &&
+        !isCommand &&
+        (await this.joinPendingJob(tx, conversation.id, message.id, delayMs));
+      if (!joined) {
+        await tx.$executeRaw`
+          INSERT INTO processing_job
+            (id, type, conversation_id, message_id, status, attempts,
+             max_attempts, run_after, created_at, updated_at)
+          VALUES (gen_random_uuid(), 'INBOUND_MESSAGE', ${conversation.id}::uuid,
+            ${message.id}::uuid, 'PENDING', 0, ${maxAttempts},
+            ${UTC_NOW} + ${millis(delayMs)}, ${UTC_NOW}, ${UTC_NOW})`;
+      }
       // Its recipients are decided when it runs (nobody while the bot
       // attends the conversation).
       if (vapidDetails(this.config)) {
@@ -262,6 +279,53 @@ export class ConversationsService {
         : `Duplicate delivery skipped for message from ${maskPhone(event.from)}`,
     );
     return result;
+  }
+
+  /**
+   * Adds a message to the job already waiting to answer this conversation and
+   * restarts its wait (`delayMs` from now). Returns false when there is none to join, and the
+   * message gets its own job:
+   * - A job that already ran (a retry, `attempts > 0`) keeps its backoff and
+   *   the messages it started with: past phase 1 it would never read a new one.
+   * - A command is applied on its own, so nothing joins one (and a command
+   *   joins nothing, see the caller): the order around it stays.
+   *
+   * The row lock settles the race with a worker claiming the job: if the claim
+   * wins, the re-checked row no longer matches and this returns false; if this
+   * wins, the claim skips the row and later sees the moved `run_after`.
+   */
+  private async joinPendingJob(
+    tx: Prisma.TransactionClient,
+    conversationId: string,
+    messageId: string,
+    delayMs: number,
+  ): Promise<boolean> {
+    const [job] = await tx.$queryRaw<
+      Array<{ id: string; type: string; content: string }>
+    >`
+      SELECT j.id, m.type::text AS type, m.content
+      FROM processing_job j
+      JOIN message m ON m.id = j.message_id
+      WHERE j.conversation_id = ${conversationId}::uuid
+        AND j.type = 'INBOUND_MESSAGE'
+        AND j.status = 'PENDING'
+        AND j.attempts = 0
+      ORDER BY j.seq DESC
+      LIMIT 1
+      FOR UPDATE OF j`;
+    if (!job || (job.type === 'TEXT' && matchCommand(job.content))) {
+      return false;
+    }
+    await tx.$executeRaw`
+      UPDATE processing_job
+      SET run_after = ${UTC_NOW} + ${millis(delayMs)},
+          updated_at = ${UTC_NOW}
+      WHERE id = ${job.id}::uuid`;
+    await tx.message.update({
+      where: { id: messageId },
+      data: { batchJobId: job.id },
+    });
+    return true;
   }
 
   /**
@@ -331,4 +395,22 @@ export class ConversationsService {
     );
     return count > 0 ? 'updated' : 'ignored';
   }
+}
+
+/**
+ * Ends the debounce of the bot's jobs waiting in this conversation, so they
+ * run now. A retry (`attempts > 0`) keeps its backoff.
+ */
+async function runWaitingJobsNow(
+  tx: Prisma.TransactionClient,
+  conversationId: string,
+): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE processing_job
+    SET run_after = ${UTC_NOW}, updated_at = ${UTC_NOW}
+    WHERE conversation_id = ${conversationId}::uuid
+      AND type = 'INBOUND_MESSAGE'
+      AND status = 'PENDING'
+      AND attempts = 0
+      AND run_after > ${UTC_NOW}`;
 }

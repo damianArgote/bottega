@@ -30,6 +30,7 @@ import { LineCredentialsService } from '../../src/lines/line-credentials.service
 import { ToolEffectsService } from '../../src/bot/tools/tool-effects.service.js';
 import { type Env, parseEnv } from '../../src/config/env.schema.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
+import { QueueService } from '../../src/queue/queue.service.js';
 import type { InboundText } from '../../src/whatsapp/inbound-event.js';
 import type {
   WhatsAppClient,
@@ -155,6 +156,7 @@ export function buildBotService(
     commands,
     effects,
     attachments,
+    new QueueService(prisma, testConfig()),
   );
 }
 

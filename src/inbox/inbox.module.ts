@@ -23,5 +23,6 @@ import { InboxService } from './inbox.service.js';
     HumanRepliesService,
     BusinessAccessGuard,
   ],
+  exports: [HumanRepliesService],
 })
 export class InboxModule {}

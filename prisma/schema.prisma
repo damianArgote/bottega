@@ -147,16 +147,9 @@ model Business {
   /// Catalog items the business may have; null uses
   /// CATALOG_MAX_ITEMS_PER_BUSINESS.
   catalogItemCap               Int?      @map("catalog_item_cap")
-  /// The confirmed column mapping and the headers it was made for:
-  /// { headers, mapping }. Reused while the headers do not change.
-  catalogMapping               Json?     @map("catalog_mapping")
-  /// Google Sheet published as CSV, re-read every hour.
-  catalogSheetUrl              String?   @map("catalog_sheet_url")
-  /// When the sheet is due again (claimed by the worker, then moved ahead).
-  catalogSyncNextAt            DateTime? @map("catalog_sync_next_at")
-  /// Last sheet sync attempt and its error code (null when it worked).
-  catalogSyncedAt              DateTime? @map("catalog_synced_at")
-  catalogSyncError             String?   @map("catalog_sync_error")
+  // catalog_mapping, catalog_sheet_url, catalog_sync_next_at,
+  // catalog_synced_at and catalog_sync_error moved to `catalog` (prompt
+  // 12a). The columns stay in the database until the next deploy drops them.
   /// Longest audio the bot transcribes, in seconds; null uses
   /// MEDIA_AUDIO_MAX_SECONDS.
   audioMaxSeconds              Int?      @map("audio_max_seconds")
@@ -178,6 +171,7 @@ model Business {
   agentProfileVersions AgentProfileVersion[]
   leads                Lead[]
   memberships          Membership[]
+  catalogs             Catalog[]
   catalogItems         CatalogItem[]
   catalogImports       CatalogImport[]
   catalogAiUsage       CatalogAiUsage[]
@@ -186,6 +180,8 @@ model Business {
   integrationKeys      IntegrationKey[]
   agentActions         AgentAction[]
   agentActionCalls     AgentActionCall[]
+  paymentAccounts      PaymentAccount[]
+  payments             Payment[]
 
   @@map("business")
 }
@@ -294,6 +290,7 @@ model Contact {
 
   business      Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
   conversations Conversation[]
+  payments      Payment[]
 
   @@unique([businessId, waId])
   @@map("contact")
@@ -340,6 +337,7 @@ model Conversation {
   handoffRequests HandoffRequest[]
   processingJobs  ProcessingJob[]
   aiUsages        AiUsage[]
+  payments        Payment[]
 
   @@unique([lineId, contactId])
   @@index([contactId])
@@ -388,6 +386,9 @@ model Message {
   idempotencyKey String?          @unique @map("idempotency_key")
   author         MessageAuthor
   errorCode      String?          @map("error_code")
+  /// The job that answers this message together with the one that created
+  /// it (a burst, INBOUND_DEBOUNCE_MS). Null when it has its own job.
+  batchJobId     String?          @map("batch_job_id") @db.Uuid
   /// Attachment (inbound): image, audio, document, video, sticker,
   /// location or other. Media is stored with type UNSUPPORTED (location as
   /// TEXT) so the previous release reads it; null for plain text.
@@ -411,10 +412,12 @@ model Message {
   conversation  Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   context       ConversationContext? @relation(fields: [contextId], references: [id], onDelete: SetNull)
   processingJob ProcessingJob?       @relation("JobMessage")
+  batchJob      ProcessingJob?       @relation("JobBatch", fields: [batchJobId], references: [id], onDelete: SetNull)
   pushJobs      ProcessingJob[]      @relation("PushMessage")
 
   @@index([contextId, createdAt])
   @@index([conversationId, createdAt])
+  @@index([batchJobId])
   @@map("message")
 }
 
@@ -509,6 +512,7 @@ model ProcessingJob {
   message      Message?         @relation("JobMessage", fields: [messageId], references: [id], onDelete: Cascade)
   pushMessage  Message?         @relation("PushMessage", fields: [pushMessageId], references: [id], onDelete: Cascade)
   delivery     WebhookDelivery? @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  batched      Message[]        @relation("JobBatch")
 
   @@index([status, runAfter])
   @@index([conversationId, createdAt])
@@ -546,6 +550,10 @@ model WebhookEvent {
   /// Line whose route received and verified the delivery; null for the
   /// keyless default route (resolved to the default line when processed).
   lineId      String?   @map("line_id") @db.Uuid
+  /// Who sent it: `whatsapp` (Meta) or a payment provider (`mercadopago`).
+  /// Only `whatsapp` events are processed and reprocessed from here; a
+  /// payment notification is stored already processed, as a record.
+  source      String    @default("whatsapp")
   payload     Json
   receivedAt  DateTime  @default(now()) @map("received_at")
   processedAt DateTime? @map("processed_at")
@@ -599,6 +607,7 @@ model User {
   agentProfileVersions  AgentProfileVersion[] @relation("AgentProfileVersionAuthor")
   catalogImports        CatalogImport[]
   pushSubscriptions     PushSubscription[]
+  approvedPayments      Payment[]
 
   @@map("app_user")
 }
@@ -684,6 +693,9 @@ enum CatalogImportStatus {
 model CatalogItem {
   id          String                   @id @default(uuid()) @db.Uuid
   businessId  String                   @map("business_id") @db.Uuid
+  /// Null only for rows the previous version wrote during a deploy (the
+  /// next deploy fills it and makes it NOT NULL).
+  catalogId   String?                  @map("catalog_id") @db.Uuid
   /// The business's own code (SKU), or the normalized name without one.
   externalId  String                   @map("external_id")
   name        String
@@ -703,8 +715,13 @@ model CatalogItem {
   updatedAt   DateTime                 @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  catalog  Catalog? @relation(fields: [catalogId], references: [id], onDelete: Cascade)
 
+  /// Kept until the next deploy: the previous version upserts by it. Until
+  /// then a code cannot be in two catalogs of the same business.
   @@unique([businessId, externalId])
+  @@unique([catalogId, externalId])
+  @@index([catalogId, available])
   @@index([businessId, available])
   @@index([search], type: Gin, map: "catalog_item_search_idx")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "catalog_item_name_trgm_idx")
@@ -717,6 +734,8 @@ model CatalogItem {
 model CatalogImport {
   id               String              @id @default(uuid()) @db.Uuid
   businessId       String              @map("business_id") @db.Uuid
+  /// Null only for imports the previous version created during a deploy.
+  catalogId        String?             @map("catalog_id") @db.Uuid
   source           CatalogImportSource
   status           CatalogImportStatus @default(PREVIEW)
   /// { created, updated, unchanged, unavailable, errors }.
@@ -739,10 +758,58 @@ model CatalogImport {
   appliedAt        DateTime?           @map("applied_at")
 
   business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  catalog   Catalog? @relation(fields: [catalogId], references: [id], onDelete: Cascade)
   createdBy User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([businessId, createdAt])
+  @@index([catalogId, createdAt])
   @@map("catalog_import")
+}
+
+enum CatalogAudience {
+  /// The bot searches it in every conversation.
+  ALL
+  /// Only for contacts with one of its tags (prompt 12b).
+  TAGGED
+
+  @@map("catalog_audience")
+}
+
+/// One of a business's catalogs. Imports, the saved mapping and the Google
+/// Sheet belong to a catalog: applying an import only touches its items.
+model Catalog {
+  id          String          @id @default(uuid()) @db.Uuid
+  businessId  String          @map("business_id") @db.Uuid
+  name        String
+  /// The name in lower case without accents or double spaces, unique per
+  /// business ("Mayorista" and "mayorista" are the same catalog).
+  nameKey     String          @map("name_key")
+  /// Order in the screens; the first one is the old routes' catalog.
+  position    Int
+  audience    CatalogAudience @default(ALL)
+  /// With TAGGED: the bot no longer searches the ALL catalogs (prompt 12b).
+  replacesAll Boolean         @default(false) @map("replaces_all")
+  /// The confirmed column mapping and the headers it was made for:
+  /// { headers, mapping }. Reused while the headers do not change.
+  mapping     Json?
+  /// Google Sheet published as CSV, re-read every hour.
+  sheetUrl    String?         @map("sheet_url")
+  /// When the sheet is due again (claimed by the worker, then moved ahead).
+  syncNextAt  DateTime?       @map("sync_next_at")
+  /// Last sheet sync attempt and its error code (null when it worked).
+  syncedAt    DateTime?       @map("synced_at")
+  syncError   String?         @map("sync_error")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  items    CatalogItem[]
+  imports  CatalogImport[]
+
+  @@unique([businessId, nameKey])
+  @@index([businessId, position])
+  @@index([syncNextAt])
+  @@map("catalog")
 }
 
 /// Model calls of the catalog (column mapping, PDF or photo extraction).
@@ -939,4 +1006,114 @@ model AgentActionCall {
   @@unique([businessId, idempotencyKey])
   @@index([businessId, createdAt])
   @@map("agent_action_call")
+}
+
+// ---------------------------------------------------------------------------
+// Payments (prompt 07c)
+// ---------------------------------------------------------------------------
+
+enum PaymentProviderKind {
+  mercadopago
+  transfer
+
+  @@map("payment_provider")
+}
+
+/// A business's way to get paid. Credentials are encrypted with
+/// TOKEN_ENCRYPTION_KEY and never returned by the API.
+model PaymentAccount {
+  id                   String              @id @default(uuid()) @db.Uuid
+  businessId           String              @map("business_id") @db.Uuid
+  provider             PaymentProviderKind
+  /// Shown to people only ("Mercado Pago del local").
+  label                String
+  /// The provider's credentials as encrypted JSON (Mercado Pago: access
+  /// token and webhook secret); null for a transfer.
+  credentialsEncrypted String?             @map("credentials_encrypted")
+  /// Random key in the provider's notification URL.
+  webhookKey           String              @unique @map("webhook_key")
+  /// Transfer only: alias or CBU, and holder (not secrets).
+  transferAlias        String?             @map("transfer_alias")
+  transferHolder       String?             @map("transfer_holder")
+  /// The one used by charges that name no account (at most one per
+  /// business, enforced by a partial unique index added by hand).
+  isDefault            Boolean             @default(false) @map("is_default")
+  active               Boolean             @default(true)
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([businessId])
+  @@map("payment_account")
+}
+
+enum PaymentPurpose {
+  booking
+  order
+  manual
+
+  @@map("payment_purpose")
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  /// Approved after it expired (or paid twice): a person decides.
+  REVIEW
+
+  @@map("payment_status")
+}
+
+enum PaymentApprover {
+  PROVIDER
+  USER
+
+  @@map("payment_approver")
+}
+
+/// One charge to a contact. Only code confirms it: the provider's own record
+/// (looked up, never taken from the notification) or a person.
+model Payment {
+  id                String           @id @default(uuid()) @db.Uuid
+  businessId        String           @map("business_id") @db.Uuid
+  conversationId    String           @map("conversation_id") @db.Uuid
+  contactId         String           @map("contact_id") @db.Uuid
+  accountId         String           @map("account_id") @db.Uuid
+  purpose           PaymentPurpose
+  /// The booking or order it pays, when the purpose has one.
+  purposeId         String?          @map("purpose_id")
+  concept           String
+  amountArs         Int              @map("amount_ars")
+  status            PaymentStatus    @default(PENDING)
+  /// The provider's payment that approved it.
+  providerPaymentId String?          @map("provider_payment_id")
+  /// The provider's own reference for the link (Mercado Pago preference).
+  providerRef       String?          @map("provider_ref")
+  linkUrl           String?          @map("link_url")
+  expiresAt         DateTime         @map("expires_at")
+  approvedAt        DateTime?        @map("approved_at")
+  approvedBy        PaymentApprover? @map("approved_by")
+  /// The person who marked it paid (approvedBy USER).
+  approvedByUserId  String?          @map("approved_by_user_id") @db.Uuid
+  /// Who asked for it, so a repeated request creates one payment
+  /// (`inbox:<clientId>` from the inbox).
+  idempotencyKey    String?          @map("idempotency_key")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  conversation   Conversation   @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  contact        Contact        @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  account        PaymentAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  approvedByUser User?          @relation(fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([accountId, providerPaymentId])
+  @@index([conversationId, createdAt])
+  @@index([status, expiresAt])
+  @@map("payment")
 }

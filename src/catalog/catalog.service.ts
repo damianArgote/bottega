@@ -36,6 +36,7 @@ import {
   CatalogAiService,
   DOCUMENT_COLUMNS,
 } from './catalog-ai.service.js';
+import { type CatalogRef, lockBusiness } from './catalogs.service.js';
 import { csvRecords } from './csv.js';
 
 /** Previews keep their rows this long; then they can no longer be applied. */
@@ -76,6 +77,8 @@ export interface ImportView {
 
 /** What search_catalog gives the model for one item. */
 export interface CatalogSearchItem {
+  /** The catalog it is in (e.g. "Postres"); null only during a deploy. */
+  catalog: string | null;
   name: string;
   description: string;
   category: string | null;
@@ -92,6 +95,7 @@ export interface CatalogSearchQuery {
 
 interface SearchRow {
   id: string;
+  catalog: string | null;
   name: string;
   description: string;
   category: string | null;
@@ -125,7 +129,7 @@ interface StoredRecords {
   rows: number[];
 }
 
-/** business.catalog_mapping. */
+/** catalog.mapping. */
 interface SavedMapping {
   headers: string[];
   mapping: CatalogMapping;
@@ -203,6 +207,26 @@ function summaryOf(diff: CatalogDiff, errors: number): ImportSummary {
   };
 }
 
+/** Until deploy 2 a code is unique per business (see the migration). */
+function codeInOtherCatalog(codes: readonly string[]): ConflictException {
+  const list = codes.map((c) => `"${c}"`).join(', ');
+  return new ConflictException({
+    message:
+      codes.length === 1
+        ? `El código ${list} ya está en otro catálogo del negocio. Por ahora un código no puede repetirse entre catálogos.`
+        : `Los códigos ${list} ya están en otro catálogo del negocio. Por ahora un código no puede repetirse entre catálogos.`,
+    code: 'CATALOG_CODE_IN_OTHER_CATALOG',
+  });
+}
+
+/** Items of the business that are not in this catalog. */
+function elsewhere(ref: CatalogRef): Prisma.CatalogItemWhereInput {
+  return {
+    businessId: ref.businessId,
+    OR: [{ catalogId: null }, { catalogId: { not: ref.catalogId } }],
+  };
+}
+
 function capExceeded(cap: number): ConflictException {
   return new ConflictException({
     message: `El catálogo superaría el tope de ${cap} ítems disponibles.`,
@@ -211,9 +235,10 @@ function capExceeded(cap: number): ConflictException {
 }
 
 /**
- * A business's catalog: every source goes through the same import (preview,
- * then apply), and single items can be written by their code. Every query
- * filters by businessId.
+ * A business's catalogs: every source goes through the same import
+ * (preview, then apply) into one catalog, and single items can be written
+ * by their code. The item cap and the bot's search are per business. Every
+ * query filters by businessId (a CatalogRef is already the business's).
  */
 @Injectable()
 export class CatalogService {
@@ -227,14 +252,16 @@ export class CatalogService {
 
   /** Normalizes and validates the source and stores a preview. */
   async preview(
-    businessId: string,
+    ref: CatalogRef,
     source: ImportSource,
     createdById: string | null,
   ): Promise<ImportView> {
-    await this.assertBusiness(businessId);
     if (source.kind === 'document') {
-      const records = await this.ai.extractRows(businessId, source.document);
-      return this.createPreview(businessId, createdById, {
+      const records = await this.ai.extractRows(
+        ref.businessId,
+        source.document,
+      );
+      return this.createPreview(ref, createdById, {
         source: CatalogImportSource.DOCUMENT,
         headers: Object.values(DOCUMENT_COLUMNS),
         records,
@@ -245,12 +272,12 @@ export class CatalogService {
     }
     const parsed = this.parseSource(source);
     const resolved = await this.resolveMapping(
-      businessId,
+      ref,
       parsed.headers,
       parsed.records,
       source.mapping,
     );
-    return this.createPreview(businessId, createdById, {
+    return this.createPreview(ref, createdById, {
       source:
         source.kind === 'csv'
           ? CatalogImportSource.CSV
@@ -266,12 +293,12 @@ export class CatalogService {
    * next imports with these headers.
    */
   async confirmMapping(
-    businessId: string,
+    ref: CatalogRef,
     importId: string,
     mapping: CatalogMapping,
     now = new Date(),
   ): Promise<ImportView> {
-    const found = await this.openImport(this.prisma, businessId, importId, now);
+    const found = await this.openImport(this.prisma, ref, importId, now);
     if (found.source === CatalogImportSource.DOCUMENT || !found.sourceRecords) {
       throw new ConflictException({
         message: 'Esta importación no tiene columnas para mapear.',
@@ -282,8 +309,8 @@ export class CatalogService {
     assertColumns(mapping, headers);
     const records = found.sourceRecords as unknown as StoredRecords;
     const normalized = normalizeSource(records.records, mapping, records.rows);
-    const diff = await this.diffWith(businessId, normalized.items);
-    await this.saveMapping(businessId, headers, mapping);
+    const diff = await this.diffWith(ref, normalized.items);
+    await this.saveMapping(ref, headers, mapping);
     return this.importView(
       await this.prisma.catalogImport.update({
         where: { id: found.id },
@@ -299,20 +326,22 @@ export class CatalogService {
   }
 
   /**
-   * Applies a preview in one transaction against the current catalog:
-   * creates and updates by code, and marks unavailable (never deletes) what
-   * the source no longer has. 409 CATALOG_CAP_EXCEEDED applies nothing.
+   * Applies a preview in one transaction against its catalog: creates and
+   * updates by code, and marks unavailable (never deletes) what the source
+   * no longer has. Other catalogs are not touched. 409 CATALOG_CAP_EXCEEDED
+   * (counting every catalog of the business) applies nothing.
    */
   async apply(
-    businessId: string,
+    ref: CatalogRef,
     importId: string,
     userId: string | null,
     now = new Date(),
   ): Promise<ImportView> {
+    const { businessId, catalogId } = ref;
     const applied = await this.prisma.$transaction(
       async (tx) => {
-        const cap = await this.lockBusiness(tx, businessId);
-        const found = await this.openImport(tx, businessId, importId, now);
+        const cap = await this.capOf(tx, businessId);
+        const found = await this.openImport(tx, ref, importId, now);
         if (!found.mappingConfirmed) {
           throw new ConflictException({
             message:
@@ -322,24 +351,42 @@ export class CatalogService {
         }
         const items = found.rows as unknown as CatalogItemInput[];
         const existing = await tx.catalogItem.findMany({
-          where: { businessId },
+          where: { catalogId },
         });
         const diff = diffCatalog(existing, items);
+        if (diff.created.length > 0) {
+          const taken = await tx.catalogItem.findMany({
+            where: {
+              ...elsewhere(ref),
+              externalId: { in: diff.created.map((i) => i.externalId) },
+            },
+            select: { externalId: true },
+            orderBy: { externalId: 'asc' },
+            take: 5,
+          });
+          if (taken.length > 0) {
+            throw codeInOtherCatalog(taken.map((t) => t.externalId));
+          }
+        }
         // Every item the source lacks becomes unavailable, so the source
-        // alone tells how many stay available.
-        if (items.filter((i) => i.available).length > cap) {
+        // alone tells how many stay available in this catalog.
+        const others = await tx.catalogItem.count({
+          where: { ...elsewhere(ref), available: true },
+        });
+        if (others + items.filter((i) => i.available).length > cap) {
           throw capExceeded(cap);
         }
         if (diff.created.length > 0) {
           await tx.catalogItem.createMany({
             data: diff.created.map((item) => ({
               businessId,
+              catalogId,
               ...itemData(item),
             })),
           });
         }
         const gone = new Set(diff.unavailable);
-        await updateItems(tx, businessId, [
+        await updateItems(tx, catalogId, [
           ...diff.updated,
           ...existing
             .filter((i) => gone.has(i.externalId))
@@ -368,6 +415,7 @@ export class CatalogService {
       JSON.stringify({
         event: 'catalog_import_applied',
         businessId,
+        catalogId,
         userId,
         importId,
         summary: view.summary,
@@ -376,9 +424,9 @@ export class CatalogService {
     return view;
   }
 
-  async discard(businessId: string, importId: string): Promise<ImportView> {
+  async discard(ref: CatalogRef, importId: string): Promise<ImportView> {
     const found = await this.prisma.catalogImport.findFirst({
-      where: { id: importId, businessId },
+      where: { id: importId, ...ref },
     });
     if (!found) {
       throw notFound();
@@ -398,9 +446,9 @@ export class CatalogService {
     );
   }
 
-  async getImport(businessId: string, importId: string): Promise<ImportView> {
+  async getImport(ref: CatalogRef, importId: string): Promise<ImportView> {
     const found = await this.prisma.catalogImport.findFirst({
-      where: { id: importId, businessId },
+      where: { id: importId, ...ref },
     });
     if (!found) {
       throw notFound();
@@ -414,10 +462,11 @@ export class CatalogService {
    * does not bring back a sold-out item); a new one is available.
    */
   async putItem(
-    businessId: string,
+    ref: CatalogRef,
     rawExternalId: string,
     body: ItemBody,
   ): Promise<CatalogItemView> {
+    const { businessId, catalogId } = ref;
     const externalId = cleanCode(rawExternalId);
     if (!externalId) {
       throw new BadRequestException('Falta el código.');
@@ -444,10 +493,18 @@ export class CatalogService {
       throw new BadRequestException(extra.message);
     }
     return this.prisma.$transaction(async (tx) => {
-      const cap = await this.lockBusiness(tx, businessId);
-      const current = await tx.catalogItem.findUnique({
-        where: { businessId_externalId: { businessId, externalId } },
+      const cap = await this.capOf(tx, businessId);
+      const current = await tx.catalogItem.findFirst({
+        where: { catalogId, externalId },
       });
+      if (
+        !current &&
+        (await tx.catalogItem.count({
+          where: { ...elsewhere(ref), externalId },
+        })) > 0
+      ) {
+        throw codeInOtherCatalog([externalId]);
+      }
       const item: CatalogItemInput = {
         ...result.item,
         attributes: extra.attributes,
@@ -472,7 +529,7 @@ export class CatalogService {
               data: itemData(item),
             })
         : await tx.catalogItem.create({
-            data: { businessId, ...itemData(item) },
+            data: { businessId, catalogId, ...itemData(item) },
           });
       return itemView(saved);
     });
@@ -480,12 +537,12 @@ export class CatalogService {
 
   /** Marks the item unavailable (items are never deleted). */
   async removeItem(
-    businessId: string,
+    ref: CatalogRef,
     rawExternalId: string,
   ): Promise<CatalogItemView> {
     const externalId = cleanCode(rawExternalId);
-    const current = await this.prisma.catalogItem.findUnique({
-      where: { businessId_externalId: { businessId, externalId } },
+    const current = await this.prisma.catalogItem.findFirst({
+      where: { catalogId: ref.catalogId, externalId },
     });
     if (!current) {
       throw new NotFoundException('Item not found');
@@ -503,7 +560,7 @@ export class CatalogService {
 
   /** 50 per page, by name; `query` matches code, name or description. */
   async listItems(
-    businessId: string,
+    ref: CatalogRef,
     filters: {
       query?: string;
       category?: string;
@@ -511,9 +568,8 @@ export class CatalogService {
       cursor?: string;
     },
   ): Promise<{ items: CatalogItemView[]; nextCursor: string | null }> {
-    await this.assertBusiness(businessId);
     const where: Prisma.CatalogItemWhereInput = {
-      businessId,
+      catalogId: ref.catalogId,
       ...(filters.category ? { category: filters.category } : {}),
       ...(filters.available === undefined
         ? {}
@@ -540,8 +596,9 @@ export class CatalogService {
   }
 
   /**
-   * The bot's read access to the business's catalog, or undefined when it
-   * has no available item (then search_catalog is not offered).
+   * The bot's read access to the business's catalogs, or undefined when
+   * none it can search has an available item (then search_catalog is not
+   * offered).
    */
   async readerFor(businessId: string): Promise<CatalogReader | undefined> {
     if (!(await this.hasAvailable(businessId))) {
@@ -550,49 +607,65 @@ export class CatalogService {
     return { search: (query) => this.search(businessId, query) };
   }
 
-  /** Whether the business has an available item (search_catalog offered). */
+  /**
+   * Whether a catalog the bot searches (ALL) has an available item, so
+   * search_catalog is offered.
+   */
   async hasAvailable(businessId: string): Promise<boolean> {
     const item = await this.prisma.catalogItem.findFirst({
-      where: { businessId, available: true },
+      where: {
+        businessId,
+        available: true,
+        // A null catalog: a row the previous version wrote during a deploy.
+        OR: [{ catalogId: null }, { catalog: { audience: 'ALL' } }],
+      },
       select: { id: true },
     });
     return item !== null;
   }
 
   /**
-   * Up to {@link SEARCH_LIMIT} available items of the business by relevance:
-   * full-text search (Spanish, accent-insensitive), completed by name
-   * similarity (pg_trgm, typo tolerant) when it finds fewer than 3. Reads
-   * only.
+   * Up to {@link SEARCH_LIMIT} available items of the catalogs the bot
+   * searches (ALL), by relevance: full-text search (Spanish,
+   * accent-insensitive), completed by name similarity (pg_trgm, typo
+   * tolerant) when it finds fewer than 3. The same code in two catalogs
+   * comes twice, each with its catalog. Reads only.
    */
   async search(
     businessId: string,
     { query, category, maxPrice }: CatalogSearchQuery,
   ): Promise<CatalogSearchItem[]> {
-    const filters = Prisma.sql`business_id = ${businessId}::uuid AND available
+    // A null catalog: a row the previous version wrote during a deploy.
+    const filters = Prisma.sql`i.business_id = ${businessId}::uuid
+      AND i.available
+      AND (i.catalog_id IS NULL OR c.audience = 'ALL')
       AND (${category}::text IS NULL
-        OR lower(unaccent(category)) = lower(unaccent(${category}::text)))
-      AND (${maxPrice}::numeric IS NULL OR price <= ${maxPrice}::numeric)`;
-    const columns = Prisma.sql`id, name, description, category, price, currency, attributes`;
+        OR lower(unaccent(i.category)) = lower(unaccent(${category}::text)))
+      AND (${maxPrice}::numeric IS NULL OR i.price <= ${maxPrice}::numeric)`;
+    const columns = Prisma.sql`i.id, c.name AS catalog, i.name, i.description,
+      i.category, i.price, i.currency, i.attributes`;
     const matches = await this.prisma.$queryRaw<SearchRow[]>`
       SELECT ${columns}
-      FROM catalog_item,
+      FROM catalog_item i
+        LEFT JOIN catalog c ON c.id = i.catalog_id,
         websearch_to_tsquery('public.spanish_unaccent', ${query}) AS q
-      WHERE ${filters} AND search @@ q
-      ORDER BY ts_rank(search, q) DESC, name
+      WHERE ${filters} AND i.search @@ q
+      ORDER BY ts_rank(i.search, q) DESC, i.name
       LIMIT ${SEARCH_LIMIT}`;
     if (matches.length < MIN_TEXT_MATCHES) {
       const found = matches.map((m) => m.id);
       const similar = await this.prisma.$queryRaw<SearchRow[]>`
         SELECT ${columns}
-        FROM catalog_item
-        WHERE ${filters} AND name % ${query}
-          AND NOT (id = ANY(${found}::uuid[]))
-        ORDER BY similarity(name, ${query}) DESC, name
+        FROM catalog_item i
+          LEFT JOIN catalog c ON c.id = i.catalog_id
+        WHERE ${filters} AND i.name % ${query}
+          AND NOT (i.id = ANY(${found}::uuid[]))
+        ORDER BY similarity(i.name, ${query}) DESC, i.name
         LIMIT ${SEARCH_LIMIT - matches.length}`;
       matches.push(...similar);
     }
     return matches.map((row) => ({
+      catalog: row.catalog,
       name: row.name,
       description: Array.from(row.description)
         .slice(0, SEARCH_DESCRIPTION_CHARS)
@@ -609,7 +682,7 @@ export class CatalogService {
    * the source records until apply, discard or 24 hours, for a mapping fix.
    */
   async createPreview(
-    businessId: string,
+    ref: CatalogRef,
     createdById: string | null,
     input: {
       source: CatalogImportSource;
@@ -625,12 +698,13 @@ export class CatalogService {
       input.mapping,
       input.rows,
     );
-    const diff = await this.diffWith(businessId, normalized.items);
+    const diff = await this.diffWith(ref, normalized.items);
     await this.purgeExpired();
     const stored: StoredRecords = { records: input.records, rows: input.rows };
     const created = await this.prisma.catalogImport.create({
       data: {
-        businessId,
+        businessId: ref.businessId,
+        catalogId: ref.catalogId,
         source: input.source,
         summary: { ...summaryOf(diff, normalized.errorCount) },
         rowErrors: normalized.errors as unknown as Prisma.InputJsonValue,
@@ -654,17 +728,17 @@ export class CatalogService {
    * available. 400 without a name column.
    */
   async resolveMapping(
-    businessId: string,
+    ref: CatalogRef,
     headers: string[],
     records: readonly SourceRecord[],
     given: CatalogMapping | undefined,
   ): Promise<{ mapping: CatalogMapping; confirmed: boolean }> {
     if (given) {
       assertColumns(given, headers);
-      await this.saveMapping(businessId, headers, given);
+      await this.saveMapping(ref, headers, given);
       return { mapping: given, confirmed: true };
     }
-    const saved = await this.savedMapping(businessId, headers);
+    const saved = await this.savedMapping(ref, headers);
     if (saved) {
       return { mapping: saved, confirmed: true };
     }
@@ -676,11 +750,15 @@ export class CatalogService {
     }
     // A proposal already waiting for a person with these same headers is
     // reused: the model is asked once per set of headers, not every sync.
-    const pending = await this.pendingProposal(businessId, headers);
+    const pending = await this.pendingProposal(ref, headers);
     if (pending) {
       return { mapping: pending, confirmed: false };
     }
-    const proposed = await this.ai.proposeMapping(businessId, headers, records);
+    const proposed = await this.ai.proposeMapping(
+      ref.businessId,
+      headers,
+      records,
+    );
     if (proposed) {
       return { mapping: proposed, confirmed: false };
     }
@@ -695,13 +773,13 @@ export class CatalogService {
 
   /** The newest unexpired, unconfirmed proposal for these same headers. */
   private async pendingProposal(
-    businessId: string,
+    ref: CatalogRef,
     headers: readonly string[],
     now = new Date(),
   ): Promise<CatalogMapping | null> {
     const candidates = await this.prisma.catalogImport.findMany({
       where: {
-        businessId,
+        ...ref,
         status: CatalogImportStatus.PREVIEW,
         mappingConfirmed: false,
         createdAt: { gte: new Date(now.getTime() - PREVIEW_TTL_MS) },
@@ -716,16 +794,16 @@ export class CatalogService {
     return (match?.mapping as CatalogMapping | null | undefined) ?? null;
   }
 
-  /** The saved mapping, when it was made for these same headers. */
+  /** The catalog's saved mapping, when it was made for these headers. */
   async savedMapping(
-    businessId: string,
+    ref: CatalogRef,
     headers: readonly string[],
   ): Promise<CatalogMapping | null> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { catalogMapping: true },
+    const catalog = await this.prisma.catalog.findUnique({
+      where: { id: ref.catalogId },
+      select: { mapping: true },
     });
-    const saved = business?.catalogMapping as SavedMapping | null | undefined;
+    const saved = catalog?.mapping as SavedMapping | null | undefined;
     if (!saved || !sameHeaders(saved.headers, headers)) {
       return null;
     }
@@ -733,56 +811,51 @@ export class CatalogService {
   }
 
   private async saveMapping(
-    businessId: string,
+    ref: CatalogRef,
     headers: readonly string[],
     mapping: CatalogMapping,
   ): Promise<void> {
     const saved: SavedMapping = { headers: [...headers], mapping };
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: { catalogMapping: saved as unknown as Prisma.InputJsonValue },
+    await this.prisma.catalog.update({
+      where: { id: ref.catalogId },
+      data: { mapping: saved as unknown as Prisma.InputJsonValue },
     });
   }
 
   private async diffWith(
-    businessId: string,
+    ref: CatalogRef,
     items: readonly CatalogItemInput[],
   ): Promise<CatalogDiff> {
     return diffCatalog(
       await this.prisma.catalogItem.findMany({
-        where: { businessId },
+        where: { catalogId: ref.catalogId },
         select: { externalId: true, rowHash: true, available: true },
       }),
       items,
     );
   }
 
-  /** The business's item cap (its own, or CATALOG_MAX_ITEMS_PER_BUSINESS). */
-  private async lockBusiness(
+  /**
+   * Locks the business (its catalog writes go one at a time, so the cap
+   * holds) and returns its item cap: its own or
+   * CATALOG_MAX_ITEMS_PER_BUSINESS, for all its catalogs together.
+   */
+  private async capOf(
     tx: Prisma.TransactionClient,
     businessId: string,
   ): Promise<number> {
-    // Serializes the writes of one business, so the cap holds.
-    const [business] = await tx.$queryRaw<
-      Array<{ catalog_item_cap: number | null }>
-    >`SELECT catalog_item_cap FROM business WHERE id = ${businessId}::uuid FOR UPDATE`;
-    if (!business) {
-      throw new NotFoundException('Business not found');
-    }
-    return (
-      business.catalog_item_cap ??
-      this.config.get('CATALOG_MAX_ITEMS_PER_BUSINESS')
-    );
+    const { catalogItemCap } = await lockBusiness(tx, businessId);
+    return catalogItemCap ?? this.config.get('CATALOG_MAX_ITEMS_PER_BUSINESS');
   }
 
   private async openImport(
     tx: Prisma.TransactionClient,
-    businessId: string,
+    ref: CatalogRef,
     importId: string,
     now: Date,
   ): Promise<CatalogImport> {
     const found = await tx.catalogImport.findFirst({
-      where: { id: importId, businessId },
+      where: { id: importId, ...ref },
     });
     if (!found) {
       throw notFound();
@@ -845,15 +918,6 @@ export class CatalogService {
     return { headers, records, rows };
   }
 
-  private async assertBusiness(businessId: string): Promise<void> {
-    const exists = await this.prisma.business.count({
-      where: { id: businessId },
-    });
-    if (!exists) {
-      throw new NotFoundException('Business not found');
-    }
-  }
-
   private importView(found: CatalogImport): ImportView {
     return {
       id: found.id,
@@ -883,7 +947,7 @@ function notPreview(): ConflictException {
  */
 async function updateItems(
   tx: Prisma.TransactionClient,
-  businessId: string,
+  catalogId: string,
   items: readonly CatalogItemInput[],
 ): Promise<void> {
   for (let start = 0; start < items.length; start += UPDATE_BATCH) {
@@ -902,7 +966,7 @@ async function updateItems(
         updated_at = ${UTC_NOW}
       FROM (VALUES ${Prisma.join(values)}) AS v(external_id, name,
         description, category, price, currency, available, attributes, row_hash)
-      WHERE c.business_id = ${businessId}::uuid
+      WHERE c.catalog_id = ${catalogId}::uuid
         AND c.external_id = v.external_id`;
   }
 }

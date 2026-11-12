@@ -140,7 +140,8 @@ el token de la línea de cada conversación, no con el del entorno.
 | `AI_MAX_INTERACTIONS_PER_USER_PER_DAY` | No | `30` | Tope diario de respuestas con IA por conversación, para los negocios sin tope propio (`PUT /admin/businesses/:id/limits`). |
 | `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` | No | `5000` | Tope mensual de respuestas con IA de todo un negocio (mes calendario de Argentina), para los negocios sin tope propio. |
 | `AI_HISTORY_LIMIT` | No | `12` | Mensajes del historial que recibe el modelo. |
-| `CATALOG_MAX_ITEMS_PER_BUSINESS` | No | `2000` | Tope de ítems del catálogo de un negocio sin tope propio (`catalogItemCap` en `PUT /admin/businesses/:id/limits`). |
+| `CATALOG_MAX_ITEMS_PER_BUSINESS` | No | `2000` | Tope de ítems disponibles de un negocio sin tope propio (`catalogItemCap` en `PUT /admin/businesses/:id/limits`), sumando todos sus catálogos. |
+| `CATALOG_MAX_CATALOGS_PER_BUSINESS` | No | `10` | Cuántos catálogos puede tener un negocio. |
 
 > **ChatGPT Plus no da acceso a la API.** La API se paga aparte: necesitás
 > cargar crédito o un medio de pago en platform.openai.com (Billing).
@@ -151,6 +152,8 @@ el token de la línea de cada conversación, no con el del entorno.
 | -------- | ----------- | ------- | ------ |
 | `JOB_MAX_ATTEMPTS` | No | `4` | Intentos por mensaje entrante antes de darlo por fallido. |
 | `WORKER_ENABLED` | No | `true` | `false` para levantar solo la API, sin procesar mensajes. |
+| `INBOUND_DEBOUNCE_MS` | No | `3000` | Cuánto espera el bot más mensajes de la misma conversación antes de contestarlos juntos. Cada mensaje nuevo reinicia la espera, así que la respuesta sale al menos este tiempo después del último mensaje. Un comando ("humano", "reiniciar"...) o un toque de botón o de lista no espera: se contesta enseguida, junto con lo que venía esperando antes. Con `0` se apaga: cada mensaje se contesta solo y enseguida. |
+| `PAYMENT_LINK_TTL_MINUTES` | No | `1440` | Cuánto vale un cobro mandado desde la bandeja (link de Mercado Pago o datos de transferencia), en minutos. Al vencer queda `EXPIRED`; si igual se paga, queda `REVIEW` y pasa a una persona. |
 | `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos mientras hay trabajo. |
 | `QUEUE_IDLE_POLL_INTERVAL_MS` | No | `600000` | Cuánto espera cuando la última vuelta no encontró trabajo (10 min), para que Neon pueda apagarse. Un mensaje nuevo despierta al worker enseguida, y un reintento pendiente lo despierta a su hora. |
 | `QUEUE_CONCURRENCY` | No | `2` | Trabajos en paralelo (de conversaciones distintas). |
@@ -586,6 +589,30 @@ Un negocio puede cargar sus productos, servicios o propiedades con precio
 (tabla `catalog_item`). Es opcional: sin ítems disponibles el bot funciona
 como siempre y ni siquiera recibe la herramienta de búsqueda.
 
+**Varios catálogos** (tabla `catalog`): un negocio puede tener hasta
+`CATALOG_MAX_CATALOGS_PER_BUSINESS` catálogos ("Helados", "Postres",
+"Mayorista"), cada uno con su nombre (único en el negocio, sin distinguir
+mayúsculas ni acentos) y su orden (`position`, el menor va primero). Cada
+importación, mapeo guardado y hoja de Google es **de un catálogo**: aplicar una
+importación solo crea, cambia o da de baja ítems de ese catálogo, así que
+subir una lista de postres no da de baja los helados. El tope de ítems
+disponibles es del negocio y suma todos sus catálogos. Un negocio que todavía
+no tiene catálogos recibe "Catálogo principal" la primera vez que se usa el
+catálogo; la migración le dio ese nombre al catálogo que ya tenía cada
+negocio.
+
+Las rutas de cada catálogo van bajo `.../catalogs/<catalogId>/...`. Las rutas
+**viejas**, sin catálogo (`.../catalog/...`), siguen andando y actúan sobre el
+**primer catálogo** por `position`: son las que usan los sistemas propios de
+los clientes para empujar ítems (`PUT .../catalog/items/<código>`) y la
+bandeja que todavía no conoce los catálogos. Ojo: mover otro catálogo al
+primer lugar cambia a qué catálogo escriben.
+
+Hasta el próximo deploy (ver [Orden de deploy y
+migraciones](#orden-de-deploy-y-migraciones)) un código no puede repetirse
+entre catálogos del mismo negocio: `409` `CATALOG_CODE_IN_OTHER_CATALOG` al
+aplicar una importación o con `PUT .../items/<código>`.
+
 - **Importar** (CSV o filas en JSON): cada fila se normaliza (precio
   `"$ 1.500,00"` → `1500.00`, con coma o punto decimal; un punto solo es de
   miles en grupos de tres, como `1.500`; disponibilidad `sí/no/1/0/true/false/disponible/agotado`)
@@ -597,19 +624,23 @@ como siempre y ni siquiera recibe la herramienta de búsqueda.
   `attributes` (hasta 20).
 - **Vista previa**: cuántos ítems se crean, cuántos cambian, cuántos quedan
   igual y cuántos ya no están. No aplica nada. Vence a las 24 horas.
-- **Aplicar**, en una transacción: crea y actualiza por código; lo que ya no
-  está en la fuente queda `available = false` (nunca se borra) y vuelve si
-  reaparece. Importar dos veces lo mismo no cambia nada. Si quedarían más
-  ítems **disponibles** que el tope del negocio (`catalogItemCap` o
+- **Aplicar**, en una transacción: crea y actualiza por código en su
+  catálogo; lo que ya no está en la fuente queda `available = false` (nunca se
+  borra) y vuelve si reaparece. Los demás catálogos no se tocan. Importar dos
+  veces lo mismo no cambia nada. Si quedarían más ítems **disponibles** en el
+  negocio (todos sus catálogos) que su tope (`catalogItemCap` o
   `CATALOG_MAX_ITEMS_PER_BUSINESS`), `409` `CATALOG_CAP_EXCEEDED` y no se
-  aplica nada. Cada aplicación deja un log `info` con el negocio, el usuario,
-  la importación y el resumen (nunca las filas).
+  aplica nada. Cada aplicación deja un log `info` con el negocio, el catálogo,
+  el usuario, la importación y el resumen (nunca las filas).
 - **El bot** recibe `search_catalog` en modo comercial (nunca en la demo)
   cuando el negocio tiene al menos un ítem disponible, con una regla fija: los
-  precios salen solo de sus resultados. Busca por texto (español, sin
-  acentos) y, si encuentra menos de 3, completa por parecido del nombre
-  (tolera errores de tipeo); devuelve hasta 8 ítems disponibles. Lo que
-  devuelve es información del negocio, no instrucciones.
+  precios salen solo de sus resultados. Busca en todos los catálogos del
+  negocio por texto (español, sin acentos) y, si encuentra menos de 3,
+  completa por parecido del nombre (tolera errores de tipeo); devuelve hasta 8
+  ítems disponibles, cada uno con `catalog` (el nombre de su catálogo). Si el
+  mismo producto está en dos catálogos con precios distintos, el bot no elige:
+  dice los dos o pregunta. Lo que devuelve es información del negocio, no
+  instrucciones.
 
 El mapeo de columnas va en `?mapping=` (JSON) con el CSV, o en el body
 `{ "rows": [...], "mapping": {...} }`. Campos: `externalId`, `name`
@@ -620,7 +651,7 @@ separado por `,` o `;`.
 **De dónde sale el mapeo**, en orden:
 
 1. El que se manda: lo eligió una persona, así que queda guardado para el
-   negocio (`business.catalog_mapping`, junto con los encabezados).
+   catálogo (`catalog.mapping`, junto con los encabezados).
 2. El guardado, si los encabezados son los mismos (aunque cambien de orden):
    no se llama al modelo.
 3. Las columnas conocidas de la planilla de ejemplo (`codigo, producto,
@@ -651,7 +682,8 @@ Cada llamada al modelo del catálogo (mapeo y documentos) queda en
 filas de la vista previa hasta aplicarla, descartarla o que pasen 24 horas.
 
 **Google Sheet**: el negocio publica su hoja (Archivo → Compartir → Publicar
-en la web → CSV) y carga el link con `PUT .../catalog/sheet`. Solo se aceptan
+en la web → CSV) y carga el link con `PUT .../sheet` del catálogo (cada
+catálogo puede tener la suya). Solo se aceptan
 links `https://docs.google.com/spreadsheets/.../pub?...output=csv`; cualquier
 otro da `400`. La hoja publicada es pública para quien tenga el link: no
 pongas costos ni datos internos en esa pestaña. Se vuelve a leer cada hora y
@@ -659,7 +691,8 @@ con `POST .../catalog/sync` ("Sincronizar ahora"), por la misma importación:
 
 - Sin cambios: no se crea ninguna importación.
 - Se aplica sola solo si el mapeo está confirmado, no hay errores por fila y
-  pasan a no disponibles como mucho el 30% de los ítems disponibles. Si no,
+  pasan a no disponibles como mucho el 30% de los ítems disponibles **del
+  catálogo de la hoja**. Si no,
   queda en vista previa para una persona (una sincronización nueva descarta
   la vista previa anterior de la hoja).
 - Si no se puede leer (`404`, deja de ser CSV, más de 2 MB, 15 segundos), la
@@ -667,10 +700,10 @@ con `POST .../catalog/sync` ("Sincronizar ahora"), por la misma importación:
   código queda en `syncError`.
 
 La sincronización por hora corre en el proceso del worker
-(`WORKER_ENABLED=true`): cada negocio con hoja tiene su próxima hora
-(`catalog_sync_next_at`), que el worker toma con `FOR UPDATE SKIP LOCKED` y
+(`WORKER_ENABLED=true`): cada catálogo con hoja tiene su próxima hora
+(`catalog.sync_next_at`), que el worker toma con `FOR UPDATE SKIP LOCKED` y
 corre una hora para adelante, así dos instancias nunca leen la misma hoja.
-No es un job de `processing_job`. Si ningún negocio tiene hoja, no consulta
+No es un job de `processing_job`. Si ningún catálogo tiene hoja, no consulta
 la base (Neon puede suspenderse).
 
 ### Pausa
@@ -725,6 +758,9 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | `POST .../conversations/<id>/templates` | Body `{ "templateId", "values": [...], "clientId" }`: una plantilla aprobada, **también con la ventana cerrada**. `values` va uno por variable, en el orden de `variables` de `GET .../templates`. Antes de llamar a Meta: plantilla de otro negocio, `404`; no aprobada o borrada en Meta, `409` `TEMPLATE_NOT_APPROVED`; de otra cuenta de WhatsApp que la línea de la conversación, `409` `TEMPLATE_OTHER_ACCOUNT`; con encabezado de imagen, video o documento, botones especiales o de autenticación, `409` `TEMPLATE_UNSUPPORTED`; falta un valor (o tiene saltos de línea, tabs o más de 4 espacios seguidos), `400` `TEMPLATE_VALUES` con `missing`. El hilo guarda el texto ya completado y sus botones de respuesta rápida. Mismas reglas que una respuesta para `clientId`, la toma de la conversación y los estados `200`/`202`/`502`. |
 | `GET .../templates?lineId=` | Las plantillas del negocio según la última sincronización (las de las cuentas de sus líneas activas, o solo la de `lineId`), sin las borradas en Meta: `{ syncedAt, syncError, templates }`. Cada una trae `name`, `language`, `category`, `status`, `header`, `body`, `footer`, `buttons`, `variables` (`{ key, component, name, example }`), `sendable` y, si no se puede mandar desde la bandeja, `unsupportedReason`. |
 | `POST .../templates/sync` | Lee ya las plantillas de Meta (ver "Plantillas"). Devuelve `{ syncedAt, accounts: [{ wabaId, synced, deleted, error }] }`; `409` `NO_WHATSAPP_ACCOUNT` si ninguna línea activa tiene `wabaId` y token. |
+| `POST .../conversations/<id>/payments` | Body `{ "amountArs", "concept", "clientId" }` (`amountArs` en pesos, entero): un cobro con la cuenta por defecto del negocio (ver "Cobros"), mandado como respuesta de quien lo pide. Mismas reglas que una respuesta: ventana, `clientId` (reintentar no cobra ni manda dos veces) y toma de la conversación. Antes de crear el cobro: `409` `WINDOW_CLOSED`, `ALREADY_TAKEN` o `NO_PAYMENT_ACCOUNT`; si Mercado Pago no crea el link, `502` `PAYMENT_LINK_FAILED` (reintentá con el mismo `clientId`). Devuelve `{ payment, message }` con los estados de una respuesta. |
+| `GET .../conversations/<id>/payments` | Los cobros de la conversación, el más nuevo primero (`id`, `concept`, `amountArs`, `status`, `linkUrl`, `expiresAt`, `approvedAt`, `approvedBy`, `approvedByUserId`). |
+| `POST .../payments/<paymentId>/mark-paid` | "Marcar pagado": una persona confirma un cobro (la única forma de confirmar una transferencia, o uno que quedó en `REVIEW`). Queda `APPROVED` con `approvedBy: "USER"` y su id, y sale `payment.approved`. Si ya estaba aprobado no cambia nada. De otro negocio, `404`. |
 | `POST .../conversations/<id>/read` | Deja `unreadCount` en 0 y marca leído en WhatsApp el último entrante (si eso falla, se ignora). |
 | `GET .../lines` | Las líneas del negocio (`id`, `phoneNumberId`, `displayPhone`, `active`), nunca sus credenciales. |
 | `POST .../conversations/<id>/take` | Body `{ "force"?: true }`. La toma quien la pide (pasa a `OPEN`). `409` con `code: "ALREADY_TAKEN"` si la tiene otra persona, salvo `force`, que solo puede usar un `OWNER` (si no, `403`). |
@@ -781,9 +817,12 @@ mes, con la misma respuesta que `GET /admin/businesses/<id>/usage`, a
 **cualquier** persona del negocio (`OWNER` o `AGENT`); `403` a alguien de
 otro negocio. Es de solo lectura: los topes los cambia el equipo.
 
-El catálogo del negocio, solo para sus `OWNER`, bajo
-`/inbox/businesses/<businessId>/settings/catalog` (ver [Catálogo](#catálogo)):
-las mismas rutas que la API de admin (`POST imports`, `GET imports/<id>`,
+Los catálogos del negocio, solo para sus `OWNER`, bajo
+`/inbox/businesses/<businessId>/settings/catalogs` (`GET`, `POST { name }`,
+`PATCH <catalogId> { name?, position? }`, `DELETE <catalogId>`), y cada uno
+bajo `.../settings/catalogs/<catalogId>` (o el primero bajo la ruta vieja
+`.../settings/catalog`; ver [Catálogo](#catálogo)), con las mismas rutas que
+la API de admin (`POST imports`, `GET imports/<id>`,
 `PUT imports/<id>/mapping`, `POST imports/<id>/apply`,
 `POST imports/<id>/discard`, `GET items`, `PUT items/<código>`,
 `DELETE items/<código>`, `GET sheet`, `PUT sheet`, `POST sync`). La
@@ -865,13 +904,18 @@ H="X-Admin-Api-Key: $ADMIN_API_KEY"
 | `POST /admin/businesses/<id>/agent/preview` | Body `{ "messages": [{ "role": "user", "content": "hola" }] }` (hasta 20 de hasta 1.000 caracteres, el último del usuario). Corre un turno del agente contra el modelo real **sin mandar nada por WhatsApp ni guardar nada**, aunque el agente esté apagado, y devuelve la respuesta, las herramientas que habría llamado (y si las aceptó), el modelo y los tokens. Cada llamada cuesta. `503` si falla el modelo. |
 | `GET /admin/businesses/<id>/limits` | Los topes propios del negocio: `{ "aiMonthlyCap", "aiDailyCapPerConversation", "catalogItemCap" }` (`null`: usa la variable de entorno). `404` si el negocio no existe. |
 | `PUT /admin/businesses/<id>/limits` | Body `{ "aiMonthlyCap": number\|null, "aiDailyCapPerConversation": number\|null }`, los dos campos siempre (enteros de 1 a 1.000.000; `null` vuelve al valor por defecto: `AI_MAX_INTERACTIONS_PER_BUSINESS_PER_MONTH` y `AI_MAX_INTERACTIONS_PER_USER_PER_DAY`). Opcional: `"catalogItemCap": number\|null`, el tope de ítems disponibles del catálogo (`null`: `CATALOG_MAX_ITEMS_PER_BUSINESS`; si no se manda, no cambia). Solo el equipo cambia los topes: no hay ninguna ruta de `/inbox` ni de `/staff` que lo haga. `404` si el negocio no existe. |
+| `GET /admin/businesses/<id>/catalogs` | Los catálogos del negocio en orden: `[{ id, name, position, availableItems, sheet: { url, syncedAt, syncError, nextSyncAt }, createdAt }]`. Si no tiene ninguno, crea "Catálogo principal". Ver [Catálogo](#catálogo). |
+| `POST /admin/businesses/<id>/catalogs` | Body `{ "name" }` (1 a 60 caracteres): agrega un catálogo al final. `409` `CATALOG_NAME_TAKEN` (mismo nombre sin distinguir mayúsculas ni acentos) o `CATALOG_LIMIT_REACHED` (`CATALOG_MAX_CATALOGS_PER_BUSINESS`). |
+| `PATCH /admin/businesses/<id>/catalogs/<catalogId>` | Body `{ "name"?, "position"? }` (`position` de 0 a 999; el menor va primero y el primero es el de las rutas viejas). `404` si el catálogo no es del negocio. |
+| `DELETE /admin/businesses/<id>/catalogs/<catalogId>` | Borra el catálogo con sus ítems e importaciones: `{ deleted: true, items }`. `409` `LAST_CATALOG` si es el único. |
+| `/admin/businesses/<id>/catalogs/<catalogId>/...` | Las mismas rutas de abajo (`imports`, `items`, `sheet`, `sync`) para ese catálogo. Las de abajo, sin catálogo (`.../catalog/...`), son las **viejas**: actúan sobre el primer catálogo y siguen andando para los sistemas de los clientes. |
 | `POST /admin/businesses/<id>/catalog/imports` | Un CSV (`Content-Type: text/csv`, hasta 2 MB, mapeo en `?mapping=`), `{ "rows", "mapping" }` en JSON (hasta 5.000 filas) o un PDF o una foto (hasta 10 MB, lo lee el modelo). Devuelve la vista previa: `{ id, status: "PREVIEW", summary: { created, updated, unchanged, unavailable, errors }, errors: [{ row, message }] }` (hasta 200 errores). Ver [Catálogo](#catálogo). |
 | `GET /admin/businesses/<id>/catalog/imports/<importId>` | La importación y su estado, con `headers`, `mapping` y `mappingConfirmed`. |
 | `PUT /admin/businesses/<id>/catalog/imports/<importId>/mapping` | Body `{ "mapping": {...} }`: confirma o corrige el mapeo de una vista previa, vuelve a normalizar sus filas y lo guarda para el negocio. `409` `NO_MAPPING` para un documento. |
 | `GET /admin/businesses/<id>/catalog/sheet` | La hoja de Google: `{ url, syncedAt, syncError, nextSyncAt }`. |
 | `PUT /admin/businesses/<id>/catalog/sheet` | Body `{ "url": "..." }` (o `null` para sacarla). Solo hojas publicadas como CSV; si no, `400`. La primera lectura corre enseguida. |
 | `POST /admin/businesses/<id>/catalog/sync` | "Sincronizar ahora": `{ outcome: "applied" \| "preview" \| "unchanged", import? }`. `409` `NO_SHEET`, `502` si no se pudo leer. |
-| `POST /admin/businesses/<id>/catalog/imports/<importId>/apply` | La aplica. `409` `CATALOG_CAP_EXCEEDED` (pasaría el tope), `IMPORT_NOT_PREVIEW` (ya aplicada o descartada) o `IMPORT_EXPIRED` (más de 24 horas). |
+| `POST /admin/businesses/<id>/catalog/imports/<importId>/apply` | La aplica. `409` `CATALOG_CAP_EXCEEDED` (pasaría el tope), `CATALOG_CODE_IN_OTHER_CATALOG` (un código nuevo ya está en otro catálogo, hasta el próximo deploy), `IMPORT_NOT_PREVIEW` (ya aplicada o descartada) o `IMPORT_EXPIRED` (más de 24 horas). |
 | `POST /admin/businesses/<id>/catalog/imports/<importId>/discard` | La descarta sin tocar el catálogo. |
 | `PUT /admin/businesses/<id>/catalog/items/<código>` | Crea o actualiza un ítem por su código: `{ "name", "description"?, "category"?, "price"?, "currency"?, "available"?, "attributes"? }`. Es la API para los sistemas propios de los clientes. Mismas validaciones que una fila importada. Reemplaza el ítem entero, salvo `available`: si no se manda, un ítem que existe conserva su disponibilidad (actualizar el precio no vuelve a habilitar uno agotado) y uno nuevo queda disponible. |
 | `DELETE /admin/businesses/<id>/catalog/items/<código>` | Lo marca no disponible (no lo borra). `404` si no existe. |
@@ -1077,6 +1121,9 @@ que quiere.
 | `lead.updated` | El bot guarda un dato nuevo o distinto del lead | `lead` (`id`, `status`, `data`, `createdAt`) |
 | `handoff.requested` | La conversación pasa a una persona (pedido del usuario, del bot o pausa desde admin) | `handoff` (`id`, `reason`, `createdAt`) |
 | `conversation.resolved` | Alguien de la bandeja la resuelve (una vez, aunque se resuelva de nuevo) | `resolvedBy` (`id`, `name`) |
+| `payment.approved` | Un cobro queda pagado (lo confirma Mercado Pago o una persona de la bandeja), una vez | `payment` (`id`, `purpose`, `purposeId`, `concept`, `amountArs`, `status`, `approvedBy`, fechas) |
+| `payment.expired` | Un cobro vence sin pagarse | `payment` |
+| `payment.review` | Se pagó un cobro ya vencido: queda para que lo revise una persona | `payment` |
 
 El body es
 `{ "id", "type", "occurredAt", "businessId", "data": { ..., "conversation": { "id", "lineId" }, "contact": { "waId", "name" } } }`.
@@ -1217,6 +1264,61 @@ sobrevive a la acción: borrarla y crearla de nuevo con el mismo nombre no
 repite una clave. Si la acción respondió pero después el modelo no contesta,
 el bot manda igual el `reply` del negocio antes del mensaje de error. En la
 vista previa del agente las acciones se ofrecen pero no se llaman.
+
+## Cobros
+
+Cada negocio cobra con lo suyo: una cuenta de Mercado Pago (link de pago) o
+una transferencia (alias o CBU). El bot nunca decide si algo se pagó: lo
+confirma Mercado Pago (consultando el pago, nunca leyendo la notificación) o
+una persona desde la bandeja. Un negocio sin cuentas funciona igual que hoy.
+
+### Cuentas
+
+Las da de alta el equipo, por la API de admin (`X-Admin-Api-Key`) o desde la
+bandeja (`/staff/...`, usuarios `STAFF`). Las credenciales se guardan cifradas
+con `TOKEN_ENCRYPTION_KEY` y nunca se devuelven.
+
+| Ruta (`/admin/...` o `/staff/...`) | Qué hace |
+| ---- | -------- |
+| `GET .../businesses/<businessId>/payment-accounts` | Las cuentas del negocio. Nunca las credenciales. |
+| `POST .../businesses/<businessId>/payment-accounts` | Mercado Pago: `{ "provider": "mercadopago", "label", "accessToken", "webhookSecret" }`. Transferencia: `{ "provider": "transfer", "label", "alias", "holder" }`. Las dos aceptan `isDefault?` y `active?`. |
+| `PATCH .../payment-accounts/<id>` | Lo que cambia: `label`, `isDefault`, `active`, y `accessToken`/`webhookSecret` (Mercado Pago) o `alias`/`holder` (transferencia). `409 WRONG_PROVIDER_FIELDS` con campos del otro proveedor. |
+| `DELETE .../payment-accounts/<id>` | La borra si ningún pago la usó; si no, `409 ACCOUNT_IN_USE` (desactivala). |
+
+- **Cuenta por defecto:** la usan los cobros desde la bandeja. Hay una sola
+  por negocio: la primera cuenta activa queda por defecto, y marcar otra le
+  saca la marca a la anterior. Una cuenta desactivada deja de serlo.
+- **Mercado Pago:** `accessToken` es el access token de producción de la
+  cuenta del negocio; `webhookSecret`, la clave secreta de "Webhooks >
+  Configurar notificaciones" de su aplicación en Mercado Pago. La respuesta
+  trae `webhookUrl` (`/webhooks/payments/mercadopago/<webhookKey>`), que
+  Bottega manda en cada link: no hace falta cargarla en Mercado Pago.
+
+### Cómo se confirma un pago
+
+- **Mercado Pago:** cada cobro es una preferencia de Checkout Pro con
+  `external_reference` = id del pago, `notification_url` de la cuenta y
+  vencimiento. Mercado Pago avisa a
+  `POST /webhooks/payments/mercadopago/<webhookKey>`: Bottega valida
+  `x-signature` (HMAC-SHA256 con el `webhookSecret`, como el SDK oficial),
+  guarda la notificación en `webhook_event` (`source = 'mercadopago'`) y
+  **siempre** consulta `GET /v1/payments/<id>` con el token del negocio. Solo
+  un pago `approved` con la misma referencia, de esa cuenta, y el mismo monto
+  en pesos lo confirma (`APPROVED`, `approvedBy = PROVIDER`). Una firma mala
+  o una notificación que no es de un pago no hacen nada (`200`); si la
+  consulta falla, responde `502` y Mercado Pago reintenta.
+- **Repetidos:** una notificación repetida no confirma dos veces ni manda
+  dos eventos. Un segundo pago aprobado para un cobro ya pagado no cambia
+  nada y pasa la conversación a una persona. Nunca se devuelve plata
+  automáticamente.
+- **Rechazado:** un intento rechazado deja el cobro en `REJECTED`, pero el
+  link sigue sirviendo: un pago aprobado después lo confirma.
+- **Vencido:** si se aprueba después de `expiresAt`, queda `REVIEW`, la
+  conversación pasa a Pendientes y sale `payment.review`.
+- **Transferencia:** el contacto recibe el alias o CBU, el titular, el monto
+  y el concepto. Nunca se confirma sola, aunque mande el comprobante: queda
+  `PENDING` hasta que una persona la marca pagada en la bandeja. Si el cobro
+  lo pidió el bot, la conversación pasa a una persona.
 
 ---
 

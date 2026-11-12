@@ -248,7 +248,12 @@ function parseMessage(
   if (body === undefined) {
     return ignored('text message without body');
   }
-  return { kind: 'text', ...base, text: body };
+  return {
+    kind: 'text',
+    ...base,
+    text: body,
+    ...(tapped !== undefined ? { tapped: true as const } : {}),
+  };
 }
 
 /** "Ubicación: <nombre>, <dirección> (lat, long)", for the bot and the inbox. */

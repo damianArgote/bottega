@@ -30,6 +30,24 @@ const rowsBodySchema = z
   .strict();
 
 export const importIdSchema = z.uuid();
+export const catalogIdSchema = z.uuid();
+
+/** A catalog's name: 1 to 60 characters once trimmed. */
+const catalogNameSchema = z.string().trim().min(1).max(60);
+
+/** POST .../catalogs */
+export const newCatalogSchema = z.object({ name: catalogNameSchema }).strict();
+
+/** PATCH .../catalogs/:catalogId: rename and/or move (lower goes first). */
+export const catalogChangesSchema = z
+  .object({
+    name: catalogNameSchema.optional(),
+    position: z.number().int().min(0).max(999).optional(),
+  })
+  .strict()
+  .refine((c) => c.name !== undefined || c.position !== undefined, {
+    message: 'send name or position',
+  });
 export const externalIdSchema = z.string().trim().min(1).max(100);
 
 export const itemBodySchema = z
