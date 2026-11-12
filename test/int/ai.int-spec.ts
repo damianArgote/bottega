@@ -465,9 +465,18 @@ describe('AI reply pipeline (integration, mocked model)', () => {
       const business = await prisma.business.findUniqueOrThrow({
         where: { slug: 'botsuite46' },
       });
+      const catalog = await prisma.catalog.create({
+        data: {
+          businessId: business.id,
+          name: 'Helados',
+          nameKey: 'helados',
+          position: 0,
+        },
+      });
       await prisma.catalogItem.create({
         data: {
           businessId: business.id,
+          catalogId: catalog.id,
           externalId: 'H1',
           name: 'Chocolate amargo',
           description: 'Cacao 70%',
@@ -513,9 +522,7 @@ describe('AI reply pipeline (integration, mocked model)', () => {
           ok: true,
           items: [
             {
-              // Written without a catalog, as the previous version does
-              // during a deploy: still found.
-              catalog: null,
+              catalog: 'Helados',
               name: 'Chocolate amargo',
               description: 'Cacao 70%',
               category: null,

@@ -100,17 +100,14 @@ export class CatalogsService {
 
   /**
    * The catalog to act on: the given one (404 when it is not the
-   * business's), or the first one for the old routes. Takes in the rows the
-   * previous version wrote without a catalog first (see adoptOrphans).
+   * business's), or the first one for the old routes.
    */
   async resolve(
     businessId: string,
     catalogId: string | undefined,
   ): Promise<CatalogRef> {
-    const first = await this.first(businessId);
-    await this.adoptOrphans(businessId, first.id);
     if (catalogId === undefined) {
-      return { businessId, catalogId: first.id };
+      return { businessId, catalogId: (await this.first(businessId)).id };
     }
     const found = await this.prisma.catalog.findFirst({
       where: { id: catalogId, businessId },
@@ -124,7 +121,7 @@ export class CatalogsService {
 
   /** The business's catalogs in order (creating the first one if needed). */
   async list(businessId: string): Promise<CatalogView[]> {
-    await this.adoptOrphans(businessId, (await this.first(businessId)).id);
+    await this.first(businessId);
     const catalogs = await this.prisma.catalog.findMany({
       where: { businessId },
       orderBy: ORDER,
@@ -275,23 +272,6 @@ export class CatalogsService {
         })
       );
     });
-  }
-
-  /**
-   * Items and imports the previous version wrote without a catalog while
-   * this one deployed (its code knows one catalog per business) go to the
-   * first catalog, the one its routes acted on. Without this, their codes
-   * could not be written through any route until deploy 2 (the unique
-   * (business_id, external_id) still holds). Deploy 2 removes it.
-   */
-  private async adoptOrphans(
-    businessId: string,
-    firstCatalogId: string,
-  ): Promise<void> {
-    const where = { businessId, catalogId: null };
-    const data = { catalogId: firstCatalogId };
-    await this.prisma.catalogItem.updateMany({ where, data });
-    await this.prisma.catalogImport.updateMany({ where, data });
   }
 
   private view(catalog: Catalog, availableItems: number): CatalogView {
