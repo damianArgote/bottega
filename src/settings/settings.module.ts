@@ -12,6 +12,8 @@ import { ContentModule } from '../content/content.module.js';
 import { LeadsQueryService } from '../leads/leads-query.service.js';
 import { OnboardingModule } from '../onboarding/onboarding.module.js';
 import { CatalogController, CatalogsController } from './catalog.controller.js';
+import { ContactsModule } from '../contacts/contacts.module.js';
+import { ContactTagsController } from './contact-tags.controller.js';
 import { LeadsController } from './leads.controller.js';
 import { UsageController } from './usage.controller.js';
 import { WhatsAppSettingsController } from './whatsapp-settings.controller.js';
@@ -31,6 +33,7 @@ import {
     AiModule,
     AuthModule,
     CatalogModule,
+    ContactsModule,
     ContentModule,
     OnboardingModule,
   ],
@@ -41,6 +44,7 @@ import {
     UsageController,
     CatalogsController,
     CatalogController,
+    ContactTagsController,
   ],
   providers: [
     AgentsService,

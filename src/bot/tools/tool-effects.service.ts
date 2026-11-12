@@ -7,6 +7,7 @@ import type { LeadValues } from '../../leads/lead-values.js';
 import { LeadsService } from '../../leads/leads.service.js';
 import { CommandService, type CommandOutcome } from '../command.service.js';
 import { CommandId } from '../commands.js';
+import { ContactTagsService } from '../../contacts/contact-tags.service.js';
 import type { PlannedEffect } from './tool.js';
 
 export const HANDOFF_REASON_AI_TOOL = 'ai_tool';
@@ -31,6 +32,7 @@ export class ToolEffectsService {
     private readonly leads: LeadsService,
     private readonly demos: DemosService,
     private readonly commands: CommandService,
+    private readonly contactTags: ContactTagsService,
   ) {}
 
   async apply(
@@ -45,6 +47,9 @@ export class ToolEffectsService {
       switch (effect.kind) {
         case 'save_lead':
           Object.assign(lead, effect.values);
+          break;
+        case 'tag_contact':
+          await this.contactTags.applyFromBot(tx, conversationId, effect);
           break;
         case 'register_demo_request':
           await this.demos.registerDemoRequest(

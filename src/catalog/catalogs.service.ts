@@ -1,11 +1,16 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service.js';
-import { type Catalog, Prisma } from '../generated/prisma/client.js';
+import {
+  type Catalog,
+  type CatalogAudience,
+  Prisma,
+} from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /** The catalog an operation acts on, already checked to be the business's. */
@@ -32,8 +37,31 @@ export interface CatalogView {
   position: number;
   availableItems: number;
   sheet: CatalogSheetState;
+  /** ALL: every contact; TAGGED: contacts with one of `tagIds`. */
+  audience: CatalogAudience;
+  tagIds: string[];
+  /** TAGGED only: a contact who sees it no longer sees the ALL ones. */
+  replacesAll: boolean;
   createdAt: Date;
 }
+
+/** PATCH .../catalogs/:catalogId */
+export interface CatalogChanges {
+  name?: string;
+  position?: number;
+  audience?: CatalogAudience;
+  tagIds?: string[];
+  replacesAll?: boolean;
+}
+
+type CatalogWithTags = Catalog & { tags: Array<{ tagId: string }> };
+
+const WITH_TAGS = {
+  tags: { select: { tagId: true }, orderBy: { tagId: 'asc' } },
+} satisfies Prisma.CatalogInclude;
+
+const badAudience = (message: string, code: string) =>
+  new BadRequestException({ message, code });
 
 /**
  * The name as it is compared: lower case, without accents nor repeated
@@ -125,6 +153,7 @@ export class CatalogsService {
     const catalogs = await this.prisma.catalog.findMany({
       where: { businessId },
       orderBy: ORDER,
+      include: WITH_TAGS,
     });
     const counts = await this.prisma.catalogItem.groupBy({
       by: ['catalogId'],
@@ -164,6 +193,7 @@ export class CatalogsService {
           : Math.max(...catalogs.map((c) => c.position)) + 1;
       return tx.catalog.create({
         data: { businessId, name, nameKey, position },
+        include: WITH_TAGS,
       });
     });
     this.logger.log(
@@ -176,25 +206,52 @@ export class CatalogsService {
     return this.view(created, 0);
   }
 
-  /** Renames or moves a catalog. 409 CATALOG_NAME_TAKEN. */
-  async update(
-    ref: CatalogRef,
-    changes: { name?: string; position?: number },
-  ): Promise<CatalogView> {
+  /**
+   * Renames or moves a catalog, or changes who sees it. 409
+   * CATALOG_NAME_TAKEN; 400 TAGGED_WITHOUT_TAGS, TAGS_ONLY_FOR_TAGGED or
+   * REPLACES_ALL_ONLY_FOR_TAGGED; 404 for a tag of another business.
+   * Back to ALL, the catalog drops its tags and replacesAll.
+   */
+  async update(ref: CatalogRef, changes: CatalogChanges): Promise<CatalogView> {
     const name =
       changes.name === undefined ? undefined : cleanName(changes.name);
-    let updated: Catalog;
+    let updated: CatalogWithTags;
     try {
-      updated = await this.prisma.catalog.update({
-        where: { id: ref.catalogId },
-        data: {
-          ...(name === undefined
-            ? {}
-            : { name, nameKey: catalogNameKey(name) }),
-          ...(changes.position === undefined
-            ? {}
-            : { position: changes.position }),
-        },
+      updated = await this.prisma.$transaction(async (tx) => {
+        // Same lock as deleting a tag: a tag in use is never deleted.
+        await lockBusiness(tx, ref.businessId);
+        const current = await tx.catalog.findUniqueOrThrow({
+          where: { id: ref.catalogId },
+          include: WITH_TAGS,
+        });
+        const audience = await this.audienceOf(tx, ref, current, changes);
+        const tagsChanged =
+          audience.tagIds.join() !== current.tags.map((t) => t.tagId).join();
+        if (tagsChanged) {
+          await tx.catalogTag.deleteMany({
+            where: { catalogId: ref.catalogId },
+          });
+          await tx.catalogTag.createMany({
+            data: audience.tagIds.map((tagId) => ({
+              catalogId: ref.catalogId,
+              tagId,
+            })),
+          });
+        }
+        return tx.catalog.update({
+          where: { id: ref.catalogId },
+          data: {
+            ...(name === undefined
+              ? {}
+              : { name, nameKey: catalogNameKey(name) }),
+            ...(changes.position === undefined
+              ? {}
+              : { position: changes.position }),
+            audience: audience.audience,
+            replacesAll: audience.replacesAll,
+          },
+          include: WITH_TAGS,
+        });
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -206,6 +263,57 @@ export class CatalogsService {
       where: { catalogId: ref.catalogId, available: true },
     });
     return this.view(updated, availableItems);
+  }
+
+  /** The catalog's audience after `changes` (see update). */
+  private async audienceOf(
+    tx: Prisma.TransactionClient,
+    ref: CatalogRef,
+    current: CatalogWithTags,
+    changes: CatalogChanges,
+  ): Promise<{
+    audience: CatalogAudience;
+    tagIds: string[];
+    replacesAll: boolean;
+  }> {
+    const audience = changes.audience ?? current.audience;
+    if (audience === 'ALL') {
+      if (changes.tagIds !== undefined && changes.tagIds.length > 0) {
+        throw badAudience(
+          'Solo un catálogo para contactos con etiquetas lleva etiquetas.',
+          'TAGS_ONLY_FOR_TAGGED',
+        );
+      }
+      if (changes.replacesAll) {
+        throw badAudience(
+          'Solo un catálogo para contactos con etiquetas puede reemplazar a los catálogos para todos.',
+          'REPLACES_ALL_ONLY_FOR_TAGGED',
+        );
+      }
+      return { audience, tagIds: [], replacesAll: false };
+    }
+    const tagIds = [
+      ...(changes.tagIds ?? current.tags.map((t) => t.tagId)),
+    ].sort();
+    if (tagIds.length === 0) {
+      throw badAudience(
+        'Elegí al menos una etiqueta para el catálogo.',
+        'TAGGED_WITHOUT_TAGS',
+      );
+    }
+    if (changes.tagIds !== undefined) {
+      const found = await tx.contactTag.count({
+        where: { businessId: ref.businessId, id: { in: tagIds } },
+      });
+      if (found !== tagIds.length) {
+        throw new NotFoundException('Contact tag not found');
+      }
+    }
+    return {
+      audience,
+      tagIds,
+      replacesAll: changes.replacesAll ?? current.replacesAll,
+    };
   }
 
   /**
@@ -274,13 +382,16 @@ export class CatalogsService {
     });
   }
 
-  private view(catalog: Catalog, availableItems: number): CatalogView {
+  private view(catalog: CatalogWithTags, availableItems: number): CatalogView {
     return {
       id: catalog.id,
       name: catalog.name,
       position: catalog.position,
       availableItems,
       sheet: sheetState(catalog),
+      audience: catalog.audience,
+      tagIds: catalog.tags.map((t) => t.tagId),
+      replacesAll: catalog.replacesAll,
       createdAt: catalog.createdAt,
     };
   }

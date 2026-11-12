@@ -20,6 +20,8 @@ import type { BusinessModules } from '../modules.js';
  */
 export type PlannedEffect =
   | { kind: 'save_lead'; values: LeadValues }
+  /** Tag keys to put on or take off the contact (tag_contact). */
+  | { kind: 'tag_contact'; add: string[]; remove: string[] }
   | {
       kind: 'register_demo_request';
       scenario: DemoScenario;

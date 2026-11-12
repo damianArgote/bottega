@@ -8,7 +8,8 @@ export type ToolName =
   | 'quote_insurance'
   | 'request_handoff'
   | 'offer_options'
-  | 'search_catalog';
+  | 'search_catalog'
+  | 'tag_contact';
 
 /**
  * Which editable content (see ContentService) feeds the mode's prompt. The
@@ -37,6 +38,7 @@ export const MODE_PROFILES: Readonly<Record<ConversationMode, ModeProfile>> = {
       'search_catalog',
       'request_handoff',
       'offer_options',
+      'tag_contact',
     ],
     knowledge: { kind: 'commercial-info' },
   },

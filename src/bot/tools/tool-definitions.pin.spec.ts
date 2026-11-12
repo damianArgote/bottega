@@ -31,4 +31,27 @@ describe('tool definitions of existing businesses', () => {
       }),
     ).toMatchFileSnapshot('./__snapshots__/catalog-business.tools.json');
   });
+
+  it('a business with tags the bot puts (prompt 12b)', async () => {
+    await expect(
+      toolDefinitionsFor('COMMERCIAL', {
+        demoEnabled: false,
+        leadFields: DEFAULT_LEAD_FIELDS,
+        modules: {
+          catalog,
+          tags: {
+            tags: [
+              {
+                key: 'mayorista',
+                name: 'Mayorista',
+                botHint:
+                  'Compra por cantidad para revender o pide precio por bulto',
+              },
+              { key: 'proveedor', name: 'Proveedor', botHint: null },
+            ],
+          },
+        },
+      }),
+    ).toMatchFileSnapshot('./__snapshots__/tags-business.tools.json');
+  });
 });

@@ -38,6 +38,7 @@ const listQuerySchema = z
     view: z.enum(['mine', 'unassigned', 'pending', 'resolved']),
     lineId: z.uuid().optional(),
     q: z.string().trim().min(1).max(100).optional(),
+    tagId: z.uuid().optional(),
     cursor: z.string().min(1).max(500).optional(),
   })
   .strict();
@@ -161,7 +162,10 @@ export class InboxController {
     return this.messagesService.read(access, this.id(id));
   }
 
-  /** `?view=mine|unassigned|pending|resolved&lineId=&q=&cursor=`, 30 a page. */
+  /**
+   * `?view=mine|unassigned|pending|resolved&lineId=&q=&tagId=&cursor=`, 30 a
+   * page.
+   */
   @Get('conversations')
   conversations(
     @CurrentBusiness() access: BusinessAccess,
@@ -180,6 +184,15 @@ export class InboxController {
   changes(@CurrentBusiness() access: BusinessAccess, @Query() query: unknown) {
     const { cursor } = parseOrBadRequest(changesQuerySchema, query, 'query');
     return this.queries.changes(access, cursor);
+  }
+
+  /** One conversation, as the list and /changes return it. */
+  @Get('conversations/:conversationId')
+  conversation(
+    @CurrentBusiness() access: BusinessAccess,
+    @Param('conversationId') id: string,
+  ) {
+    return this.queries.conversation(access, this.id(id));
   }
 
   /** `?before=<seq>` older, `?after=<seq>` newer, 50 a page. */

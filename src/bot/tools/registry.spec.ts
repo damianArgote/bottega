@@ -110,7 +110,10 @@ describe('tool registry', () => {
       const withDemo = {
         ...options,
         demo: insurance,
-        modules: { catalog: noCatalog },
+        modules: {
+          catalog: noCatalog,
+          tags: { tags: [{ key: 'vip', name: 'VIP', botHint: null }] },
+        },
       };
       const names = toolDefinitionsFor(profile.mode, withDemo).map(
         (t) => t.name,
