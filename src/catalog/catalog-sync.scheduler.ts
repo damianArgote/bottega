@@ -13,17 +13,17 @@ import {
 } from './catalog-sheet.service.js';
 
 const STARTUP_DELAY_MS = 10_000;
-/** Check again at least this often while some business has a sheet. */
+/** Check again at least this often while some catalog has a sheet. */
 const MAX_WAIT_MS = SYNC_INTERVAL_MS;
 /** Syncs per run, so one run never holds the worker for long. */
 const BATCH_SIZE = 20;
 
 /**
- * Re-reads the businesses' Google Sheets every hour, in the queue worker's
- * process (WORKER_ENABLED). A due business is claimed by moving its
- * `catalog_sync_next_at` one hour ahead under `FOR UPDATE SKIP LOCKED`, so
- * two instances never sync the same sheet. Without any sheet no timer is
- * set, so a serverless database can suspend.
+ * Re-reads the catalogs' Google Sheets every hour, in the queue worker's
+ * process (WORKER_ENABLED). A due catalog is claimed by moving its
+ * `sync_next_at` one hour ahead under `FOR UPDATE SKIP LOCKED`, so two
+ * instances never sync the same sheet. Without any sheet no timer is set,
+ * so a serverless database can suspend.
  */
 @Injectable()
 export class CatalogSyncScheduler
@@ -77,25 +77,30 @@ export class CatalogSyncScheduler
   async runDue(): Promise<number> {
     let synced = 0;
     while (synced < BATCH_SIZE) {
-      const [due] = await this.prisma.$queryRaw<Array<{ id: string }>>`
-        UPDATE business SET catalog_sync_next_at = ${UTC_NOW} + ${millis(SYNC_INTERVAL_MS)}
+      const [due] = await this.prisma.$queryRaw<
+        Array<{ id: string; business_id: string }>
+      >`
+        UPDATE catalog SET sync_next_at = ${UTC_NOW} + ${millis(SYNC_INTERVAL_MS)}
         WHERE id = (
-          SELECT id FROM business
-          WHERE catalog_sheet_url IS NOT NULL
-            AND catalog_sync_next_at <= ${UTC_NOW}
-          ORDER BY catalog_sync_next_at
+          SELECT id FROM catalog
+          WHERE sheet_url IS NOT NULL
+            AND sync_next_at <= ${UTC_NOW}
+          ORDER BY sync_next_at
           LIMIT 1
           FOR UPDATE SKIP LOCKED
         )
-        RETURNING id`;
+        RETURNING id, business_id`;
       if (!due) {
         break;
       }
       synced += 1;
       try {
-        await this.sheets.sync(due.id, null);
+        await this.sheets.sync(
+          { businessId: due.business_id, catalogId: due.id },
+          null,
+        );
       } catch {
-        // The sync stored its error code on the business; next one in an hour.
+        // The sync stored its error code on the catalog; next one in an hour.
       }
     }
     return synced;
@@ -104,8 +109,8 @@ export class CatalogSyncScheduler
   /** Milliseconds until the next due sheet; null when there is none. */
   async nextDelay(): Promise<number | null> {
     const [row] = await this.prisma.$queryRaw<Array<{ next: Date | null }>>`
-      SELECT min(catalog_sync_next_at) AS next FROM business
-      WHERE catalog_sheet_url IS NOT NULL`;
+      SELECT min(sync_next_at) AS next FROM catalog
+      WHERE sheet_url IS NOT NULL`;
     if (!row?.next) {
       return null;
     }

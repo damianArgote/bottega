@@ -527,6 +527,7 @@ describe('Catalog (integration, HTTP)', () => {
         maxPrice: null,
       });
       expect(item).toEqual({
+        catalog: 'Catálogo principal',
         name: 'Chocolate amargo',
         description: 'Cacao 70%',
         category: 'Helados',

@@ -163,6 +163,11 @@ export const envSchema = z
       'CATALOG_MAX_ITEMS_PER_BUSINESS',
       2_000,
     ),
+    // Catalogs a business may have (lists, wholesale prices...).
+    CATALOG_MAX_CATALOGS_PER_BUSINESS: positiveInt(
+      'CATALOG_MAX_CATALOGS_PER_BUSINESS',
+      10,
+    ),
     JOB_MAX_ATTEMPTS: positiveInt('JOB_MAX_ATTEMPTS', 4),
     // How long a payment link (or transfer data) sent from the inbox is valid.
     PAYMENT_LINK_TTL_MINUTES: positiveInt('PAYMENT_LINK_TTL_MINUTES', 1440),

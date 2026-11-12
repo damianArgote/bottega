@@ -382,6 +382,7 @@ describe('tool registry', () => {
 
 describe('search_catalog', () => {
   const chocolate = {
+    catalog: 'Helados',
     name: 'Chocolate amargo',
     description: 'Cacao 70%',
     category: 'Helados',

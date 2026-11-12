@@ -12,7 +12,10 @@ import { LinesModule } from '../lines/lines.module.js';
 import { OnboardingModule } from '../onboarding/onboarding.module.js';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module.js';
 import { AdminApiKeyGuard } from './admin-api-key.guard.js';
-import { AdminCatalogController } from './admin-catalog.controller.js';
+import {
+  AdminCatalogController,
+  AdminCatalogsController,
+} from './admin-catalog.controller.js';
 import { AdminController } from './admin.controller.js';
 import { AdminService } from './admin.service.js';
 import { BusinessesService } from './businesses.service.js';
@@ -29,7 +32,11 @@ import { BusinessesService } from './businesses.service.js';
     OnboardingModule,
     WhatsAppModule,
   ],
-  controllers: [AdminController, AdminCatalogController],
+  controllers: [
+    AdminController,
+    AdminCatalogsController,
+    AdminCatalogController,
+  ],
   providers: [
     AdminService,
     AgentPreviewService,

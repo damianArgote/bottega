@@ -4,6 +4,7 @@ import { CatalogAiService } from './catalog-ai.service.js';
 import { CatalogSheetService } from './catalog-sheet.service.js';
 import { CatalogSyncScheduler } from './catalog-sync.scheduler.js';
 import { CatalogService } from './catalog.service.js';
+import { CatalogsService } from './catalogs.service.js';
 import { httpSheetFetcher, SHEET_FETCHER } from './sheet-fetcher.js';
 
 /**
@@ -14,11 +15,17 @@ import { httpSheetFetcher, SHEET_FETCHER } from './sheet-fetcher.js';
   imports: [AiModule],
   providers: [
     CatalogService,
+    CatalogsService,
     CatalogAiService,
     CatalogSheetService,
     CatalogSyncScheduler,
     { provide: SHEET_FETCHER, useValue: httpSheetFetcher() },
   ],
-  exports: [CatalogService, CatalogSheetService, CatalogSyncScheduler],
+  exports: [
+    CatalogService,
+    CatalogsService,
+    CatalogSheetService,
+    CatalogSyncScheduler,
+  ],
 })
 export class CatalogModule {}

@@ -31,4 +31,6 @@ NestJS 12 + Prisma 7 + PostgreSQL + WhatsApp Cloud API de Meta + OpenAI (Respons
 ## Deuda conocida
 Lo que el código actual contradice o complica del plan, y qué prompt lo resuelve. Al cerrar un punto, sacalo de esta lista en el mismo PR.
 
-Nada pendiente por ahora. La API de admin (`/admin/...`, una sola `ADMIN_API_KEY`) sigue viendo todos los negocios a propósito: es la herramienta del equipo. Los dueños usan la bandeja y el backoffice (`/inbox/...`), que filtran por su negocio. El rol `STAFF` (se da solo con `PUT /admin/users/:userId/staff`) usa `/staff/...` para dar de alta clientes desde la bandeja.
+- **12a, segundo deploy (contraer):** cuando 12a esté en `main`, una migración vuelve a completar `catalog_id` de lo que haya escrito la versión anterior, lo pasa a `NOT NULL` y borra el único `(business_id, external_id)` y las columnas `business.catalog_*`. Recién ahí un código puede repetirse entre catálogos: sacá el `409 CATALOG_CODE_IN_OTHER_CATALOG` y los `catalog_id IS NULL` de la búsqueda (`src/catalog/catalog.service.ts`).
+
+La API de admin (`/admin/...`, una sola `ADMIN_API_KEY`) sigue viendo todos los negocios a propósito: es la herramienta del equipo. Los dueños usan la bandeja y el backoffice (`/inbox/...`), que filtran por su negocio. El rol `STAFF` (se da solo con `PUT /admin/users/:userId/staff`) usa `/staff/...` para dar de alta clientes desde la bandeja.

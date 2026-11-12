@@ -194,10 +194,10 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
       `?mapping=${encodeURIComponent(JSON.stringify({ name: 'Sabor', price: 'Precio x kg' }))}`,
     ).expect(201);
     expect(respond).not.toHaveBeenCalled();
-    const business = await prisma.business.findUniqueOrThrow({
-      where: { id: a },
+    const [catalog] = await prisma.catalog.findMany({
+      where: { businessId: a },
     });
-    expect(business.catalogMapping).toEqual({
+    expect(catalog?.mapping).toEqual({
       headers: ['Cód', 'Sabor', 'Precio x kg', 'Hay', 'Notas'],
       mapping: { name: 'Sabor', price: 'Precio x kg' },
     });
