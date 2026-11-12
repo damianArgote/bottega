@@ -164,6 +164,8 @@ export const envSchema = z
       2_000,
     ),
     JOB_MAX_ATTEMPTS: positiveInt('JOB_MAX_ATTEMPTS', 4),
+    // How long a payment link (or transfer data) sent from the inbox is valid.
+    PAYMENT_LINK_TTL_MINUTES: positiveInt('PAYMENT_LINK_TTL_MINUTES', 1440),
 
     // Background worker that drains the PostgreSQL job queue. Disabled in tests
     // (which drive the worker by hand) or to run an API-only instance.

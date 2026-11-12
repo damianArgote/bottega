@@ -116,12 +116,15 @@ export class ContextService {
    * Pauses the bot, opens a handoff request and leaves the conversation in
    * the inbox's "Pendientes" (PENDING, unassigned), with a system message,
    * and enqueues the push to the business's people (when push is on) and
-   * the `handoff.requested` event (webhooks). Returns the handoff request id.
+   * the `handoff.requested` event (webhooks). `systemText` is the line the
+   * inbox shows (by default, that the contact asked for a person). Returns
+   * the handoff request id.
    */
   requestHuman(
     conversationId: string,
     reason: string,
     tx?: Tx,
+    systemText = 'Pasó a Pendientes: pidió hablar con una persona',
   ): Promise<string> {
     return this.inTx(tx, async (t) => {
       const locked = await this.lock(t, conversationId);
@@ -136,7 +139,7 @@ export class ContextService {
         conversationId,
         contextId: locked.activeContextId,
         author: 'BOT',
-        text: 'Pasó a Pendientes: pidió hablar con una persona',
+        text: systemText,
       });
       if (this.config && vapidDetails(this.config)) {
         await enqueuePushJob(t, {

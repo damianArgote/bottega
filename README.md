@@ -152,6 +152,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `JOB_MAX_ATTEMPTS` | No | `4` | Intentos por mensaje entrante antes de darlo por fallido. |
 | `WORKER_ENABLED` | No | `true` | `false` para levantar solo la API, sin procesar mensajes. |
 | `INBOUND_DEBOUNCE_MS` | No | `3000` | Cuánto espera el bot más mensajes de la misma conversación antes de contestarlos juntos. Cada mensaje nuevo reinicia la espera, así que la respuesta sale al menos este tiempo después del último mensaje. Un comando ("humano", "reiniciar"...) o un toque de botón o de lista no espera: se contesta enseguida, junto con lo que venía esperando antes. Con `0` se apaga: cada mensaje se contesta solo y enseguida. |
+| `PAYMENT_LINK_TTL_MINUTES` | No | `1440` | Cuánto vale un cobro mandado desde la bandeja (link de Mercado Pago o datos de transferencia), en minutos. Al vencer queda `EXPIRED`; si igual se paga, queda `REVIEW` y pasa a una persona. |
 | `QUEUE_POLL_INTERVAL_MS` | No | `1000` | Cada cuánto busca trabajos mientras hay trabajo. |
 | `QUEUE_IDLE_POLL_INTERVAL_MS` | No | `600000` | Cuánto espera cuando la última vuelta no encontró trabajo (10 min), para que Neon pueda apagarse. Un mensaje nuevo despierta al worker enseguida, y un reintento pendiente lo despierta a su hora. |
 | `QUEUE_CONCURRENCY` | No | `2` | Trabajos en paralelo (de conversaciones distintas). |
@@ -726,6 +727,9 @@ si se la sacan a alguien, pierde el acceso enseguida.
 | `POST .../conversations/<id>/templates` | Body `{ "templateId", "values": [...], "clientId" }`: una plantilla aprobada, **también con la ventana cerrada**. `values` va uno por variable, en el orden de `variables` de `GET .../templates`. Antes de llamar a Meta: plantilla de otro negocio, `404`; no aprobada o borrada en Meta, `409` `TEMPLATE_NOT_APPROVED`; de otra cuenta de WhatsApp que la línea de la conversación, `409` `TEMPLATE_OTHER_ACCOUNT`; con encabezado de imagen, video o documento, botones especiales o de autenticación, `409` `TEMPLATE_UNSUPPORTED`; falta un valor (o tiene saltos de línea, tabs o más de 4 espacios seguidos), `400` `TEMPLATE_VALUES` con `missing`. El hilo guarda el texto ya completado y sus botones de respuesta rápida. Mismas reglas que una respuesta para `clientId`, la toma de la conversación y los estados `200`/`202`/`502`. |
 | `GET .../templates?lineId=` | Las plantillas del negocio según la última sincronización (las de las cuentas de sus líneas activas, o solo la de `lineId`), sin las borradas en Meta: `{ syncedAt, syncError, templates }`. Cada una trae `name`, `language`, `category`, `status`, `header`, `body`, `footer`, `buttons`, `variables` (`{ key, component, name, example }`), `sendable` y, si no se puede mandar desde la bandeja, `unsupportedReason`. |
 | `POST .../templates/sync` | Lee ya las plantillas de Meta (ver "Plantillas"). Devuelve `{ syncedAt, accounts: [{ wabaId, synced, deleted, error }] }`; `409` `NO_WHATSAPP_ACCOUNT` si ninguna línea activa tiene `wabaId` y token. |
+| `POST .../conversations/<id>/payments` | Body `{ "amountArs", "concept", "clientId" }` (`amountArs` en pesos, entero): un cobro con la cuenta por defecto del negocio (ver "Cobros"), mandado como respuesta de quien lo pide. Mismas reglas que una respuesta: ventana, `clientId` (reintentar no cobra ni manda dos veces) y toma de la conversación. Antes de crear el cobro: `409` `WINDOW_CLOSED`, `ALREADY_TAKEN` o `NO_PAYMENT_ACCOUNT`; si Mercado Pago no crea el link, `502` `PAYMENT_LINK_FAILED` (reintentá con el mismo `clientId`). Devuelve `{ payment, message }` con los estados de una respuesta. |
+| `GET .../conversations/<id>/payments` | Los cobros de la conversación, el más nuevo primero (`id`, `concept`, `amountArs`, `status`, `linkUrl`, `expiresAt`, `approvedAt`, `approvedBy`, `approvedByUserId`). |
+| `POST .../payments/<paymentId>/mark-paid` | "Marcar pagado": una persona confirma un cobro (la única forma de confirmar una transferencia, o uno que quedó en `REVIEW`). Queda `APPROVED` con `approvedBy: "USER"` y su id, y sale `payment.approved`. Si ya estaba aprobado no cambia nada. De otro negocio, `404`. |
 | `POST .../conversations/<id>/read` | Deja `unreadCount` en 0 y marca leído en WhatsApp el último entrante (si eso falla, se ignora). |
 | `GET .../lines` | Las líneas del negocio (`id`, `phoneNumberId`, `displayPhone`, `active`), nunca sus credenciales. |
 | `POST .../conversations/<id>/take` | Body `{ "force"?: true }`. La toma quien la pide (pasa a `OPEN`). `409` con `code: "ALREADY_TAKEN"` si la tiene otra persona, salvo `force`, que solo puede usar un `OWNER` (si no, `403`). |
@@ -1078,6 +1082,9 @@ que quiere.
 | `lead.updated` | El bot guarda un dato nuevo o distinto del lead | `lead` (`id`, `status`, `data`, `createdAt`) |
 | `handoff.requested` | La conversación pasa a una persona (pedido del usuario, del bot o pausa desde admin) | `handoff` (`id`, `reason`, `createdAt`) |
 | `conversation.resolved` | Alguien de la bandeja la resuelve (una vez, aunque se resuelva de nuevo) | `resolvedBy` (`id`, `name`) |
+| `payment.approved` | Un cobro queda pagado (lo confirma Mercado Pago o una persona de la bandeja), una vez | `payment` (`id`, `purpose`, `purposeId`, `concept`, `amountArs`, `status`, `approvedBy`, fechas) |
+| `payment.expired` | Un cobro vence sin pagarse | `payment` |
+| `payment.review` | Se pagó un cobro ya vencido: queda para que lo revise una persona | `payment` |
 
 El body es
 `{ "id", "type", "occurredAt", "businessId", "data": { ..., "conversation": { "id", "lineId" }, "contact": { "waId", "name" } } }`.
@@ -1218,6 +1225,61 @@ sobrevive a la acción: borrarla y crearla de nuevo con el mismo nombre no
 repite una clave. Si la acción respondió pero después el modelo no contesta,
 el bot manda igual el `reply` del negocio antes del mensaje de error. En la
 vista previa del agente las acciones se ofrecen pero no se llaman.
+
+## Cobros
+
+Cada negocio cobra con lo suyo: una cuenta de Mercado Pago (link de pago) o
+una transferencia (alias o CBU). El bot nunca decide si algo se pagó: lo
+confirma Mercado Pago (consultando el pago, nunca leyendo la notificación) o
+una persona desde la bandeja. Un negocio sin cuentas funciona igual que hoy.
+
+### Cuentas
+
+Las da de alta el equipo, por la API de admin (`X-Admin-Api-Key`) o desde la
+bandeja (`/staff/...`, usuarios `STAFF`). Las credenciales se guardan cifradas
+con `TOKEN_ENCRYPTION_KEY` y nunca se devuelven.
+
+| Ruta (`/admin/...` o `/staff/...`) | Qué hace |
+| ---- | -------- |
+| `GET .../businesses/<businessId>/payment-accounts` | Las cuentas del negocio. Nunca las credenciales. |
+| `POST .../businesses/<businessId>/payment-accounts` | Mercado Pago: `{ "provider": "mercadopago", "label", "accessToken", "webhookSecret" }`. Transferencia: `{ "provider": "transfer", "label", "alias", "holder" }`. Las dos aceptan `isDefault?` y `active?`. |
+| `PATCH .../payment-accounts/<id>` | Lo que cambia: `label`, `isDefault`, `active`, y `accessToken`/`webhookSecret` (Mercado Pago) o `alias`/`holder` (transferencia). `409 WRONG_PROVIDER_FIELDS` con campos del otro proveedor. |
+| `DELETE .../payment-accounts/<id>` | La borra si ningún pago la usó; si no, `409 ACCOUNT_IN_USE` (desactivala). |
+
+- **Cuenta por defecto:** la usan los cobros desde la bandeja. Hay una sola
+  por negocio: la primera cuenta activa queda por defecto, y marcar otra le
+  saca la marca a la anterior. Una cuenta desactivada deja de serlo.
+- **Mercado Pago:** `accessToken` es el access token de producción de la
+  cuenta del negocio; `webhookSecret`, la clave secreta de "Webhooks >
+  Configurar notificaciones" de su aplicación en Mercado Pago. La respuesta
+  trae `webhookUrl` (`/webhooks/payments/mercadopago/<webhookKey>`), que
+  Bottega manda en cada link: no hace falta cargarla en Mercado Pago.
+
+### Cómo se confirma un pago
+
+- **Mercado Pago:** cada cobro es una preferencia de Checkout Pro con
+  `external_reference` = id del pago, `notification_url` de la cuenta y
+  vencimiento. Mercado Pago avisa a
+  `POST /webhooks/payments/mercadopago/<webhookKey>`: Bottega valida
+  `x-signature` (HMAC-SHA256 con el `webhookSecret`, como el SDK oficial),
+  guarda la notificación en `webhook_event` (`source = 'mercadopago'`) y
+  **siempre** consulta `GET /v1/payments/<id>` con el token del negocio. Solo
+  un pago `approved` con la misma referencia, de esa cuenta, y el mismo monto
+  en pesos lo confirma (`APPROVED`, `approvedBy = PROVIDER`). Una firma mala
+  o una notificación que no es de un pago no hacen nada (`200`); si la
+  consulta falla, responde `502` y Mercado Pago reintenta.
+- **Repetidos:** una notificación repetida no confirma dos veces ni manda
+  dos eventos. Un segundo pago aprobado para un cobro ya pagado no cambia
+  nada y pasa la conversación a una persona. Nunca se devuelve plata
+  automáticamente.
+- **Rechazado:** un intento rechazado deja el cobro en `REJECTED`, pero el
+  link sigue sirviendo: un pago aprobado después lo confirma.
+- **Vencido:** si se aprueba después de `expiresAt`, queda `REVIEW`, la
+  conversación pasa a Pendientes y sale `payment.review`.
+- **Transferencia:** el contacto recibe el alias o CBU, el titular, el monto
+  y el concepto. Nunca se confirma sola, aunque mande el comprobante: queda
+  `PENDING` hasta que una persona la marca pagada en la bandeja. Si el cobro
+  lo pidió el bot, la conversación pasa a una persona.
 
 ---
 
