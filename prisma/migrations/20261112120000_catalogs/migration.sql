@@ -2,6 +2,9 @@
 -- The business.catalog_* columns stay (the code on main still reads them)
 -- and so does the unique (business_id, external_id) (main upserts by it).
 -- Deploy 2 fills catalog_id again, makes it NOT NULL and drops both.
+-- One transaction: a failure leaves nothing half done, so a retry works.
+
+BEGIN;
 
 
 -- CreateEnum
@@ -83,3 +86,5 @@ WHERE c."business_id" = i."business_id" AND i."catalog_id" IS NULL;
 UPDATE "catalog_import" m SET "catalog_id" = c."id"
 FROM "catalog" c
 WHERE c."business_id" = m."business_id" AND m."catalog_id" IS NULL;
+
+COMMIT;

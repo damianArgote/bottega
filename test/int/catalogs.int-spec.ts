@@ -299,6 +299,45 @@ describe('Several catalogs (integration, HTTP)', () => {
       ]);
     });
 
+    it('take in the items and imports the previous version wrote without a catalog during a deploy', async () => {
+      await importAt(legacy(''), HELADOS);
+      const [principal] = await listCatalogs();
+      // As the previous version writes them while the new one deploys.
+      await prisma.$executeRaw`
+        INSERT INTO catalog_item (id, business_id, external_id, name, row_hash, updated_at)
+        VALUES (gen_random_uuid(), ${a}::uuid, 'OLD1', 'Fugazzeta vieja', 'h', now())`;
+      const oldImport = await prisma.catalogImport.create({
+        data: {
+          businessId: a,
+          source: 'CSV',
+          summary: {},
+          rows: [],
+          sourceRecords: { records: [], rows: [] },
+        },
+      });
+
+      const put = await http()
+        .put(legacy('items/OLD1'))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .send({ name: 'Fugazzeta', price: 7 })
+        .expect(200);
+      expect(put.body).toMatchObject({ externalId: 'OLD1', name: 'Fugazzeta' });
+      expect(await available(principal!.id)).toEqual(['H1', 'H2', 'OLD1']);
+      await http()
+        .get(legacy(`imports/${oldImport.id}`))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .expect(200);
+      await http()
+        .delete(legacy('items/OLD1'))
+        .set('X-Admin-Api-Key', ADMIN_KEY)
+        .expect(200);
+      expect(
+        await prisma.catalogItem.count({
+          where: { businessId: a, catalogId: null },
+        }),
+      ).toBe(0);
+    });
+
     it('keep the old backoffice routes working', async () => {
       const cookie = await sessionOf('olga@example.com');
       await http()
