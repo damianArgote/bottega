@@ -10,6 +10,7 @@ import {
 } from '../../src/auth/login-rate-limiter.js';
 import { UsersService } from '../../src/auth/users.service.js';
 import { CatalogSyncScheduler } from '../../src/catalog/catalog-sync.scheduler.js';
+import { CatalogsService } from '../../src/catalog/catalogs.service.js';
 import {
   SHEET_FETCHER,
   SheetFetchError,
@@ -70,6 +71,14 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
   });
 
   const http = () => request(app.getHttpServer());
+  /** The business's first catalog (the one the old routes act on). */
+  const catalogOf = async (businessId = a) =>
+    prisma.catalog.findUniqueOrThrow({
+      where: {
+        id: (await app.get(CatalogsService).resolve(businessId, undefined))
+          .catalogId,
+      },
+    });
   const admin = (path: string) => `/admin/businesses/${a}/catalog/${path}`;
   const setSheet = (url: string | null) =>
     http().put(admin('sheet')).set('X-Admin-Api-Key', ADMIN_KEY).send({ url });
@@ -86,21 +95,14 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
     ]) {
       await setSheet(url).expect(400);
     }
-    expect(
-      (await prisma.business.findUniqueOrThrow({ where: { id: a } }))
-        .catalogSheetUrl,
-    ).toBeNull();
+    expect((await catalogOf()).sheetUrl).toBeNull();
   });
 
   it('setting the sheet makes it due now; removing it stops the sync', async () => {
     const res = await setSheet(URL).expect(200);
     expect(res.body).toMatchObject({ url: URL, syncError: null });
-    const business = await prisma.business.findUniqueOrThrow({
-      where: { id: a },
-    });
-    expect(business.catalogSyncNextAt!.getTime()).toBeLessThanOrEqual(
-      Date.now(),
-    );
+    const catalog = await catalogOf();
+    expect(catalog.syncNextAt!.getTime()).toBeLessThanOrEqual(Date.now());
 
     await setSheet(null).expect(200, {
       url: null,
@@ -125,11 +127,9 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
     const second = (await sync().expect(200)).body as SyncBody;
     expect(second).toEqual({ outcome: 'unchanged' });
     expect(await prisma.catalogImport.count()).toBe(1);
-    const business = await prisma.business.findUniqueOrThrow({
-      where: { id: a },
-    });
-    expect(business.catalogSyncedAt).not.toBeNull();
-    expect(business.catalogSyncError).toBeNull();
+    const catalog = await catalogOf();
+    expect(catalog.syncedAt).not.toBeNull();
+    expect(catalog.syncError).toBeNull();
   });
 
   it('a sync that would leave more than 30% unavailable stays as a preview', async () => {
@@ -205,18 +205,18 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
   });
 
   describe('scheduler', () => {
-    it('syncs only due businesses with a sheet and moves them one hour ahead', async () => {
+    it('syncs only due catalogs with a sheet and moves them one hour ahead', async () => {
       const other = (
         await createLine(prisma, { slug: 'otro', phoneNumberId: '333' })
       ).businessId;
       const later = new Date(Date.now() + 30 * 60_000);
-      await prisma.business.update({
-        where: { id: a },
-        data: { catalogSheetUrl: URL, catalogSyncNextAt: new Date(0) },
+      await prisma.catalog.update({
+        where: { id: (await catalogOf()).id },
+        data: { sheetUrl: URL, syncNextAt: new Date(0) },
       });
-      await prisma.business.update({
-        where: { id: other },
-        data: { catalogSheetUrl: URL, catalogSyncNextAt: later },
+      await prisma.catalog.update({
+        where: { id: (await catalogOf(other)).id },
+        data: { sheetUrl: URL, syncNextAt: later },
       });
       fetchSheet.mockResolvedValue(sheet(2));
 
@@ -224,9 +224,7 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
 
       expect(fetchSheet).toHaveBeenCalledTimes(1);
       expect(await available()).toBe(2);
-      const next = (
-        await prisma.business.findUniqueOrThrow({ where: { id: a } })
-      ).catalogSyncNextAt!.getTime();
+      const next = (await catalogOf()).syncNextAt!.getTime();
       expect(next - Date.now()).toBeGreaterThan(59 * 60_000);
       expect(await scheduler.runDue()).toBe(0);
       const delay = await scheduler.nextDelay();
@@ -234,25 +232,23 @@ describe('Catalog Google Sheet sync (integration, HTTP)', () => {
       expect(delay).toBeLessThanOrEqual(30 * 60_000);
     });
 
-    it('has nothing to wait for when no business has a sheet', async () => {
+    it('has nothing to wait for when no catalog has a sheet', async () => {
       expect(await scheduler.nextDelay()).toBeNull();
       expect(await scheduler.runDue()).toBe(0);
     });
 
     it('a failed scheduled sync stores the error and is due again in an hour', async () => {
-      await prisma.business.update({
-        where: { id: a },
-        data: { catalogSheetUrl: URL, catalogSyncNextAt: new Date(0) },
+      await prisma.catalog.update({
+        where: { id: (await catalogOf()).id },
+        data: { sheetUrl: URL, syncNextAt: new Date(0) },
       });
       fetchSheet.mockRejectedValueOnce(new SheetFetchError('sheet_timeout'));
 
       expect(await scheduler.runDue()).toBe(1);
 
-      const business = await prisma.business.findUniqueOrThrow({
-        where: { id: a },
-      });
-      expect(business.catalogSyncError).toBe('sheet_timeout');
-      expect(business.catalogSyncNextAt!.getTime()).toBeGreaterThan(Date.now());
+      const catalog = await catalogOf();
+      expect(catalog.syncError).toBe('sheet_timeout');
+      expect(catalog.syncNextAt!.getTime()).toBeGreaterThan(Date.now());
     });
   });
 

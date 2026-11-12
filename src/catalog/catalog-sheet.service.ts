@@ -21,21 +21,20 @@ import {
   PREVIEW_TTL_MS,
 } from './catalog.service.js';
 import {
+  type CatalogRef,
+  type CatalogSheetState,
+  sheetState,
+} from './catalogs.service.js';
+import {
   SHEET_FETCHER,
   SheetFetchError,
   type SheetFetcher,
 } from './sheet-fetcher.js';
 
-/** How often a business's sheet is read again. */
+/** How often a catalog's sheet is read again. */
 export const SYNC_INTERVAL_MS = 60 * 60_000;
 
-export interface SheetView {
-  url: string | null;
-  syncedAt: Date | null;
-  /** Code of the last sync's failure (e.g. sheet_http_404), or null. */
-  syncError: string | null;
-  nextSyncAt: Date | null;
-}
+export type SheetView = CatalogSheetState;
 
 export type SyncResult =
   /** The sheet has no changes: no import is created. */
@@ -45,9 +44,10 @@ export type SyncResult =
   | { outcome: 'preview'; import: ImportView };
 
 /**
- * A business's Google Sheet published as CSV: stored, read every hour by
- * the scheduler or on demand, and imported through the same process as a
- * file. A sync applies by itself only when it is safe (see canApplyAlone).
+ * A catalog's Google Sheet published as CSV: stored, read every hour by the
+ * scheduler or on demand, and imported into that catalog through the same
+ * process as a file. A sync applies by itself only when it is safe (see
+ * canApplyAlone, counted on the catalog's items).
  */
 @Injectable()
 export class CatalogSheetService {
@@ -59,76 +59,62 @@ export class CatalogSheetService {
     @Inject(SHEET_FETCHER) private readonly fetchSheet: SheetFetcher,
   ) {}
 
-  async get(businessId: string): Promise<SheetView> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: {
-        catalogSheetUrl: true,
-        catalogSyncedAt: true,
-        catalogSyncError: true,
-        catalogSyncNextAt: true,
-      },
+  async get(ref: CatalogRef): Promise<SheetView> {
+    const catalog = await this.prisma.catalog.findFirst({
+      where: { id: ref.catalogId, businessId: ref.businessId },
     });
-    if (!business) {
-      throw new NotFoundException('Business not found');
+    if (!catalog) {
+      throw new NotFoundException('Catalog not found');
     }
-    return {
-      url: business.catalogSheetUrl,
-      syncedAt: business.catalogSyncedAt,
-      syncError: business.catalogSyncError,
-      nextSyncAt: business.catalogSheetUrl ? business.catalogSyncNextAt : null,
-    };
+    return sheetState(catalog);
   }
 
   /**
    * Sets (due now) or removes the sheet. 400 for anything but a sheet
    * published as CSV.
    */
-  async set(businessId: string, url: string | null): Promise<SheetView> {
+  async set(ref: CatalogRef, url: string | null): Promise<SheetView> {
     if (url !== null && !isPublishedSheetCsvUrl(url)) {
       throw new BadRequestException(
         'El link tiene que ser una hoja de Google publicada como CSV (Archivo → Compartir → Publicar en la web → CSV).',
       );
     }
-    await this.get(businessId);
-    await this.prisma.business.update({
-      where: { id: businessId },
+    await this.get(ref);
+    await this.prisma.catalog.update({
+      where: { id: ref.catalogId },
       data: {
-        catalogSheetUrl: url,
-        catalogSyncNextAt: url ? new Date() : null,
-        catalogSyncError: null,
+        sheetUrl: url,
+        syncNextAt: url ? new Date() : null,
+        syncError: null,
       },
     });
-    return this.get(businessId);
+    return this.get(ref);
   }
 
   /**
-   * Reads the sheet and imports it. A newer sync discards the business's
-   * older pending sheet preview. `userId` is who asked (null: scheduled).
-   * 409 without a sheet; 502 when it cannot be downloaded.
+   * Reads the sheet and imports it into its catalog. A newer sync discards
+   * the catalog's older pending sheet preview. `userId` is who asked (null:
+   * scheduled). 409 without a sheet; 502 when it cannot be downloaded.
    */
-  async sync(businessId: string, userId: string | null): Promise<SyncResult> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { catalogSheetUrl: true },
-    });
-    if (!business) {
-      throw new NotFoundException('Business not found');
-    }
-    if (!business.catalogSheetUrl) {
+  async sync(ref: CatalogRef, userId: string | null): Promise<SyncResult> {
+    const { url } = await this.get(ref);
+    if (!url) {
       throw new ConflictException({
-        message: 'El negocio no tiene una hoja de Google cargada.',
+        message: 'El catálogo no tiene una hoja de Google cargada.',
         code: 'NO_SHEET',
       });
     }
+    const { businessId, catalogId } = ref;
     let text: string;
     try {
-      text = await this.fetchSheet(business.catalogSheetUrl);
+      text = await this.fetchSheet(url);
     } catch (error) {
       const code =
         error instanceof SheetFetchError ? error.code : 'sheet_unexpected';
-      await this.markSynced(businessId, code);
-      this.logger.warn(`Sheet sync failed business=${businessId} code=${code}`);
+      await this.markSynced(ref, code);
+      this.logger.warn(
+        `Sheet sync failed business=${businessId} catalog=${catalogId} code=${code}`,
+      );
       throw new BadGatewayException({
         message:
           'No pudimos leer la hoja. Revisá que siga publicada como CSV y probá de nuevo.',
@@ -136,12 +122,13 @@ export class CatalogSheetService {
       });
     }
     try {
-      const result = await this.importSheet(businessId, userId, text);
-      await this.markSynced(businessId, null);
+      const result = await this.importSheet(ref, userId, text);
+      await this.markSynced(ref, null);
       this.logger.log(
         JSON.stringify({
           event: 'catalog_sheet_sync',
           businessId,
+          catalogId,
           userId,
           outcome: result.outcome,
         }),
@@ -151,19 +138,19 @@ export class CatalogSheetService {
       // An unusable sheet (no headers, no name column): a person fixes it.
       const code =
         error instanceof BadRequestException ? 'sheet_invalid' : 'sync_failed';
-      await this.markSynced(businessId, code);
+      await this.markSynced(ref, code);
       throw error;
     }
   }
 
   private async importSheet(
-    businessId: string,
+    ref: CatalogRef,
     userId: string | null,
     text: string,
   ): Promise<SyncResult> {
     const parsed = this.catalog.parseSource({ kind: 'csv', text });
     const resolved = await this.catalog.resolveMapping(
-      businessId,
+      ref,
       parsed.headers,
       parsed.records,
       undefined,
@@ -172,7 +159,7 @@ export class CatalogSheetService {
     // keep that one, so a confirmation in progress is not lost.
     const pending = await this.prisma.catalogImport.findFirst({
       where: {
-        businessId,
+        ...ref,
         source: CatalogImportSource.SHEET,
         status: CatalogImportStatus.PREVIEW,
         createdAt: { gte: new Date(Date.now() - PREVIEW_TTL_MS) },
@@ -189,12 +176,12 @@ export class CatalogSheetService {
     ) {
       return {
         outcome: 'preview',
-        import: await this.catalog.getImport(businessId, pending.id),
+        import: await this.catalog.getImport(ref, pending.id),
       };
     }
     await this.prisma.catalogImport.updateMany({
       where: {
-        businessId,
+        ...ref,
         source: CatalogImportSource.SHEET,
         status: CatalogImportStatus.PREVIEW,
       },
@@ -204,7 +191,7 @@ export class CatalogSheetService {
         sourceRecords: Prisma.DbNull,
       },
     });
-    const preview = await this.catalog.createPreview(businessId, userId, {
+    const preview = await this.catalog.createPreview(ref, userId, {
       source: CatalogImportSource.SHEET,
       ...parsed,
       ...resolved,
@@ -219,8 +206,9 @@ export class CatalogSheetService {
       await this.prisma.catalogImport.delete({ where: { id: preview.id } });
       return { outcome: 'unchanged' };
     }
+    // The 30% guard counts this catalog's items, not the business's.
     const availableNow = await this.prisma.catalogItem.count({
-      where: { businessId, available: true },
+      where: { catalogId: ref.catalogId, available: true },
     });
     if (
       !canApplyAlone({
@@ -235,7 +223,7 @@ export class CatalogSheetService {
     try {
       return {
         outcome: 'applied',
-        import: await this.catalog.apply(businessId, preview.id, userId),
+        import: await this.catalog.apply(ref, preview.id, userId),
       };
     } catch (error) {
       // Over the item cap: it stays as a preview for a person.
@@ -247,12 +235,12 @@ export class CatalogSheetService {
   }
 
   private async markSynced(
-    businessId: string,
+    ref: CatalogRef,
     error: string | null,
   ): Promise<void> {
-    await this.prisma.business.update({
-      where: { id: businessId },
-      data: { catalogSyncedAt: new Date(), catalogSyncError: error },
+    await this.prisma.catalog.update({
+      where: { id: ref.catalogId },
+      data: { syncedAt: new Date(), syncError: error },
     });
   }
 }
