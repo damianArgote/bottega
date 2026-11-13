@@ -485,6 +485,30 @@ describe('Contact tags and catalog audience (integration, HTTP)', () => {
       ]);
     });
 
+    it('anyone of the business lists the tags to put them; another business gets 403', async () => {
+      const vip = await createTag({ name: 'VIP', assignedBy: 'PERSON' });
+      const reseller = await createTag({
+        name: 'Revendedor',
+        assignedBy: 'BOT',
+        botHint: 'Compra para revender',
+        color: 'teal',
+      });
+      const url = `/inbox/businesses/${a}/contact-tags`;
+
+      const listed = await http().get(url).set('Cookie', agent).expect(200);
+      expect(listed.body).toEqual([
+        {
+          id: reseller.id,
+          name: 'Revendedor',
+          color: 'teal',
+          assignedBy: 'BOT',
+        },
+        { id: vip.id, name: 'VIP', color: 'gray', assignedBy: 'PERSON' },
+      ]);
+      await http().get(url).set('Cookie', otherOwner).expect(403);
+      await http().get(url).expect(401);
+    });
+
     it('a contact or a tag of another business is 404 and changes nothing', async () => {
       const tag = await mayorista();
       const theirs = await inbound(USER, {

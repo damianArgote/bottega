@@ -44,6 +44,14 @@ export interface ContactTagChip {
   source: ContactTagAssigner;
 }
 
+/** GET /inbox/.../contact-tags: a tag to choose in the inbox. */
+export interface ContactTagOption {
+  id: string;
+  name: string;
+  color: string;
+  assignedBy: ContactTagAssigner;
+}
+
 /** A tag the bot may put (tag_contact): business information. */
 export interface BotTag {
   key: string;
@@ -142,6 +150,18 @@ export class ContactTagsService {
     private readonly prisma: PrismaService,
     private readonly config: AppConfigService,
   ) {}
+
+  /**
+   * The tags a person can put on a contact (any role): what the inbox needs
+   * to tag and to filter, without the bot's hints.
+   */
+  async options(businessId: string): Promise<ContactTagOption[]> {
+    return this.prisma.contactTag.findMany({
+      where: { businessId },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, color: true, assignedBy: true },
+    });
+  }
 
   async list(businessId: string): Promise<ContactTagView[]> {
     const tags = await this.prisma.contactTag.findMany({
