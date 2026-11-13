@@ -3,7 +3,10 @@ import { AuthModule } from '../auth/auth.module.js';
 import { BusinessAccessGuard } from '../auth/business-access.guard.js';
 import { ConversationActionsService } from './conversation-actions.service.js';
 import { ContactsModule } from '../contacts/contacts.module.js';
-import { ContactTagsInboxController } from './contact-tags.controller.js';
+import {
+  ContactTagOptionsController,
+  ContactTagsInboxController,
+} from './contact-tags.controller.js';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module.js';
 import { HumanRepliesService } from './human-replies.service.js';
 import { MediaModule } from '../media/media.module.js';
@@ -25,6 +28,7 @@ import { InboxService } from './inbox.service.js';
   controllers: [
     InboxController,
     ContactTagsInboxController,
+    ContactTagOptionsController,
     MediaProxyController,
   ],
   providers: [

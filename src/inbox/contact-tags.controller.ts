@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { parseOrBadRequest } from '../admin/admin.schemas.js';
 import type { SessionUser } from '../auth/auth.service.js';
 import {
@@ -38,5 +38,21 @@ export class ContactTagsInboxController {
       tagIds,
       user,
     );
+  }
+}
+
+/**
+ * The business's tags for any person of it (OWNER and AGENT): to tag a
+ * contact from the thread and to filter the list. Managing them stays with
+ * OWNERs (.../settings/contact-tags).
+ */
+@Controller('inbox/businesses/:businessId/contact-tags')
+@UseGuards(SessionGuard, BusinessAccessGuard)
+export class ContactTagOptionsController {
+  constructor(private readonly tags: ContactTagsService) {}
+
+  @Get()
+  list(@CurrentBusiness() access: BusinessAccess) {
+    return this.tags.options(access.businessId);
   }
 }
