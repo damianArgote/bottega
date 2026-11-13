@@ -1,9 +1,16 @@
 import type { ActionsModule } from '../actions/action-tools.js';
+import type { BotTag } from '../contacts/contact-tags.service.js';
 import type { ToolName } from './mode-profiles.js';
 import type { CatalogReader } from './tools/tool.js';
 
 /** The optional capabilities a business can have (prompt 07). */
-export type ModuleName = 'catalog' | 'actions' | 'payments' | 'scheduling';
+export type ModuleName =
+  'catalog' | 'actions' | 'payments' | 'scheduling' | 'tags';
+
+/** The contact tags the bot may put (prompt 12b). */
+export interface ContactTagsModule {
+  tags: readonly BotTag[];
+}
 
 /**
  * The modules a business has on, with what their tools need. A module that
@@ -16,16 +23,18 @@ export interface BusinessModules {
   catalog?: CatalogReader;
   /** Set only when the business has an active action (one tool each). */
   actions?: ActionsModule;
+  /** Set only when the business has a tag the bot puts (tag_contact). */
+  tags?: ContactTagsModule;
 }
 
 /** Built-in tools that belong to a module (offered only when it is on). */
-export const MODULE_TOOLS: Readonly<Record<ModuleName, readonly ToolName[]>> =
-  {
-    catalog: ['search_catalog'],
-    actions: [],
-    payments: [],
-    scheduling: [],
-  };
+export const MODULE_TOOLS: Readonly<Record<ModuleName, readonly ToolName[]>> = {
+  catalog: ['search_catalog'],
+  actions: [],
+  payments: [],
+  scheduling: [],
+  tags: ['tag_contact'],
+};
 
 const TOOL_MODULE: ReadonlyMap<ToolName, ModuleName> = new Map(
   (Object.keys(MODULE_TOOLS) as ModuleName[]).flatMap((module) =>
@@ -38,7 +47,9 @@ export function hasModule(
   modules: BusinessModules,
   module: ModuleName,
 ): boolean {
-  return (modules as Partial<Record<ModuleName, unknown>>)[module] !== undefined;
+  return (
+    (modules as Partial<Record<ModuleName, unknown>>)[module] !== undefined
+  );
 }
 
 /** False for a module tool whose module is off; true for any other tool. */

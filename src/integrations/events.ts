@@ -10,6 +10,7 @@ export const EVENT_TYPES = [
   'payment.approved',
   'payment.expired',
   'payment.review',
+  'contact.tags_changed',
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

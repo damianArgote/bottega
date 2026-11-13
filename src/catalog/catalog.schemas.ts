@@ -38,15 +38,27 @@ const catalogNameSchema = z.string().trim().min(1).max(60);
 /** POST .../catalogs */
 export const newCatalogSchema = z.object({ name: catalogNameSchema }).strict();
 
-/** PATCH .../catalogs/:catalogId: rename and/or move (lower goes first). */
+/**
+ * PATCH .../catalogs/:catalogId: rename and/or move (lower goes first), and
+ * who sees it (prompt 12b): `audience`, its `tagIds` (TAGGED only) and
+ * `replacesAll` (TAGGED only). The service checks them against the
+ * catalog's current values.
+ */
 export const catalogChangesSchema = z
   .object({
     name: catalogNameSchema.optional(),
     position: z.number().int().min(0).max(999).optional(),
+    audience: z.enum(['ALL', 'TAGGED']).optional(),
+    tagIds: z
+      .array(z.uuid())
+      .max(100)
+      .transform((ids) => [...new Set(ids)])
+      .optional(),
+    replacesAll: z.boolean().optional(),
   })
   .strict()
-  .refine((c) => c.name !== undefined || c.position !== undefined, {
-    message: 'send name or position',
+  .refine((c) => Object.values(c).some((v) => v !== undefined), {
+    message: 'send name, position, audience, tagIds or replacesAll',
   });
 export const externalIdSchema = z.string().trim().min(1).max(100);
 

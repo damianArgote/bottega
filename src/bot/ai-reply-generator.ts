@@ -488,6 +488,7 @@ export class AiReplyGenerator implements ReplyGenerator {
     return buildCommercialInstructions(profile, leadValuesOf(lead), {
       catalog: hasModule(modules, 'catalog'),
       actions: hasModule(modules, 'actions'),
+      tags: hasModule(modules, 'tags'),
     });
   }
 

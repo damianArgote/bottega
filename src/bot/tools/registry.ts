@@ -9,6 +9,7 @@ import type { DemoContent } from '../../content/content.schema.js';
 import { offerOptionsTool } from './offer-options.tool.js';
 import { saveLeadToolFor } from './save-lead.tool.js';
 import { searchCatalogTool } from './search-catalog.tool.js';
+import { tagContactToolFor } from './tag-contact.tool.js';
 import type { ActionTool } from '../../actions/action-tools.js';
 import { moduleAllows, type BusinessModules } from '../modules.js';
 import type {
@@ -38,6 +39,7 @@ const TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
   'request_handoff',
   'offer_options',
   'search_catalog',
+  'tag_contact',
 ]);
 
 /** True for the name of a tool the bot has (any mode or business). */
@@ -55,14 +57,22 @@ export interface ToolOptions {
   modules?: BusinessModules;
 }
 
-/** The handler of `name` for this business (save_lead is generated). */
+/**
+ * The handler of `name` for this business (save_lead and tag_contact are
+ * generated from its lead fields and its BOT tags).
+ */
 export function toolHandlerFor(
   name: ToolName,
-  { leadFields }: ToolOptions,
+  { leadFields, modules }: ToolOptions,
 ): AnyHandler {
-  return name === 'save_lead'
-    ? saveLeadToolFor(leadFields)
-    : STATIC_HANDLERS[name];
+  switch (name) {
+    case 'save_lead':
+      return saveLeadToolFor(leadFields);
+    case 'tag_contact':
+      return tagContactToolFor(modules?.tags?.tags ?? []);
+    default:
+      return STATIC_HANDLERS[name];
+  }
 }
 
 /** Tools only the insurance demo has (the quote and its close). */
