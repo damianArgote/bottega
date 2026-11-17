@@ -8,6 +8,7 @@ import type { LeadField } from '../../agents/agent-profile.schema.js';
 import type { DemoContent } from '../../content/content.schema.js';
 import { offerOptionsTool } from './offer-options.tool.js';
 import { saveLeadToolFor } from './save-lead.tool.js';
+import { listCatalogTool } from './list-catalog.tool.js';
 import { searchCatalogTool } from './search-catalog.tool.js';
 import { tagContactToolFor } from './tag-contact.tool.js';
 import type { ActionTool } from '../../actions/action-tools.js';
@@ -25,6 +26,7 @@ const STATIC_HANDLERS = {
   request_handoff: requestHandoffTool,
   offer_options: offerOptionsTool,
   search_catalog: searchCatalogTool,
+  list_catalog: listCatalogTool,
 } satisfies Partial<Record<ToolName, ToolHandler | ReadToolHandler>>;
 
 type AnyHandler = ToolHandler | ReadToolHandler;
@@ -39,6 +41,7 @@ const TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
   'request_handoff',
   'offer_options',
   'search_catalog',
+  'list_catalog',
   'tag_contact',
 ]);
 

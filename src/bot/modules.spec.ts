@@ -3,7 +3,10 @@ import { activeModules, MODULE_TOOLS, moduleAllows } from './modules.js';
 import { toolDefinitionsFor } from './tools/registry.js';
 import type { CatalogReader } from './tools/tool.js';
 
-const catalog: CatalogReader = { search: () => Promise.resolve([]) };
+const catalog: CatalogReader = {
+  search: () => Promise.resolve([]),
+  list: () => Promise.resolve({ categories: [] }),
+};
 
 describe('business modules', () => {
   it('lists the modules that are on, in a fixed order', () => {

@@ -88,6 +88,29 @@ export interface CatalogSearchItem {
   attributes: Prisma.JsonValue;
 }
 
+/** list_catalog returns at most this many items of one category. */
+export const LIST_LIMIT = 100;
+
+/** What list_catalog gives the model for one item (no description). */
+export interface CatalogListItem {
+  catalog: string;
+  name: string;
+  price: number | null;
+  currency: string;
+}
+
+/**
+ * What list_catalog gives the model: the categories with available items
+ * the contact sees and, when one was asked, its items by name.
+ */
+export type CatalogListing = {
+  /** Null: the items without a category. */
+  categories: { category: string | null; available: number }[];
+  items?: CatalogListItem[];
+  /** More than {@link LIST_LIMIT} items: only the first ones came. */
+  truncated?: boolean;
+};
+
 export interface CatalogSearchQuery {
   query: string;
   category: string | null;
@@ -571,7 +594,72 @@ export class CatalogService {
     if (!(await this.hasAvailable(businessId, contactId))) {
       return undefined;
     }
-    return { search: (query) => this.search(businessId, query, contactId) };
+    return {
+      search: (query) => this.search(businessId, query, contactId),
+      list: (category) => this.list(businessId, category, contactId),
+    };
+  }
+
+  /**
+   * The available items the contact sees, by category: every category with
+   * its count and, with `category` (accents and case ignored), up to
+   * {@link LIST_LIMIT} of its items by name. A full list ("¿qué sabores
+   * tienen?") that a text search cuts at {@link SEARCH_LIMIT}.
+   */
+  async list(
+    businessId: string,
+    category: string | null,
+    contactId: string | null = null,
+  ): Promise<CatalogListing> {
+    const visible = await this.visibleCatalogs(businessId, contactId);
+    if (visible.length === 0) {
+      return category === null
+        ? { categories: [] }
+        : { categories: [], items: [], truncated: false };
+    }
+    const scope = Prisma.sql`i.business_id = ${businessId}::uuid
+      AND i.catalog_id = ANY(${visible}::uuid[])
+      AND i.available`;
+    const counts = await this.prisma.$queryRaw<
+      { category: string | null; available: bigint }[]
+    >`
+      SELECT i.category, count(*) AS available
+      FROM catalog_item i
+      WHERE ${scope}
+      GROUP BY i.category
+      ORDER BY i.category NULLS LAST`;
+    const categories = counts.map((c) => ({
+      category: c.category,
+      available: Number(c.available),
+    }));
+    if (category === null) {
+      return { categories };
+    }
+    const rows = await this.prisma.$queryRaw<
+      {
+        catalog: string;
+        name: string;
+        price: Prisma.Decimal | null;
+        currency: string;
+      }[]
+    >`
+      SELECT c.name AS catalog, i.name, i.price, i.currency
+      FROM catalog_item i
+        JOIN catalog c ON c.id = i.catalog_id
+      WHERE ${scope}
+        AND lower(unaccent(i.category)) = lower(unaccent(${category}::text))
+      ORDER BY i.name, c.position, i.id
+      LIMIT ${LIST_LIMIT + 1}`;
+    return {
+      categories,
+      items: rows.slice(0, LIST_LIMIT).map((row) => ({
+        catalog: row.catalog,
+        name: row.name,
+        price: row.price === null ? null : Number(row.price),
+        currency: row.currency,
+      })),
+      truncated: rows.length > LIST_LIMIT,
+    };
   }
 
   /**

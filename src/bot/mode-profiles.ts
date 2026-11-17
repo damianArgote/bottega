@@ -9,6 +9,7 @@ export type ToolName =
   | 'request_handoff'
   | 'offer_options'
   | 'search_catalog'
+  | 'list_catalog'
   | 'tag_contact';
 
 /**
@@ -36,6 +37,7 @@ export const MODE_PROFILES: Readonly<Record<ConversationMode, ModeProfile>> = {
     allowedTools: [
       'save_lead',
       'search_catalog',
+      'list_catalog',
       'request_handoff',
       'offer_options',
       'tag_contact',

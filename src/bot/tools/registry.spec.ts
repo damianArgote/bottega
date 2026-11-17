@@ -28,7 +28,10 @@ const ctx = (
 });
 
 /** A business with a catalog whose searches find nothing. */
-const noCatalog: CatalogReader = { search: () => Promise.resolve([]) };
+const noCatalog: CatalogReader = {
+  search: () => Promise.resolve([]),
+  list: () => Promise.resolve({ categories: [] }),
+};
 
 /** BotSuite46's profile: the demo and its four lead fields. */
 const options: ToolOptions = {
@@ -396,7 +399,7 @@ describe('search_catalog', () => {
   const search = vi.fn<CatalogReader['search']>();
   const withCatalog = (mode: ToolContext['mode'] = 'COMMERCIAL') => ({
     ...ctx(mode),
-    modules: { catalog: { search } },
+    modules: { catalog: { ...noCatalog, search } },
   });
   const args = { query: ' chocolate  amrgo ', category: null, max_price: 2000 };
 
@@ -475,5 +478,97 @@ describe('search_catalog', () => {
       reason: 'read_tool',
     });
     expect(search).not.toHaveBeenCalled();
+  });
+});
+
+describe('list_catalog', () => {
+  const sabores = { category: 'Sabores', available: 2 };
+  const items = [
+    { catalog: 'Helados', name: 'Chocolate', price: 1500, currency: 'ARS' },
+    { catalog: 'Helados', name: 'Vainilla', price: null, currency: 'ARS' },
+  ];
+  const list = vi.fn<CatalogReader['list']>();
+  const withCatalog = (mode: ToolContext['mode'] = 'COMMERCIAL') => ({
+    ...ctx(mode),
+    modules: { catalog: { ...noCatalog, list } },
+  });
+  const output = async (args: unknown) =>
+    JSON.parse(
+      (await runToolCall(call('list_catalog', args), withCatalog())).output,
+    ) as unknown;
+
+  beforeEach(() => {
+    list.mockReset();
+  });
+
+  it('is offered with search_catalog: only with a catalog, only in commercial mode', () => {
+    const names = (
+      opts: ToolOptions,
+      mode: ToolContext['mode'] = 'COMMERCIAL',
+    ) => toolDefinitionsFor(mode, opts).map((t) => t.name);
+
+    expect(names(options)).not.toContain('list_catalog');
+    expect(names({ ...options, modules: { catalog: noCatalog } })).toEqual(
+      expect.arrayContaining(['search_catalog', 'list_catalog']),
+    );
+    expect(
+      names(
+        { ...options, modules: { catalog: noCatalog }, demo: insurance },
+        'DEMO',
+      ),
+    ).not.toContain('list_catalog');
+  });
+
+  it('without a category gives the categories; with one, all its items', async () => {
+    list.mockResolvedValueOnce({ categories: [sabores] });
+    expect(await output({ category: null })).toEqual({
+      ok: true,
+      categories: [sabores],
+    });
+    expect(list).toHaveBeenLastCalledWith(null);
+
+    list.mockResolvedValueOnce({
+      categories: [sabores],
+      items,
+      truncated: false,
+    });
+    expect(await output({ category: '  sabores ' })).toEqual({
+      ok: true,
+      categories: [sabores],
+      items,
+      truncated: false,
+    });
+    expect(list).toHaveBeenLastCalledWith('sabores');
+  });
+
+  it('says so when the category is empty or the list was cut', async () => {
+    list.mockResolvedValueOnce({
+      categories: [sabores],
+      items: [],
+      truncated: false,
+    });
+    expect(await output({ category: 'tortas' })).toMatchObject({
+      items: [],
+      note: 'No hay ítems disponibles en esa categoría; elegí una de las categorías de la lista.',
+    });
+
+    list.mockResolvedValueOnce({ categories: [sabores], items, truncated: true });
+    expect(await output({ category: 'sabores' })).toMatchObject({
+      truncated: true,
+      note: 'La categoría tiene más ítems de los que vinieron: nombrá estos y ofrecé buscar uno puntual.',
+    });
+  });
+
+  it('is rejected without a catalog, in the demo or with bad arguments', async () => {
+    const rejected = async (c: ToolContext, a: unknown = { category: null }) =>
+      (await runToolCall(call('list_catalog', a), c)).ok;
+
+    expect(await rejected(ctx('COMMERCIAL'))).toBe(false);
+    expect(await rejected(withCatalog('DEMO'))).toBe(false);
+    expect(await rejected(withCatalog(), {})).toBe(false);
+    expect(
+      await rejected(withCatalog(), { category: 'https://x.com' }),
+    ).toBe(false);
+    expect(list).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,7 @@ import type { LeadField } from '../../agents/agent-profile.schema.js';
 import type { LeadValues } from '../../leads/lead-values.js';
 import type { ReplyButton } from '../../whatsapp/whatsapp.client.js';
 import type {
+  CatalogListing,
   CatalogSearchItem,
   CatalogSearchQuery,
 } from '../../catalog/catalog.service.js';
@@ -53,15 +54,17 @@ export interface ToolContext {
   /** The business's lead fields: save_lead is generated from them. */
   leadFields: readonly LeadField[];
   /**
-   * The business's modules (catalog: search_catalog is offered only then,
+   * The business's modules (catalog: search_catalog and list_catalog are offered only then,
    * in COMMERCIAL mode). Absent: none.
    */
   modules?: BusinessModules;
 }
 
-/** Read-only search over one business's catalog (search_catalog). */
+/** Read-only access to one business's catalogs (search_catalog, list_catalog). */
 export interface CatalogReader {
   search(query: CatalogSearchQuery): Promise<CatalogSearchItem[]>;
+  /** The categories, and every available item of `category` when given. */
+  list(category: string | null): Promise<CatalogListing>;
 }
 
 /**
