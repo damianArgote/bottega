@@ -124,6 +124,11 @@ export const envSchema = z
     OPENAI_API_KEY: z.string().trim().optional(),
     OPENAI_MODEL: z.string().trim().optional(),
     OPENAI_TIMEOUT_MS: positiveInt('OPENAI_TIMEOUT_MS', 20_000),
+    // Reading a catalog PDF or photo: the model writes the whole list back.
+    OPENAI_DOCUMENT_TIMEOUT_MS: positiveInt(
+      'OPENAI_DOCUMENT_TIMEOUT_MS',
+      90_000,
+    ),
     OPENAI_MAX_OUTPUT_TOKENS: positiveInt('OPENAI_MAX_OUTPUT_TOKENS', 300),
     AI_MAX_INTERACTIONS_PER_USER_PER_DAY: positiveInt(
       'AI_MAX_INTERACTIONS_PER_USER_PER_DAY',

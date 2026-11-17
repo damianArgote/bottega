@@ -55,7 +55,10 @@ describe('OpenAiProvider', () => {
 
   const fakeClient = (result: Partial<OpenAiResponse> | Error) => {
     const create = vi.fn<
-      (body: ResponseCreateParamsNonStreaming) => Promise<OpenAiResponse>
+      (
+        body: ResponseCreateParamsNonStreaming,
+        options?: { timeout?: number },
+      ) => Promise<OpenAiResponse>
     >(() =>
       result instanceof Error
         ? Promise.reject(result)
@@ -129,6 +132,24 @@ describe('OpenAiProvider', () => {
       usage: { inputTokens: 10, outputTokens: 3 },
       model: 'resolved-model',
     });
+  });
+
+  it("uses the client's timeout unless the call brings its own", async () => {
+    const completed = {
+      status: 'completed' as const,
+      model: 'm',
+      output: [],
+      output_text: '{}',
+      usage: { input_tokens: 1, output_tokens: 1 } as OpenAiResponse['usage'],
+    };
+    const { client, create } = fakeClient(completed);
+    const provider = new OpenAiProvider(options, client);
+
+    await provider.respond(request);
+    await provider.respond({ ...request, timeoutMs: 90_000 });
+
+    expect(create.mock.calls[0]).toHaveLength(1);
+    expect(create.mock.calls[1]?.[1]).toEqual({ timeout: 90_000 });
   });
 
   it("sends tool_choice 'none' only when asked (the model must answer)", async () => {

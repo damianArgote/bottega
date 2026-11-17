@@ -43,6 +43,11 @@ export interface AiRequest {
    * catalog's mapping and extraction). Still untrusted: validate it.
    */
   responseFormat?: { name: string; schema: Record<string, unknown> };
+  /**
+   * This call's time limit, instead of OPENAI_TIMEOUT_MS (reading a whole
+   * price list takes longer than a bot reply).
+   */
+  timeoutMs?: number;
 }
 
 export interface AiToolCall {

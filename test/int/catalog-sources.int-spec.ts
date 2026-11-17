@@ -73,6 +73,7 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
       BOT_REPLY_MODE: 'ai',
       OPENAI_API_KEY: 'unused',
       OPENAI_MODEL: 'test-model',
+      OPENAI_DOCUMENT_TIMEOUT_MS: 45_000,
     });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(AppConfigService)
@@ -137,6 +138,8 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
     // The model saw the headers and up to 5 sample rows, as strict JSON.
     const sent = respond.mock.calls[0]![0];
     expect(sent.responseFormat?.name).toBe('catalog_mapping');
+    // A mapping is a short answer: the bot's usual time limit.
+    expect(sent.timeoutMs).toBeUndefined();
     expect(JSON.stringify(sent.input)).toContain('Precio x kg');
     const res = await apply(preview.id).expect(409);
     expect(res.body).toMatchObject({ code: 'MAPPING_NOT_CONFIRMED' });
@@ -395,6 +398,8 @@ describe('Catalog sources: AI mapping and documents (integration, HTTP)', () => 
       expect(await prisma.catalogItem.count()).toBe(0);
       const sent = respond.mock.calls[0]![0];
       expect(sent.responseFormat?.name).toBe('catalog_rows');
+      // Reading a whole list gets OPENAI_DOCUMENT_TIMEOUT_MS.
+      expect(sent.timeoutMs).toBe(45_000);
       expect(sent.input[0]).toMatchObject({
         kind: 'parts',
         content: [
