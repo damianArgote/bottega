@@ -5,7 +5,10 @@ import { toolDefinitionsFor } from './registry.js';
 import type { CatalogReader } from './tool.js';
 
 const { insurance } = loadContent(DEFAULT_CONTENT_DIR);
-const catalog: CatalogReader = { search: () => Promise.resolve([]) };
+const catalog: CatalogReader = {
+  search: () => Promise.resolve([]),
+  list: () => Promise.resolve({ categories: [] }),
+};
 
 /**
  * The tools existing businesses get, pinned before the modules refactor
