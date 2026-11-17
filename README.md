@@ -129,6 +129,7 @@ el token de la línea de cada conversación, no con el del entorno.
 | `OPENAI_API_KEY` | Si `BOT_REPLY_MODE=ai` | — | Clave de la API de OpenAI (platform.openai.com → API keys). |
 | `OPENAI_MODEL` | Si `BOT_REPLY_MODE=ai` | — | ID del modelo. Elegilo de la [lista de modelos](https://developers.openai.com/api/docs/models). |
 | `OPENAI_TIMEOUT_MS` | No | `20000` | Tiempo máximo de cada llamada a OpenAI. |
+| `OPENAI_DOCUMENT_TIMEOUT_MS` | No | `90000` | Tiempo máximo para leer un PDF o una foto de catálogo: el modelo reescribe toda la lista, así que tarda más que una respuesta del bot. |
 | `OPENAI_MAX_OUTPUT_TOKENS` | No | `300` | Tope de tokens por respuesta. |
 | `OPENAI_TRANSCRIBE_MODEL` | No | `gpt-4o-mini-transcribe` | Modelo que transcribe los audios que mandan los clientes. |
 | `OPENAI_TRANSCRIBE_TIMEOUT_MS` | No | `30000` | Tiempo máximo de cada transcripción. Cuenta en el peor caso de `QUEUE_LEASE_MS`. |
