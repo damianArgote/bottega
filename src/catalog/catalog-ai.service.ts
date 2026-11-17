@@ -188,6 +188,7 @@ export class CatalogAiService {
         ],
         maxOutputTokens: EXTRACTION_OUTPUT_TOKENS,
         responseFormat: { name: 'catalog_rows', schema: EXTRACTION_SCHEMA },
+        timeoutMs: this.config.get('OPENAI_DOCUMENT_TIMEOUT_MS'),
       });
     } catch (error) {
       this.logger.warn(
@@ -238,6 +239,7 @@ export class CatalogAiService {
       parts?: Extract<AiRequest['input'][number], { kind: 'parts' }>['content'];
       maxOutputTokens: number;
       responseFormat: NonNullable<AiRequest['responseFormat']>;
+      timeoutMs?: number;
     },
   ): Promise<AiResponse> {
     const model = this.config.get('OPENAI_MODEL') ?? '';
@@ -282,6 +284,7 @@ export class CatalogAiService {
         tools: [],
         maxOutputTokens: input.maxOutputTokens,
         responseFormat: input.responseFormat,
+        ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
       });
     } catch (error) {
       await record(AiOutcome.ERROR, { inputTokens: 0, outputTokens: 0 });

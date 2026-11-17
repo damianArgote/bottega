@@ -24,7 +24,10 @@ export interface OpenAiProviderOptions {
 /** The part of the OpenAI client this adapter uses (mockable in tests). */
 export interface ResponsesClient {
   responses: {
-    create(body: ResponseCreateParamsNonStreaming): Promise<OpenAiResponse>;
+    create(
+      body: ResponseCreateParamsNonStreaming,
+      options?: { timeout?: number },
+    ): Promise<OpenAiResponse>;
   };
 }
 
@@ -55,7 +58,7 @@ export class OpenAiProvider implements AiProvider {
   async respond(request: AiRequest): Promise<AiResponse> {
     let response: OpenAiResponse;
     try {
-      response = await this.client.responses.create({
+      response = await this.create({
         model: request.model,
         instructions: request.instructions,
         input: request.input.map(toOpenAiItem),
@@ -81,7 +84,7 @@ export class OpenAiProvider implements AiProvider {
           : {}),
         max_output_tokens: request.maxOutputTokens,
         store: false,
-      });
+      }, request.timeoutMs);
     } catch (error) {
       throw classifyOpenAiError(error);
     }
@@ -103,6 +106,16 @@ export class OpenAiProvider implements AiProvider {
       },
       model: response.model || request.model,
     };
+  }
+
+  /** The client's timeout, or this call's own when it has one. */
+  private create(
+    body: ResponseCreateParamsNonStreaming,
+    timeoutMs: number | undefined,
+  ): Promise<OpenAiResponse> {
+    return timeoutMs === undefined
+      ? this.client.responses.create(body)
+      : this.client.responses.create(body, { timeout: timeoutMs });
   }
 }
 
