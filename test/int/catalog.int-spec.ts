@@ -9,7 +9,10 @@ import {
   LOGIN_RATE_LIMITER,
 } from '../../src/auth/login-rate-limiter.js';
 import { UsersService } from '../../src/auth/users.service.js';
-import { CatalogService } from '../../src/catalog/catalog.service.js';
+import {
+  CatalogService,
+  LIST_LIMIT,
+} from '../../src/catalog/catalog.service.js';
 import { AppConfigService } from '../../src/config/app-config.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { createLine, resetDb } from './helpers.js';
@@ -535,6 +538,55 @@ describe('Catalog (integration, HTTP)', () => {
         currency: 'ARS',
         attributes: { sabor: 'intenso' },
       });
+    });
+
+    it('list_catalog: the categories, then every available item of one, of this business only', async () => {
+      // Postres has only the sold-out T1, and business b's items never show.
+      expect(await catalog.list(a, null)).toEqual({
+        categories: [{ category: 'Helados', available: 3 }],
+      });
+      expect(await catalog.list(a, 'HELADOS')).toEqual({
+        categories: [{ category: 'Helados', available: 3 }],
+        items: [
+          {
+            catalog: 'Catálogo principal',
+            name: 'Chocolate amargo',
+            price: 1500,
+            currency: 'ARS',
+          },
+          {
+            catalog: 'Catálogo principal',
+            name: 'Dulce de leche',
+            price: 1400,
+            currency: 'ARS',
+          },
+          {
+            catalog: 'Catálogo principal',
+            name: 'Limón',
+            price: 1300,
+            currency: 'ARS',
+          },
+        ],
+        truncated: false,
+      });
+      expect((await catalog.list(a, 'postres')).items).toEqual([]);
+    });
+
+    it('list_catalog: more than LIST_LIMIT items in a category are cut', async () => {
+      const many = Array.from(
+        { length: LIST_LIMIT + 1 },
+        (_, n) => `S${n};Sabor ${String(n).padStart(3, '0')};Sabores;100`,
+      );
+      await importCsv(['codigo;producto;categoria;precio', ...many].join('\n'));
+
+      const listing = await catalog.list(a, 'sabores');
+
+      expect(listing.items).toHaveLength(LIST_LIMIT);
+      expect(listing.items?.[0]?.name).toBe('Sabor 000');
+      expect(listing.truncated).toBe(true);
+      expect(listing.categories).toEqual([
+        { category: 'Sabores', available: LIST_LIMIT + 1 },
+      ]);
     });
   });
 

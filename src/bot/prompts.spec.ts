@@ -141,6 +141,24 @@ describe('prompt builders', () => {
     );
   });
 
+  it('commercial: full lists come from list_catalog, and the catalog beats the business info', () => {
+    const rule =
+      'Si piden todo lo que hay de algo (por ejemplo "¿qué sabores tienen?"), usá list_catalog y nombrá los ítems que devuelve, no los de memoria. Si la información del negocio nombra productos o precios distintos de los del catálogo, valen los del catálogo.';
+
+    const withCatalog = buildCommercialInstructions(
+      salon,
+      {},
+      { catalog: true },
+    );
+    expect(withCatalog).toContain(rule);
+    expect(withCatalog.indexOf(rule)).toBeLessThan(
+      withCatalog.indexOf('## Información cargada por el negocio'),
+    );
+    expect(buildCommercialInstructions(salon, {})).not.toContain(
+      'list_catalog',
+    );
+  });
+
   it('commercial: the tag rule is fixed in code and only with BOT tags', () => {
     const rule =
       'Poné una etiqueta solo cuando la persona lo dijo claramente o se desprende de lo que pide. Nunca le digas al cliente qué etiquetas tiene.';

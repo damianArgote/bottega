@@ -29,7 +29,7 @@ export interface BusinessModules {
 
 /** Built-in tools that belong to a module (offered only when it is on). */
 export const MODULE_TOOLS: Readonly<Record<ModuleName, readonly ToolName[]>> = {
-  catalog: ['search_catalog'],
+  catalog: ['search_catalog', 'list_catalog'],
   actions: [],
   payments: [],
   scheduling: [],

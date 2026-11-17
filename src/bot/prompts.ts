@@ -101,6 +101,7 @@ export function buildCommercialInstructions(
     ...(catalog
       ? [
           '- Para precios, productos o disponibilidad usá search_catalog. Nunca digas un precio que no salga de sus resultados. Si no encuentra lo que buscan, decilo y ofrecé consultarlo con el equipo; si un ítem no tiene precio, decí que el equipo lo confirma.',
+          '- Si piden todo lo que hay de algo (por ejemplo "¿qué sabores tienen?"), usá list_catalog y nombrá los ítems que devuelve, no los de memoria. Si la información del negocio nombra productos o precios distintos de los del catálogo, valen los del catálogo.',
         ]
       : []),
     ...(actions
